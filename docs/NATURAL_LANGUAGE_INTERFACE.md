@@ -88,6 +88,45 @@ override the application's instructions, permissions or source availability.
 Typed input may include text and numerical data together; serializing a numerical
 table into a prompt does not make Laya its forecasting model.
 
+## Interpreter deployment: reuse existing access first
+
+The owner reports Hermes/OpenCode access and an inexpensive DeepSeek Flash
+option, and permits evaluating a small local language model on the coordinator.
+Use this as deployment direction, not proof of a particular API/model ID or
+subscription entitlement. Inspect the existing documented provider profile and
+supported non-interactive interface; reuse it without exposing credentials or
+assuming a subscription includes a separate API. No new agent platform.
+
+First candidate: the already-configured inexpensive language provider. Hermes
+and OpenCode are client/runtime integration options, not the scientific engine.
+Configure interpretation with tools disabled, bounded tokens/time/retries and
+structured output. Treat its response solely as a task proposal validated by
+M5PHET; never execute generated Python, shell commands or broker instructions.
+Record the resolved provider/model/revision and effective settings, not just
+the owner's model alias. Send approved minimal question/schema context, not
+entire financial datasets, credentials or account records.
+
+Second candidate: an existing or newly selected small pretrained local
+instruction model behind the SAME interpreter contract. No language-model
+training is required to start. The coordinator is a candidate for lightweight
+inference after measured RAM/VRAM, latency and concurrent-use admission; it is
+not a presumed available GPU reservation. Keep external5090 priority for eligible
+heavy GPU work and do not disturb the Laya pilot. Inspect existing installations
+before downloading another model. Remote/local fallback is explicit policy,
+never a hidden disclosure or silent change to a sealed run.
+
+Compare both on NL02-NL07 using the same sealed questions and expected task
+semantics: exact field/units/horizon agreement, invalid/unsupported requests,
+clarification behavior, latency and observed cost. Do not select on prose style
+or model size alone. Retained resolved tasks avoid repeated language calls on
+every market tick; cache keys include question, schema, profile and model identity.
+
+The name Alpaca also appears in the owner's list. The existing Alpaca trading
+integration stays a broker boundary, not a language provider. If a distinct
+language installation with that name exists, inventory its actual endpoint/model
+before considering it; never repurpose broker credentials for interpretation.
+This clarification is local discovery, not a reason to pause other work.
+
 ## Acceptance before implementation
 
 | ID | Required public-path behavior |

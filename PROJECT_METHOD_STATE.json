@@ -7,6 +7,13 @@
     "design": "docs/NATURAL_LANGUAGE_INTERFACE.md",
     "acceptance": "NL01-NL08_SPECIFIED_NOT_IMPLEMENTED",
     "routes": ["native_question_conditioned_provider", "interpreted_validated_task_to_specialized_engine"],
+    "interpreter_deployment": {
+      "first_candidate": "Existing supported Hermes/OpenCode language access; owner names DeepSeek Flash, exact provider/model and entitlement to be verified",
+      "local_candidate": "Small pretrained instruction model on admitted coordinator, same contract; no new LLM training",
+      "selection": "NL02-NL07 semantic correctness, refusals, latency and measured cost",
+      "permissions": "No model-generated code execution, broker actions or implicit raw-data upload",
+      "status": "ASSIGNED_NOT_DEPLOYED_OR_BENCHMARKED"
+    },
     "next_actions": ["Keep real Laya pilot moving and expose question-first relevance call", "Implement parallel question-to-forecast binding with native engine parity"],
     "new_repository": false,
     "new_training_budget": false,
