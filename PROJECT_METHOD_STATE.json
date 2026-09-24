@@ -1,6 +1,51 @@
 {
   "schema": "m5phet.method.v1",
   "current_stage": "classification_first_real_provider_verified_on_external_5090",
+  "natural_language_interface": {
+    "role": "PRIMARY_PRODUCT_INTERFACE_NOT_OPTIONAL_DECORATION",
+    "retrieval_augmentation": {
+      "status": "CONSIDERED_FOR_BOUNDED_EVALUATION_NOT_IMPLEMENTED",
+      "first_use": "Versioned schema/provider/task documentation for interpretation",
+      "separate_use": "Point-in-time market/news/calendar retrieval requires its own declared evaluation",
+      "baseline": "Existing structured/lexical retrieval before new embeddings or infrastructure",
+      "blocks_classification_delivery": false,
+      "new_training_or_storage_budget": false,
+      "read_by_implementation": {
+        "date": "2026-09-24",
+        "standing": "CONSIDERED, NOT IMPLEMENTED, NOT A PREREQUISITE FOR ANY LANE IN FLIGHT",
+        "where_it_would_attach": "the interpretation layer ABOVE the provider contract. The classification path already binds task_id, questions_sha256, provider, model and input digests, so retrieved prose could inform which task to ask for and never what the answer is",
+        "what_must_not_change": "a retrieved document is data, never an instruction and never a capability: the registry's declared `supported` combinations stay the only source of what a provider may be asked",
+        "market_lane_precondition": "receipt and vintage filtering BEFORE ranking, which the news path already enforces at the record level (published_at <= received_at <= as_of, with a declared staleness bound)",
+        "not_started": true
+      }
+    },
+    "input": [
+      "data_or_reference",
+      "description_context",
+      "natural_language_question",
+      "optional_answer_schema"
+    ],
+    "design": "docs/NATURAL_LANGUAGE_INTERFACE.md",
+    "acceptance": "NL01-NL08_SPECIFIED_NOT_IMPLEMENTED",
+    "routes": [
+      "native_question_conditioned_provider",
+      "interpreted_validated_task_to_specialized_engine"
+    ],
+    "interpreter_deployment": {
+      "first_candidate": "Existing supported Hermes/OpenCode language access; owner names DeepSeek Flash, exact provider/model and entitlement to be verified",
+      "local_candidate": "Small pretrained instruction model on admitted coordinator, same contract; no new LLM training",
+      "selection": "NL02-NL07 semantic correctness, refusals, latency and measured cost",
+      "permissions": "No model-generated code execution, broker actions or implicit raw-data upload",
+      "status": "ASSIGNED_NOT_DEPLOYED_OR_BENCHMARKED"
+    },
+    "next_actions": [
+      "Keep real Laya pilot moving and expose question-first relevance call",
+      "Implement parallel question-to-forecast binding with native engine parity"
+    ],
+    "new_repository": false,
+    "new_training_budget": false,
+    "changes_existing_running_job": false
+  },
   "classification_first_delivery": {
     "orders": "docs/CLASSIFICATION_FIRST_DELIVERY.md",
     "primary_task": "English news relevance to EURUSD: related/unrelated/unclear",

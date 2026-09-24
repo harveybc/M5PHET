@@ -1,5 +1,15 @@
 # Framework interface design
 
+## Public question interface
+
+The primary user-facing input is data + description/context + a natural-language
+question + optional desired answer schema. [NL01-NL08](NATURAL_LANGUAGE_INTERFACE.md)
+define the missing implementation. Users do not need to hand-author the internal
+task/provider fields below. Native question-conditioned providers can consume
+the question directly; other engines use validated question-to-task resolution.
+The following explicit contract is the internal executable representation and
+the advanced programmatic interface, not the only product entry point.
+
 Status: SPECIFIED, NOT_IMPLEMENTED except the existing classification result
 builder. Names below are design contracts, not importable APIs or compatible
 versions of the shipped `m5phet.classification.v1` envelope.

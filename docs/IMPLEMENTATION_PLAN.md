@@ -1,5 +1,10 @@
 # Product implementation plan
 
+**Required public interface:** [data + context + natural-language question](NATURAL_LANGUAGE_INTERFACE.md),
+NL01-NL08. Classification uses Laya's native question handling first; a parallel
+question-to-forecast path resolves requests into actual existing engine calls.
+Do not declare this delivered with a catalog, example scripts or a TaskSpec alone.
+
 **Current delivery priority:** [classification-first execution and repository
 ownership](CLASSIFICATION_FIRST_DELIVERY.md). Complete real Laya-to-M5PHET parity
 for EURUSD news relevance first; independent domain adapters proceed in parallel.

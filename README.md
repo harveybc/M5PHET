@@ -1,11 +1,13 @@
 # M5PHET
 
-**Typed machine-learning interfaces for applications that need decisions,
-forecasts, unsupervised learning tasks, causal inference tasks and policies, not generated prose.**
+**Ask questions about your data. Get structured decisions, forecasts,
+market representations, policy proposals and causal estimates from specialized ML engines.**
 
 M5PHET is being built as a Python framework: supply text,
-structured records or time series, specify a task and its output contract, and
-use a suitable engine through a common interface. Its first application domain
+structured records or time series, describe them and ask a question in natural
+language, optionally specifying the answer schema. The framework resolves the
+task and calls a suitable engine through a common interface. An explicit typed
+API remains available for programs. Its first application domain
 is algorithmic trading, starting with news and **point-in-time economic calendar
 data**. The interfaces are intended for other domains too.
 
@@ -13,6 +15,8 @@ data**. The interfaces are intended for other domains too.
 by [news-signal](https://github.com/harveybc/news-signal). The provider runtime,
 calendar integration and other task contracts below are designed, not shipped.
 There is no five-engine inference service or demonstrated trading advantage yet.
+The question-first interface is a required delivery, not shipped functionality;
+see [its design and acceptance tests](docs/NATURAL_LANGUAGE_INTERFACE.md).
 
 ## What you will be able to ask
 
