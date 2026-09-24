@@ -1,0 +1,12 @@
+{
+  "schema": "m5phet.method.v1",
+  "current_stage": "integration_verification",
+  "implemented": ["classification_result_contract"],
+  "planned": ["regression_forecasting", "representation_unsupervised", "reinforcement_learning", "causal_inference"],
+  "traceability": "docs/DESIGN.md",
+  "consumer": "https://github.com/harveybc/news-signal",
+  "model_performance_measured": false,
+  "real_capital_authorized": false,
+  "next_actions": ["Verify news-signal uses pinned contract package", "Real Laya smoke in the existing parallel plan", "Specify each subsequent task family with its actual consumer and oracle"],
+  "history": [{"date": "2026-09-24", "action": "Owner approved M5PHET identity; classification contract tests designed before code; other engines remain proposal-only"}]
+}
