@@ -2,6 +2,11 @@
 
 ## Discovery and scope
 
+**Owner clarification:** natural-language questions over supplied data are the
+primary product interface, not optional decoration on a plugin catalog.
+[Question-first design](NATURAL_LANGUAGE_INTERFACE.md) specifies the native and
+interpreted routes; typed contracts below are the execution foundation.
+
 The owner clarified the intended product: a typed machine-learning framework,
 not a general research program. Applications submit text/structured/numerical
 state and task/output schemas, and consume task-specific structured results.

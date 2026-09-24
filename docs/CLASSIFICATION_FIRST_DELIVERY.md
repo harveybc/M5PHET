@@ -4,6 +4,11 @@ Owner-approved direction, 2026-09-24. Satoshi owns implementation; Musashi
 reviews behavioral evidence. This is the executable delivery order, not a claim
 that its providers already exist. It supplements P01-P09 and INT01-INT12.
 
+Clarification: [natural-language questions are the public interface](NATURAL_LANGUAGE_INTERFACE.md).
+The relevance slice must use that path; native Laya question handling does not
+wait for a generalized interpreter. Engine adapters are internal components,
+not a substitute for the question-first product.
+
 ## Present evidence and immediate priority
 
 The reviewed runtime at `d9ffc4d` implements provider discovery and contracts,
