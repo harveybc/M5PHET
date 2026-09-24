@@ -1,6 +1,16 @@
 {
   "schema": "m5phet.method.v1",
-  "current_stage": "classification_first_real_provider_integration_pending",
+  "current_stage": "real_provider_parity_reviewed_question_first_application_delivery",
+  "cl_first_review_20260924": {
+    "orders": "docs/CL_FIRST_REVIEW_CONTINUATION.md",
+    "scope": "Retained real responses and CPU fixture boundaries, not a fresh live deployment audit",
+    "parity": "12/12 exact distinct inputs in first and restarted process",
+    "quality": "13 author-labelled rows, macro-F1 0.333333, unrelated recall 1/5; smoke only",
+    "next_actions": ["safe package/store release", "native user-question Laya path", "parallel question-to-forecast slice", "classification input/quality diagnosis", "calendar and demo/paper adapters"],
+    "implementation_owner": "Satoshi",
+    "blocks_independent_lanes": false,
+    "new_training_budget": false
+  },
   "natural_language_interface": {
     "role": "PRIMARY_PRODUCT_INTERFACE_NOT_OPTIONAL_DECORATION",
     "retrieval_augmentation": {
@@ -22,7 +32,7 @@
       "permissions": "No model-generated code execution, broker actions or implicit raw-data upload",
       "status": "ASSIGNED_NOT_DEPLOYED_OR_BENCHMARKED"
     },
-    "next_actions": ["Keep real Laya pilot moving and expose question-first relevance call", "Implement parallel question-to-forecast binding with native engine parity"],
+    "next_actions": ["Preserve measured real Laya parity and expose question-first relevance call", "Implement parallel question-to-forecast binding with native engine parity"],
     "new_repository": false,
     "new_training_budget": false,
     "changes_existing_running_job": false
@@ -30,8 +40,8 @@
   "classification_first_delivery": {
     "orders": "docs/CLASSIFICATION_FIRST_DELIVERY.md",
     "primary_task": "English news relevance to EURUSD: related/unrelated/unclear",
-    "runtime_reviewed": "d9ffc4d: provider contracts implemented, real Laya provider not evidenced",
-    "setup": "Owner-reported weights materialized and isolated SDK setup in progress; not live-verified here",
+    "runtime_reviewed": "e752ed1 + news-signal bb281cc: retained real Laya parity verified; fixed questions only; packaging/store repairs pending",
+    "setup": "Real-weight pilot delivered; current live host state not checked in this review",
     "acceptance": "CL01-CL07 specified before implementation; native SDK parity and domain quality reported separately",
     "owners": {
       "classification": "news-signal",
