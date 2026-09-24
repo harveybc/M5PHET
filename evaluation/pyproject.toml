@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "m5phet-evaluation"
+version = "0.1.0"
+description = "Evaluation protocol, corpus seal, per-family metrics and reports for M5PHET task families"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+# deliberately empty: this machinery has to run anywhere a corpus can be read, including hosts with no wheels available
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
