@@ -1,12 +1,36 @@
 {
   "schema": "m5phet.method.v1",
-  "current_stage": "product_design_v2_acceptance_specified_runtime_pending",
+  "current_stage": "classification_first_real_provider_integration_pending",
+  "classification_first_delivery": {
+    "orders": "docs/CLASSIFICATION_FIRST_DELIVERY.md",
+    "primary_task": "English news relevance to EURUSD: related/unrelated/unclear",
+    "runtime_reviewed": "d9ffc4d: provider contracts implemented, real Laya provider not evidenced",
+    "setup": "Owner-reported weights materialized and isolated SDK setup in progress; not live-verified here",
+    "acceptance": "CL01-CL07 specified before implementation; native SDK parity and domain quality reported separately",
+    "owners": {
+      "classification": "news-signal",
+      "forecasting": "predictor with prediction_provider serving",
+      "hierarchical_regimes": "feature-eng with optional feature-extractor",
+      "causal_inference": "causal-inference: repair package and preserve untracked exploratory work",
+      "reinforcement_learning": "agent-multi with gym-fx; execution in LTS",
+      "optimization": "DOIN transversal, not an RL provider"
+    },
+    "implementation_owner": "Satoshi",
+    "parallel_independent_lanes": true,
+    "real_provider_verified": false,
+    "new_training_budget": false,
+    "real_capital_authorized": false
+  },
   "product_design": {
     "identity": "typed_machine_learning_framework",
     "use_cases": "specs/use_cases.json",
     "interfaces": "docs/INTERFACES.md",
     "calendar": "docs/ECONOMIC_CALENDAR.md",
     "implementation_plan": "docs/IMPLEMENTATION_PLAN.md",
+    "integration_and_optimization": "docs/INTEGRATION_AND_OPTIMIZATION.md",
+    "deployment_profiles": ["LOCAL_UNGOVERNED", "GOVERNED"],
+    "integration_acceptance": "INT01-INT12_SPECIFIED_NOT_IMPLEMENTED",
+    "example_app_default": "Local durable records; optional embedded DuckDB analytics; governance and DOIN independently opt-in",
     "behavioral_acceptance": "PENDING_IMPLEMENTATION",
     "design_tests_scope": "Inventory consistency only; not provider or model validation"
   },

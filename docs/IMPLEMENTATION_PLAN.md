@@ -1,5 +1,10 @@
 # Product implementation plan
 
+**Current delivery priority:** [classification-first execution and repository
+ownership](CLASSIFICATION_FIRST_DELIVERY.md). Complete real Laya-to-M5PHET parity
+for EURUSD news relevance first; independent domain adapters proceed in parallel.
+The tables below retain the original design inventory, not current execution status.
+
 This revision designs a framework, not five new model implementations. Existing
 classification code remains unchanged. All tests below except M1-M5 are
 **specified, not executed**. `test_product_spec.py` checks the documentation
@@ -45,6 +50,16 @@ new held-out policy contrast, never retrospective selection on the live reserve.
 latency and supported output types. DOIN searches declared bounded configurations;
 it does not promote invalid tasks by obtaining a high score. Existing broker
 promotion gates, retention limits, resource admission and experiment budgets stay.
+
+Cross-cutting integration must start with I1, not wait for all domain models:
+implement the local/governed profile boundary and DOIN adapter using the existing
+plugin interfaces. [INT01-INT12](INTEGRATION_AND_OPTIMIZATION.md) define acceptance.
+Begin with one real classifier candidate/evaluator round trip and extend to each
+family. Do not force community users to install our full storage or node stack.
+Example apps deliver local durable manifests/metrics first, optional embedded
+DuckDB analytical views second, and an opt-in governed profile with the same task
+code. Governance and DOIN are independent configuration choices, not mandatory
+example-app dependencies. Existing governed scientific campaigns stay governed.
 
 ## Concrete first handoff deliverables
 

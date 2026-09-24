@@ -1,7 +1,7 @@
 # M5PHET
 
 **Typed machine-learning interfaces for applications that need decisions,
-forecasts, market representations and policies, not generated prose.**
+forecasts, unsupervised learning tasks, causal inference tasks and policies, not generated prose.**
 
 M5PHET is being built as a Python framework: supply text,
 structured records or time series, specify a task and its output contract, and
@@ -95,6 +95,19 @@ Inference never fits a model implicitly. Unsupported tasks return a typed refusa
 These are integration boundaries, not claims that all adapters already exist.
 No classifier, forecast or causal estimate authorizes an order.
 
+## Local use, governed campaigns and DOIN
+
+The target architecture keeps local inference lightweight: no mandatory services
+or distributed node. Example apps start locally with organized provenance and
+metric records; optional embedded DuckDB provides analytical views without a
+server. **data-gov + data-lake + data-warehouse** and **DOIN** are independent
+opt-in integrations. Our already-governed campaigns keep their declared profile;
+a governed run cannot silently downgrade itself.
+Each provider declares supported parameters and task-specific evaluation; full
+metrics remain traceable alongside DOIN's scalar objective. See the
+[integration and optimization design](docs/INTEGRATION_AND_OPTIMIZATION.md).
+These adapters are specified, not implemented in this release.
+
 ## Choosing engines
 
 Use task-matched open-source implementations and reproduce their reference
@@ -142,6 +155,11 @@ argmax and identity shape; hashes do not authenticate a producer or calibrate it
 Binary, ordinal and hierarchical request adapters are not yet part of this API.
 
 ## Delivery plan and acceptance
+
+Current implementation order: [one working Laya classification slice first,
+with domain plugins in parallel](docs/CLASSIFICATION_FIRST_DELIVERY.md).
+The first slice is EURUSD news relevance, with direct-SDK parity measured
+separately from business accuracy. It is not yet a verified real-model release.
 
 1. **Typed decisions:** preserve the working news-signal integration; add explicit
    binary/ordinal contracts and provider capability tests, reusing upstream SDKs.
