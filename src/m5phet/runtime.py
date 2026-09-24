@@ -36,6 +36,10 @@ COMBINATION_KEYS = ("operation", "family", "output_kind")
 OUTPUT_SCHEMA_REQUIREMENTS = {
     "typed_questions": ("questions",),
     "marginal_quantiles": ("targets", "quantiles", "horizons"),
+    "point_forecast": ("targets", "horizons"),
+    "hierarchical_regimes": ("targets", "model_version"),
+    "causal_effect": ("targets",),
+    "policy_action": ("targets",),
 }
 
 #: the designed entry-point group. An external distribution owns its own backend dependencies; this package requires none of
@@ -153,6 +157,9 @@ def _validate_payload(output_kind: str, payload, schema: dict):
         if schema.get("horizons") and payload.get("horizon") not in schema["horizons"]:
             return f"the answer's horizon {payload.get('horizon')!r} is not one of the declared {schema['horizons']}"
         return None
+    if output_kind in ("point_forecast", "hierarchical_regimes", "causal_effect", "policy_action"):
+        from .domain_outputs import validate_domain_output
+        return validate_domain_output(output_kind, payload, schema)
     return f"this runtime has no payload contract for output_kind {output_kind!r}"
 
 

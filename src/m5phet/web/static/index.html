@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light"><title>M5PHET · Workbench</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/vendor/lucide.min.js" defer></script><script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="workspace">
+  <aside id="sidebar">
+    <a class="brand" href="/"><span class="brand-mark"><i data-lucide="flower-2"></i></span><span>M5PHET<small>WORKBENCH</small></span></a>
+    <button id="new-chat" class="primary wide"><i data-lucide="square-pen"></i> Nuevo chat</button>
+    <label class="search"><i data-lucide="search"></i><input id="search" placeholder="Buscar conversaciones" aria-label="Buscar conversaciones"></label>
+    <div class="section-label">CONVERSACIONES <span id="chat-count">0</span></div>
+    <nav id="chat-list" aria-label="Conversaciones"></nav>
+    <div class="sidebar-footer"><span class="avatar">M</span><div>Mi espacio<small>Almacenamiento local</small></div><span class="status-dot"></span></div>
+  </aside>
+  <button id="shade" aria-label="Cerrar conversaciones" hidden></button>
+  <main>
+    <header>
+      <button class="icon mobile" id="menu" title="Conversaciones" aria-label="Conversaciones"><i data-lucide="panel-left"></i></button>
+      <div class="heading"><span id="family-label">Clasificación</span><h1 id="chat-title">Nuevo chat</h1></div>
+      <div class="header-actions"><span class="local-badge"><span class="status-dot"></span> Local</span>
+      <button class="icon" id="export" title="Exportar conversación" aria-label="Exportar conversación"><i data-lucide="download"></i></button>
+      <button class="icon" id="settings" title="Configurar chat" aria-label="Configurar chat"><i data-lucide="sliders-horizontal"></i></button></div>
+    </header>
+    <div class="pipeline" aria-label="Configuración activa"><span><i data-lucide="file-input"></i><b id="input-label">Texto</b></span><i data-lucide="chevron-right"></i><button id="engine-settings"><i data-lucide="cpu"></i><b id="provider-label">Sin motor</b></button><i data-lucide="chevron-right"></i><span><i data-lucide="braces"></i><b id="output-label">Respuesta estructurada</b></span></div>
+    <div id="messages" aria-live="polite" aria-label="Mensajes"></div>
+    <section id="empty" class="empty"><div class="empty-mark"><i data-lucide="flower-2"></i></div><h2>¿Qué quieres explorar?</h2><div id="examples" class="examples"></div></section>
+    <section class="composer-wrap">
+      <div id="notice" role="alert" hidden></div>
+      <form id="composer">
+        <div class="attachment-row"><button type="button" class="icon" id="attach" title="Adjuntar archivo" aria-label="Adjuntar archivo"><i data-lucide="plus"></i></button><div id="attachments"></div><input type="file" id="file-input" accept=".txt,.md,.json,.csv" multiple hidden></div>
+        <textarea id="prompt" rows="2" placeholder="Escribe tu pregunta..." aria-label="Pregunta"></textarea>
+        <div class="composer-bottom"><span id="model-state">Sin seleccionar</span><button id="send" class="send" type="submit" title="Enviar pregunta" aria-label="Enviar pregunta"><i data-lucide="arrow-up"></i></button></div>
+      </form>
+      <div class="footnote"><span>M5PHET</span><span>Sesión manual · Sin órdenes de trading</span></div>
+    </section>
+  </main>
+</div>
+<dialog id="config-dialog">
+  <form id="config-form">
+    <div class="dialog-header"><div><small>CONVERSACIÓN</small><h2>Configuración</h2></div><button type="button" class="icon close-dialog" title="Cerrar" aria-label="Cerrar configuración"><i data-lucide="x"></i></button></div>
+    <div class="dialog-body">
+      <label>Nombre<input id="cfg-title" maxlength="120" required></label>
+      <div class="tabs" role="tablist"><button type="button" role="tab" data-tab="input" aria-selected="true">Entrada</button><button type="button" role="tab" data-tab="engine" aria-selected="false">Motor</button><button type="button" role="tab" data-tab="output" aria-selected="false">Salida</button></div>
+      <section data-pane="input">
+        <label>Lector de entrada<select id="cfg-input"><option value="text">Texto / noticia</option><option value="json">JSON estructurado</option><option value="csv">Dataset CSV</option><option value="typed_request">Petición M5PHET explícita</option></select></label>
+        <label>Contexto<textarea id="cfg-context" rows="6" placeholder="Datos o texto sobre los que harás preguntas"></textarea></label>
+        <div class="two-col"><label>Activo<input id="cfg-asset" value="EURUSD"></label><label>Idioma<select id="cfg-language"><option value="en">English</option><option value="es">Español</option></select></label></div>
+        <details><summary>Reloj y disponibilidad</summary><label>As-of (ISO 8601, opcional)<input id="cfg-asof" placeholder="2026-09-24T12:00:00Z"></label><label>Antigüedad máxima (segundos)<input id="cfg-age" type="number" min="0" max="31536000"></label></details>
+      </section>
+      <section data-pane="engine" hidden>
+        <label>Proveedor instalado<select id="cfg-provider"></select></label>
+        <label>Familia / contrato<select id="cfg-contract"></select></label>
+        <label>Estado del modelo<select id="cfg-state"></select></label>
+        <label>Parámetros (JSON)<textarea id="cfg-parameters" rows="6" spellcheck="false">{}</textarea></label>
+        <div id="provider-info" class="provider-info"></div>
+      </section>
+      <section data-pane="output" hidden>
+        <label>Presentación<select id="cfg-presentation"><option value="structured">Estructurada</option><option value="json">JSON completo</option></select></label>
+        <fieldset id="choices"><legend>Opciones de clasificación</legend><div id="option-list"></div><button type="button" class="text-button" id="add-option"><i data-lucide="plus"></i>Añadir opción</button></fieldset>
+      </section>
+      <div id="config-error" class="error-text" role="alert"></div>
+    </div>
+    <div class="dialog-footer"><button type="button" class="text-button danger" id="delete-chat"><i data-lucide="trash-2"></i> Eliminar chat</button><button class="primary" type="submit">Guardar</button></div>
+  </form>
+</dialog>
+<dialog id="login-dialog"><form id="login-form"><div class="dialog-header"><h2>Mi espacio</h2></div><div class="dialog-body"><label>Token de acceso<input type="password" id="access-token" required autocomplete="current-password"></label><div id="login-error" class="error-text"></div></div><div class="dialog-footer"><button class="primary">Entrar</button></div></form></dialog>
+<dialog id="confirm-dialog"><div class="dialog-header"><h2>¿Eliminar conversación?</h2></div><div class="dialog-body">Se eliminarán sus mensajes y adjuntos locales.</div><div class="dialog-footer"><button class="secondary" id="cancel-delete">Cancelar</button><button class="primary destructive" id="confirm-delete">Eliminar</button></div></dialog>
+</body></html>

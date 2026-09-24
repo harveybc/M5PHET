@@ -1,0 +1,16 @@
+[Unit]
+Description=M5PHET private chat workbench
+After=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/m5phet/chat.env
+ExecStart=%h/.local/share/m5phet/chat-venv/bin/m5phet-chat --port 8765
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+LimitCORE=0
+TimeoutStopSec=190
+
+[Install]
+WantedBy=default.target
