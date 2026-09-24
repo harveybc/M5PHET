@@ -101,9 +101,11 @@ def main(argv=None):
     report = {"schema": "m5phet_family_verification.v1", "base": args.base,
               "providers": [p["name"] for p in catalog["providers"]],
               "interpreter": catalog.get("interpreter"), "families": [], "prose": [], "refusals": []}
+    # EVERY example, not one per provider. Keying by provider hid a second example that could not run: the last one
+    # written simply replaced the one being checked.
     examples = {e["config"]["provider"]: e for e in catalog["examples"]}
-    for provider in sorted(examples):
-        example = examples[provider]
+    for example in sorted(catalog["examples"], key=lambda e: (e["config"]["provider"], e["title"])):
+        provider = example["config"]["provider"]
         answer = ask(args.base, example, example["prompt"])
         detail = answer.get("detail") or {}
         result = detail.get("result") or {}
@@ -146,7 +148,9 @@ def main(argv=None):
         family["example_resolves"] = family["status"] == "OK"
 
     answered = [f for f in report["families"] if f["status"] == "OK"]
-    report["summary"] = {"families_answering": len(answered), "families": len(report["families"]),
+    report["summary"] = {"examples_answering": len(answered), "examples": len(report["families"]),
+                         "families_answering": len({f["provider"] for f in answered}),
+                         "families": len({f["provider"] for f in report["families"]}),
                          "examples_that_resolve": sum(1 for f in report["families"] if f["example_resolves"]),
                          "prose_answered": sum(1 for r in report["prose"] if r["answered"]),
                          "prose": len(report["prose"]),
@@ -170,7 +174,8 @@ def main(argv=None):
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=1, sort_keys=True)
-    ok = (report["summary"]["families_answering"] == report["summary"]["families"]
+    ok = (report["summary"]["examples_answering"] == report["summary"]["examples"]
+          and report["summary"]["families_answering"] == report["summary"]["families"]
           and report["summary"]["prose_answered"] == report["summary"]["prose"]
           and report["summary"]["refusals_correct"] == report["summary"]["refusals"]
           and not report["summary"]["any_execution_authorized"])
