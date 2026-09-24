@@ -1,0 +1,308 @@
+FFFFFF..FFFFFFFFFF..FFF                                                  [100%]
+=================================== FAILURES ===================================
+___________________ test_the_positive_baseline_still_passes ____________________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafd0a0>
+
+    def test_the_positive_baseline_still_passes(registry):
+        result = run(request(), registry)
+        assert result["status"] == Status.OK
+        assert result["binding"]["task_id"] == "task-1"
+>       assert result["binding"]["population_sha256"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'population_sha256'
+
+tests/test_binding_and_validation.py:84: KeyError
+______ test_a_calibration_missing_a_binding_field_does_not_bind[task_id] _______
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aadf200>, drop = 'task_id'
+
+    @pytest.mark.parametrize("drop", ["task_id", "state_ref", "state_digest"])
+    def test_a_calibration_missing_a_binding_field_does_not_bind(registry, drop):
+        registry.provider.calibration.pop(drop)
+        result = run(request(operation="calibrate"), registry)
+>       assert result["facts"]["calibration_bound"] is False
+E       assert True is False
+
+tests/test_binding_and_validation.py:93: AssertionError
+_____ test_a_calibration_missing_a_binding_field_does_not_bind[state_ref] ______
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafc950>
+drop = 'state_ref'
+
+    @pytest.mark.parametrize("drop", ["task_id", "state_ref", "state_digest"])
+    def test_a_calibration_missing_a_binding_field_does_not_bind(registry, drop):
+        registry.provider.calibration.pop(drop)
+        result = run(request(operation="calibrate"), registry)
+>       assert result["facts"]["calibration_bound"] is False
+E       assert True is False
+
+tests/test_binding_and_validation.py:93: AssertionError
+____ test_a_calibration_missing_a_binding_field_does_not_bind[state_digest] ____
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafc7d0>
+drop = 'state_digest'
+
+    @pytest.mark.parametrize("drop", ["task_id", "state_ref", "state_digest"])
+    def test_a_calibration_missing_a_binding_field_does_not_bind(registry, drop):
+        registry.provider.calibration.pop(drop)
+        result = run(request(operation="calibrate"), registry)
+>       assert result["facts"]["calibration_bound"] is False
+E       assert True is False
+
+tests/test_binding_and_validation.py:93: AssertionError
+__________ test_a_calibration_with_another_state_digest_does_not_bind __________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafc1a0>
+
+    def test_a_calibration_with_another_state_digest_does_not_bind(registry):
+        registry.provider.calibration["state_digest"] = "f" * 64
+        result = run(request(operation="calibrate"), registry)
+>       assert result["facts"]["calibration_bound"] is False
+E       assert True is False
+
+tests/test_binding_and_validation.py:101: AssertionError
+_________ test_a_future_calibration_in_another_timezone_does_not_bind __________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafda30>
+
+    def test_a_future_calibration_in_another_timezone_does_not_bind(registry):
+        """2026-09-23T23:30:00-05:00 is 04:30Z on the 24th: four and a half hours AFTER the decision clock."""
+        registry.provider.calibration["clocks"]["calibration_end"] = "2026-09-23T23:30:00-05:00"
+        result = run(request(operation="calibrate", as_of="2026-09-24T00:00:00Z"), registry)
+>       assert result["facts"]["calibration_bound"] is False
+E       assert True is False
+
+tests/test_binding_and_validation.py:109: AssertionError
+____________ test_a_state_declaring_another_task_is_a_contradiction ____________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafdb80>
+
+    def test_a_state_declaring_another_task_is_a_contradiction(registry):
+        registry.provider.loaded_task = "different-task"
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:130: AssertionError
+__ test_a_state_that_declares_cross_task_compatibility_is_accepted_explicitly __
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafd6d0>
+
+    def test_a_state_that_declares_cross_task_compatibility_is_accepted_explicitly(registry):
+        class Foundation(Provider):
+            name = "foundation"
+    
+            def load(self, state_ref):
+                self.calls.append(("load", state_ref))
+                return {"state_ref": state_ref, "digest": self.state_digest, "task_id": "pretraining-corpus",
+                        "compatible_task_ids": ["task-1"], "model_sha256": "m" * 64}
+    
+        registry.register(Foundation())
+        result = run(request(provider_ref="foundation"), registry)
+        assert result["status"] == Status.OK
+>       assert result["binding"]["task_compatibility"] == "DECLARED_BY_STATE"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'task_compatibility'
+
+tests/test_binding_and_validation.py:147: KeyError
+_______ test_a_returned_population_that_is_not_the_requested_one_refuses _______
+
+registry = <m5phet.runtime.Registry object at 0x7ad60ab00050>
+
+    def test_a_returned_population_that_is_not_the_requested_one_refuses(registry):
+        registry.provider.rows = ["row-9"]
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:153: AssertionError
+_______ test_the_population_identity_is_carried_and_moves_with_the_rows ________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60ab01ac0>
+
+    def test_the_population_identity_is_carried_and_moves_with_the_rows(registry):
+        first = run(request(), registry)
+        second = run(request(population={"row_ids": ["row-1"]}, request_id="r2"), registry)
+        registry.provider.rows = ["row-1"]
+        third = run(request(population={"row_ids": ["row-1"]}, request_id="r3"), registry)
+>       assert first["binding"]["population_sha256"] != second["binding"]["population_sha256"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'population_sha256'
+
+tests/test_binding_and_validation.py:162: KeyError
+________ test_a_non_finite_number_anywhere_in_a_payload_is_invalid[nan] ________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafdd00>, bad = nan
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+    def test_a_non_finite_number_anywhere_in_a_payload_is_invalid(registry, bad):
+        registry.provider.payload = {"label": "neutral", "score": bad}
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:173: AssertionError
+________ test_a_non_finite_number_anywhere_in_a_payload_is_invalid[inf] ________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafebd0>, bad = inf
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+    def test_a_non_finite_number_anywhere_in_a_payload_is_invalid(registry, bad):
+        registry.provider.payload = {"label": "neutral", "score": bad}
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:173: AssertionError
+_______ test_a_non_finite_number_anywhere_in_a_payload_is_invalid[-inf] ________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aaff740>, bad = -inf
+
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf")])
+    def test_a_non_finite_number_anywhere_in_a_payload_is_invalid(registry, bad):
+        registry.provider.payload = {"label": "neutral", "score": bad}
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:173: AssertionError
+_______________ test_a_typed_question_payload_must_carry_a_label _______________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aaff0b0>
+
+    def test_a_typed_question_payload_must_carry_a_label(registry):
+        registry.provider.payload = {"score": 0.9}
+        result = run(request(), registry)
+>       assert result["status"] == Status.INVALID_INPUT
+E       AssertionError: assert 'OK' == 'INVALID_INPUT'
+E         
+E         - INVALID_INPUT
+E         + OK
+
+tests/test_binding_and_validation.py:181: AssertionError
+__________________ test_quantiles_must_be_keyed_and_monotonic __________________
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aafe120>
+
+    def test_quantiles_must_be_keyed_and_monotonic(registry):
+        forecast = request(family="regression_forecasting", output_kind="marginal_quantiles",
+                           output_schema={"targets": ["eurusd"], "quantiles": [0.1, 0.5, 0.9], "horizons": [6]})
+>       assert run(forecast, registry)["status"] == Status.OK
+E       AssertionError: assert 'INVALID_INPUT' == 'OK'
+E         
+E         - OK
+E         + INVALID_INPUT
+
+tests/test_binding_and_validation.py:187: AssertionError
+_ test_a_declared_forecast_without_questions_is_not_rejected_for_lacking_them __
+
+registry = <m5phet.runtime.Registry object at 0x7ad60aab9550>
+
+    def test_a_declared_forecast_without_questions_is_not_rejected_for_lacking_them(registry):
+        forecast = request(family="regression_forecasting", output_kind="marginal_quantiles",
+                           output_schema={"targets": ["eurusd"], "quantiles": [0.1, 0.5, 0.9], "horizons": [6]})
+        result = run(forecast, registry)
+>       assert result["status"] == Status.OK
+E       AssertionError: assert 'INVALID_INPUT' == 'OK'
+E         
+E         - OK
+E         + INVALID_INPUT
+
+tests/test_binding_and_validation.py:210: AssertionError
+____ test_a_modified_manifest_is_detected_even_when_the_old_digest_is_kept _____
+
+tmp_path = PosixPath('/tmp/pytest-of-harveybc/pytest-20/test_a_modified_manifest_is_de0')
+
+    def test_a_modified_manifest_is_detected_even_when_the_old_digest_is_kept(tmp_path):
+        run_ = open_run(tmp_path, run_id="x1", task={"task_id": "A"}, code_identity={"rev": "A"})
+        run_.close()
+        path = tmp_path / "runs" / "x1" / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["identity"]["task"] = {"task_id": "B"}
+        manifest["task"] = {"task_id": "B"}
+        manifest["authority"] = "GOVERNED"
+        path.write_text(json.dumps(manifest))                  # the stored digest is deliberately left untouched
+        with pytest.raises(ContractError) as exc:
+            open_run(tmp_path, run_id="x1", task={"task_id": "B"}, code_identity={"rev": "A"}, resume=True)
+>       assert "integrity" in str(exc.value).lower() or "recomputed" in str(exc.value).lower()
+E       assert ('integrity' in "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a new run" or 'recomputed' in "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a new run")
+E        +  where "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a new run" = <built-in method lower of str object at 0x7ad60a96d7c0>()
+E        +    where <built-in method lower of str object at 0x7ad60a96d7c0> = "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run".lower
+E        +      where "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run" = str(ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run"))
+E        +        where ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run") = <ExceptionInfo ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run") tblen=2>.value
+E        +  and   "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a new run" = <built-in method lower of str object at 0x7ad60a96d7c0>()
+E        +    where <built-in method lower of str object at 0x7ad60a96d7c0> = "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run".lower
+E        +      where "run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run" = str(ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run"))
+E        +        where ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run") = <ExceptionInfo ContractError("run 'x1' was opened under identity 4d92f1770988 and the request asks for d3c6301d9409: a changed task, code, model, data or calibration identity requires a NEW run") tblen=2>.value
+
+tests/test_binding_and_validation.py:241: AssertionError
+______ test_a_manifest_whose_authority_contradicts_its_profile_is_refused ______
+
+tmp_path = PosixPath('/tmp/pytest-of-harveybc/pytest-20/test_a_manifest_whose_authorit0')
+
+    def test_a_manifest_whose_authority_contradicts_its_profile_is_refused(tmp_path):
+        run_ = open_run(tmp_path, run_id="x2", task={"task_id": "A"}, code_identity={"rev": "A"})
+        run_.close()
+        path = tmp_path / "runs" / "x2" / "manifest.json"
+        manifest = json.loads(path.read_text())
+        manifest["authority"] = "GOVERNED"                     # governed stays false: a contradiction
+        path.write_text(json.dumps(manifest))
+>       with pytest.raises(ContractError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ContractError
+
+tests/test_binding_and_validation.py:251: Failed
+_ test_interior_corruption_is_refused_on_the_normal_path_without_calling_recover _
+
+tmp_path = PosixPath('/tmp/pytest-of-harveybc/pytest-20/test_interior_corruption_is_re0')
+
+    def test_interior_corruption_is_refused_on_the_normal_path_without_calling_recover(tmp_path):
+        run_ = open_run(tmp_path, run_id="x3", task={"task_id": "A"}, code_identity={"rev": "A"})
+        first = run_.start_attempt(candidate="c")
+        run_.finish_attempt(first, status="OK")
+        path = tmp_path / "runs" / "x3" / "attempts.jsonl"
+        lines = path.read_text().splitlines()
+        lines.insert(1, '{"event": "attempt_started", "attempt_id": "corr')
+        path.write_text("\n".join(lines) + "\n")
+>       with pytest.raises(ContractError) as exc:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ContractError
+
+tests/test_binding_and_validation.py:263: Failed
+=========================== short test summary info ============================
+FAILED tests/test_binding_and_validation.py::test_the_positive_baseline_still_passes
+FAILED tests/test_binding_and_validation.py::test_a_calibration_missing_a_binding_field_does_not_bind[task_id]
+FAILED tests/test_binding_and_validation.py::test_a_calibration_missing_a_binding_field_does_not_bind[state_ref]
+FAILED tests/test_binding_and_validation.py::test_a_calibration_missing_a_binding_field_does_not_bind[state_digest]
+FAILED tests/test_binding_and_validation.py::test_a_calibration_with_another_state_digest_does_not_bind
+FAILED tests/test_binding_and_validation.py::test_a_future_calibration_in_another_timezone_does_not_bind
+FAILED tests/test_binding_and_validation.py::test_a_state_declaring_another_task_is_a_contradiction
+FAILED tests/test_binding_and_validation.py::test_a_state_that_declares_cross_task_compatibility_is_accepted_explicitly
+FAILED tests/test_binding_and_validation.py::test_a_returned_population_that_is_not_the_requested_one_refuses
+FAILED tests/test_binding_and_validation.py::test_the_population_identity_is_carried_and_moves_with_the_rows
+FAILED tests/test_binding_and_validation.py::test_a_non_finite_number_anywhere_in_a_payload_is_invalid[nan]
+FAILED tests/test_binding_and_validation.py::test_a_non_finite_number_anywhere_in_a_payload_is_invalid[inf]
+FAILED tests/test_binding_and_validation.py::test_a_non_finite_number_anywhere_in_a_payload_is_invalid[-inf]
+FAILED tests/test_binding_and_validation.py::test_a_typed_question_payload_must_carry_a_label
+FAILED tests/test_binding_and_validation.py::test_quantiles_must_be_keyed_and_monotonic
+FAILED tests/test_binding_and_validation.py::test_a_declared_forecast_without_questions_is_not_rejected_for_lacking_them
+FAILED tests/test_binding_and_validation.py::test_a_modified_manifest_is_detected_even_when_the_old_digest_is_kept
+FAILED tests/test_binding_and_validation.py::test_a_manifest_whose_authority_contradicts_its_profile_is_refused
+FAILED tests/test_binding_and_validation.py::test_interior_corruption_is_refused_on_the_normal_path_without_calling_recover
+19 failed, 4 passed in 0.12s

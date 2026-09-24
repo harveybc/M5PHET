@@ -260,6 +260,18 @@ def open_run(root: Path, *, run_id: str, task: dict, code_identity: dict, model_
     }
     if resume and (directory / "manifest.json").is_file():
         stored = json.loads((directory / "manifest.json").read_text())
+        # RP154 (finding 4): the stored digest is RECOMPUTED from the stored identity. Comparing two stored strings cannot see
+        # a manifest whose task was rewritten while its old digest was left in place.
+        recomputed = _digest(stored.get("identity"))
+        if recomputed != stored.get("identity_sha256"):
+            raise ContractError(
+                f"run {run_id!r} fails its own integrity check: the manifest's identity hashes to {recomputed[:12]} and it "
+                f"stores {str(stored.get('identity_sha256'))[:12]}; the record was altered after it was written")
+        expected_authority = AUTHORITY_GOVERNED if stored.get("governed") else AUTHORITY_LOCAL
+        if stored.get("authority") != expected_authority:
+            raise ContractError(
+                f"run {run_id!r} declares authority {stored.get('authority')!r} with governed={stored.get('governed')!r}: "
+                f"a profile and its authority label cannot contradict each other")
         if stored.get("identity_sha256") != manifest["identity_sha256"]:
             raise ContractError(
                 f"run {run_id!r} was opened under identity {str(stored.get('identity_sha256'))[:12]} and the request asks for "
@@ -274,9 +286,28 @@ def open_run(root: Path, *, run_id: str, task: dict, code_identity: dict, model_
         _atomic_write(directory / "manifest.json", json.dumps(manifest, indent=1, sort_keys=True, default=str))
     for name in ("attempts.jsonl", "metrics.jsonl"):
         (directory / name).touch()
+    _refuse_interior_corruption(directory)
     if not (directory / "artifacts.json").is_file():
         _atomic_write(directory / "artifacts.json", json.dumps({"artifacts": {}}, indent=1))
     return EvidenceRun(directory, manifest)
+
+
+def _refuse_interior_corruption(directory: Path) -> None:
+    """RP154 (finding 4): an unreadable record that is not the final append is refused whenever the run is opened, not only
+    when a caller happens to ask for recovery. A torn tail is left for recover() to decide."""
+    for name in ("attempts.jsonl", "metrics.jsonl"):
+        path = directory / name
+        if not path.is_file():
+            continue
+        lines = [l for l in path.read_text().splitlines() if l.strip()]
+        for index, line in enumerate(lines):
+            try:
+                json.loads(line)
+            except ValueError:
+                if index != len(lines) - 1:
+                    raise ContractError(
+                        f"{name} holds an interior record this run cannot read (line {index + 1} of {len(lines)}); it is not a "
+                        f"torn final append, so the log is refused rather than silently skipped")
 
 
 def import_historical(run_directory: Path, *, campaign: str, claim_governed: bool = False) -> dict:

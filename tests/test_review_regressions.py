@@ -69,12 +69,11 @@ def test_interior_corruption_is_rejected_and_preserved_not_rewritten(tmp_path):
     lines = path.read_text().splitlines()
     lines.insert(1, '{"event": "attempt_started", "attempt_id": "corr')      # an INTERIOR broken record
     path.write_text("\n".join(lines) + "\n")
-    reopened = open_run(tmp_path, run_id="r4", task=task_a(), code_identity=code(), resume=True)
+    # RP154 (review finding 4): the refusal moved EARLIER. Interior corruption is now refused when the run is opened, so a
+    # caller cannot reach an append or a closure by simply not asking for recovery.
     with pytest.raises(ContractError) as exc:
-        reopened.recover()
+        open_run(tmp_path, run_id="r4", task=task_a(), code_identity=code(), resume=True)
     assert "interior" in str(exc.value).lower()
-    quarantine = tmp_path / "runs" / "r4" / "attempts.jsonl.corrupt"
-    assert quarantine.is_file() and "corr" in quarantine.read_text()
     assert path.read_text().splitlines() == lines, "the original bytes are preserved, not silently rewritten"
 
 

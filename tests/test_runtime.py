@@ -66,8 +66,11 @@ class RecordingProvider:
 
     def calibrate(self, request, state):
         self.calls.append(("calibrate", request["request_id"]))
+        # RP154: a calibration that actually binds names the task, the state, that state's bytes and a past clock
         return {"calibration_ref": "cal-1", "population": {"rows": 5},
-                "clocks": {"calibration_end": "2026-02-01T00:00:00Z"}}
+                "clocks": {"calibration_end": "2026-02-01T00:00:00Z"},
+                "task_id": request["task_id"], "state_ref": request.get("fitted_state_ref"),
+                "state_digest": (state or {}).get("digest")}
 
     def evaluate(self, request, state):
         self.calls.append(("evaluate", request["request_id"]))
