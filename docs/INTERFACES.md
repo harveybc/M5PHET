@@ -42,7 +42,7 @@ Use process/service boundaries when sibling packages have conflicting namespaces
 1. `capabilities()` declares operations, input schemas, output kinds, uncertainty
    methods, fit requirements and resource limits. Reject duplicate registrations.
 2. `validate(request)` rejects unsupported semantics BEFORE model loading or work.
-3. `fit(...)` and `calibrate(...)` are explicit governed jobs, returning immutable
+3. `fit(...)` and `calibrate(...)` are explicit jobs (governed in that deployment profile), returning immutable
    state references with train/calibration population and clocks.
 4. `infer(request, state_ref)` cannot modify fitted state. It checks capability
    and identity, invokes the real engine and validates the complete response.
@@ -53,6 +53,11 @@ Cache identity covers task/input/clock, provider code and model, transformation,
 calibration and numerical scope. A schema hash alone is insufficient. No silent
 fallback between providers or CPU/GPU paths in a sealed experiment. Resource
 admission uses existing orchestration; this project does not build a scheduler.
+
+Local and governed profiles use the same task meanings but distinct authority.
+Storage adapters and task-specific DOIN evaluation are specified in
+[INTEGRATION_AND_OPTIMIZATION.md](INTEGRATION_AND_OPTIMIZATION.md). They are not
+mandatory services for a standalone user or implemented integration claims.
 
 ## Composition rules
 

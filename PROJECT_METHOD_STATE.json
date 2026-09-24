@@ -7,6 +7,10 @@
     "interfaces": "docs/INTERFACES.md",
     "calendar": "docs/ECONOMIC_CALENDAR.md",
     "implementation_plan": "docs/IMPLEMENTATION_PLAN.md",
+    "integration_and_optimization": "docs/INTEGRATION_AND_OPTIMIZATION.md",
+    "deployment_profiles": ["LOCAL_UNGOVERNED", "GOVERNED"],
+    "integration_acceptance": "INT01-INT12_SPECIFIED_NOT_IMPLEMENTED",
+    "example_app_default": "Local durable records; optional embedded DuckDB analytics; governance and DOIN independently opt-in",
     "behavioral_acceptance": "PENDING_IMPLEMENTATION",
     "design_tests_scope": "Inventory consistency only; not provider or model validation"
   },

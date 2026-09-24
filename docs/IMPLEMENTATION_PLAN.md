@@ -46,6 +46,16 @@ latency and supported output types. DOIN searches declared bounded configuration
 it does not promote invalid tasks by obtaining a high score. Existing broker
 promotion gates, retention limits, resource admission and experiment budgets stay.
 
+Cross-cutting integration must start with I1, not wait for all domain models:
+implement the local/governed profile boundary and DOIN adapter using the existing
+plugin interfaces. [INT01-INT12](INTEGRATION_AND_OPTIMIZATION.md) define acceptance.
+Begin with one real classifier candidate/evaluator round trip and extend to each
+family. Do not force community users to install our full storage or node stack.
+Example apps deliver local durable manifests/metrics first, optional embedded
+DuckDB analytical views second, and an opt-in governed profile with the same task
+code. Governance and DOIN are independent configuration choices, not mandatory
+example-app dependencies. Existing governed scientific campaigns stay governed.
+
 ## Concrete first handoff deliverables
 
 1. Map the existing economic dataset to UC-02: governed resource identity,

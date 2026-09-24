@@ -95,6 +95,19 @@ Inference never fits a model implicitly. Unsupported tasks return a typed refusa
 These are integration boundaries, not claims that all adapters already exist.
 No classifier, forecast or causal estimate authorizes an order.
 
+## Local use, governed campaigns and DOIN
+
+The target architecture keeps local inference lightweight: no mandatory services
+or distributed node. Example apps start locally with organized provenance and
+metric records; optional embedded DuckDB provides analytical views without a
+server. **data-gov + data-lake + data-warehouse** and **DOIN** are independent
+opt-in integrations. Our already-governed campaigns keep their declared profile;
+a governed run cannot silently downgrade itself.
+Each provider declares supported parameters and task-specific evaluation; full
+metrics remain traceable alongside DOIN's scalar objective. See the
+[integration and optimization design](docs/INTEGRATION_AND_OPTIMIZATION.md).
+These adapters are specified, not implemented in this release.
+
 ## Choosing engines
 
 Use task-matched open-source implementations and reproduce their reference
