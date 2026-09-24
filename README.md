@@ -1,7 +1,7 @@
 # M5PHET
 
 **Typed machine-learning interfaces for applications that need decisions,
-forecasts, unsupervised learning tasks and policies, not generated prose.**
+forecasts, unsupervised learning tasks, causal inference tasks and policies, not generated prose.**
 
 M5PHET is being built as a Python framework: supply text,
 structured records or time series, specify a task and its output contract, and
