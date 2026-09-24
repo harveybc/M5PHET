@@ -116,3 +116,37 @@ self-hosted client, not an AdminLTE deployment; the requested sidebar/dialog/cha
 layout does not require that full template distribution. Lucide 1.48.0 is vendored
 with its license. References: [FastAPI uploads](https://fastapi.tiangolo.com/tutorial/request-files/)
 and [Lucide vanilla usage](https://lucide.dev/guide/lucide). No CDN at runtime.
+
+## Starting it with all five families
+
+`tools/start_chat.sh` is the operator's declaration of where each engine and each
+fitted state lives. Every engine stays in the environment where its dependencies
+already are -- TensorFlow, Stable-Baselines3 and EconML never enter this one --
+and a prompt cannot change any of it.
+
+```bash
+tools/start_chat.sh                       # http://127.0.0.1:8765
+M5PHET_CHAT_LAYA_WORKER=<your-worker> \
+M5PHET_CHAT_LAYA_COMMAND='bash /absolute/path/chat_laya_worker.sh' \
+    tools/start_chat.sh                   # classification on the real checkpoint
+```
+
+Without the worker variables, classification uses the declared `NON_MODEL_FIXTURE`
+and says so in every receipt. The five families and what each needs:
+
+| Family | Provider | Engine runs in | Fitted state |
+|---|---|---|---|
+| Classification | `laya_news` | the private worker, or a local checkpoint | sealed Laya checkpoint |
+| Forecasting | `predictor_forecast` | `M5PHET_FORECAST_PYTHON` (TensorFlow) | exported DEV bundle |
+| Hierarchical regimes | `feature-eng-hierarchical-regimes` | this environment | fitted reference + assignments |
+| Causal inference | `causal_inference` | this environment (inference only) | a study fitted beforehand |
+| Policy | `trading_policy` | `M5PHET_POLICY_PYTHON` (Stable-Baselines3) | a retained policy checkpoint |
+
+A study is fitted once, explicitly, before it can be served:
+
+```bash
+~/.local/share/m5phet/causal-fit-venv/bin/python -m causal_inference_provider prepare-demo
+```
+
+Every state above is DEVELOPMENT provenance. The workbench shows what these
+engines answer; it establishes nothing about how well they answer.
