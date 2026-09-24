@@ -188,7 +188,9 @@ class Recording:
         self.calls = []
         self._caps = {"provider": "recording", "operations": ["infer", "fit", "calibrate", "evaluate"],
                       "families": ["classification"], "output_kinds": ["typed_questions"],
-                      "uncertainty_methods": ["UNCALIBRATED_CLASS_PROBABILITIES"], "known_states": ["state-1"]}
+                      "uncertainty_methods": ["UNCALIBRATED_CLASS_PROBABILITIES"], "known_states": ["state-1"],
+                      "supported": [{"operation": o, "family": "classification", "output_kind": "typed_questions"}
+                                    for o in ("infer", "fit", "calibrate", "evaluate")]}
         self._caps.update(over)
         self._infer = {"outputs": {"tone": {"status": "OK", "payload": {"label": "n"},
                                             "uncertainty": "UNCALIBRATED_CLASS_PROBABILITIES"}}}

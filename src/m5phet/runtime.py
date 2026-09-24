@@ -24,6 +24,11 @@ OPERATIONS = ("fit", "calibrate", "infer", "evaluate", "identify")
 
 REQUIRED_CAPABILITY_FIELDS = ("operations", "families", "output_kinds", "uncertainty_methods")
 
+#: the keys that identify one DECLARED, TESTED combination. Support is a list of these, never the Cartesian product of the
+#: independent lists above: a provider that classifies typed questions and forecasts quantiles has not thereby declared that it
+#: emits quantiles for a classification task.
+COMBINATION_KEYS = ("operation", "family", "output_kind")
+
 #: the designed entry-point group. An external distribution owns its own backend dependencies; this package requires none of
 #: them, so discovery must survive a provider whose import fails and must never load a second provider under a taken name.
 ENTRY_POINT_GROUP = "m5phet.providers"
@@ -109,6 +114,13 @@ class Registry:
         for field in REQUIRED_CAPABILITY_FIELDS:
             if not isinstance(caps[field], (list, tuple)) or not all(isinstance(v, str) for v in caps[field]):
                 raise ContractError(f"provider {name!r}: capabilities()[{field!r}] must be a list of names")
+        supported = caps.get("supported")
+        if not isinstance(supported, (list, tuple)) or not supported:
+            raise ContractError(f"provider {name!r}: capabilities() must declare `supported`, the list of tested "
+                                f"operation/family/output_kind combinations; support is never inferred from a product")
+        for entry in supported:
+            if not isinstance(entry, dict) or any(not isinstance(entry.get(k), str) or not entry.get(k) for k in COMBINATION_KEYS):
+                raise ContractError(f"provider {name!r}: each `supported` entry must name {', '.join(COMBINATION_KEYS)}")
         self._providers[name] = provider
         self._capabilities[name] = copy.deepcopy(caps)
         return copy.deepcopy(caps)
@@ -237,6 +249,12 @@ def run(request, registry: Registry) -> dict:
             return _envelope(checked, Status.UNSUPPORTED_TASK,
                              f"provider {checked['provider_ref']!r} does not declare {field} {checked[field]!r}",
                              schema_valid=True, capability_checked=True)
+    wanted = {k: checked[k] for k in COMBINATION_KEYS}
+    if not any(all(entry.get(k) == wanted[k] for k in COMBINATION_KEYS) for entry in (caps.get("supported") or ())):
+        return _envelope(checked, Status.UNSUPPORTED_TASK,
+                         f"provider {checked['provider_ref']!r} declares each of these separately but not the combination "
+                         f"{wanted}; support is a tested combination, not a product of capability lists",
+                         schema_valid=True, capability_checked=True)
     if operation == "infer" and not ((checked.get("output_schema") or {}).get("questions")):
         return _envelope(checked, Status.INVALID_INPUT,
                          "an infer request must declare the questions to answer; nothing is loaded for an unanswerable request",
@@ -262,6 +280,8 @@ def run(request, registry: Registry) -> dict:
                 return _envelope(checked, Status.INVALID_INPUT, "the provider's loaded state declares no digest",
                                  schema_valid=True, capability_checked=True)
             binding["state_digest"] = state["digest"]
+            if state.get("model_sha256"):
+                binding["model_sha256"] = state["model_sha256"]     # a provider swap must show a changed model identity
         if operation == "infer":
             returned = provider.infer(copy.deepcopy(checked), copy.deepcopy(state))
             requested = list((checked.get("output_schema") or {}).get("questions") or [])

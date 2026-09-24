@@ -1,0 +1,52 @@
+FF....F..                                                                [100%]
+=================================== FAILURES ===================================
+___________ test_a_provider_must_declare_its_supported_combinations ____________
+
+    def test_a_provider_must_declare_its_supported_combinations():
+        class Vague(Specialized):
+            def capabilities(self):
+                caps = super().capabilities()
+                caps.pop("supported")
+                return caps
+    
+>       with pytest.raises(ContractError) as exc:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ContractError
+
+tests/test_specialized_providers.py:71: Failed
+________ test_the_cartesian_product_of_capability_lists_is_not_support _________
+
+    def test_the_cartesian_product_of_capability_lists_is_not_support():
+        """The provider classifies typed questions and forecasts quantiles. It has NOT declared quantiles for classification."""
+        registry = Registry()
+        provider = Specialized("both", [CLASSIFY, FORECAST])
+        registry.register(provider)
+        crossed = run(request(provider_ref="both", family="classification", output_kind="marginal_quantiles"), registry)
+>       assert crossed["status"] == Status.UNSUPPORTED_TASK
+E       AssertionError: assert 'OK' == 'UNSUPPORTED_TASK'
+E         
+E         - UNSUPPORTED_TASK
+E         + OK
+
+tests/test_specialized_providers.py:82: AssertionError
+_ test_a_provider_swap_preserves_the_task_and_records_a_changed_model_identity _
+
+    def test_a_provider_swap_preserves_the_task_and_records_a_changed_model_identity():
+        registry = Registry()
+        registry.register(Specialized("provider-a", [CLASSIFY], model_sha="a" * 64))
+        registry.register(Specialized("provider-b", [CLASSIFY], model_sha="b" * 64))
+        first = run(request(provider_ref="provider-a"), registry)
+        second = run(request(provider_ref="provider-b"), registry)
+        assert first["status"] == second["status"] == Status.OK
+        assert first["binding"]["task_id"] == second["binding"]["task_id"] == "task-1"
+        assert sorted(first["outputs"]) == sorted(second["outputs"]), "the evaluation population is the same questions"
+>       assert first["binding"]["model_sha256"] != second["binding"]["model_sha256"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'model_sha256'
+
+tests/test_specialized_providers.py:151: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_specialized_providers.py::test_a_provider_must_declare_its_supported_combinations
+FAILED tests/test_specialized_providers.py::test_the_cartesian_product_of_capability_lists_is_not_support
+FAILED tests/test_specialized_providers.py::test_a_provider_swap_preserves_the_task_and_records_a_changed_model_identity
+3 failed, 6 passed in 0.04s

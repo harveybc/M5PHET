@@ -36,6 +36,8 @@ class RecordingProvider:
             "families": list(families),
             "output_kinds": list(output_kinds),
             "uncertainty_methods": ["UNCALIBRATED_CLASS_PROBABILITIES"],
+            "supported": [{"operation": o, "family": f, "output_kind": k}
+                          for o in operations for f in families for k in output_kinds],
             "fit_required": True,
             "known_states": list(states),
             "resource_limits": {"max_batch": 8},
