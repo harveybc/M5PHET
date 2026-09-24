@@ -20,17 +20,20 @@ import urllib.request
 
 #: ordinary phrasings a person would actually type, in both languages this workbench is used in. A family that only
 #: answers the phrasing its engine happens to use is a family nobody can use.
-PROSE = {
-    "laya_news": ["Which economy is named in this news?", "\u00bfDe qu\u00e9 econom\u00eda habla esta noticia?"],
-    "predictor_forecast": ["predict household power one hour ahead",
-                           "\u00bfcu\u00e1nta potencia habr\u00e1 en la pr\u00f3xima hora?"],
-    "feature-eng-hierarchical-regimes": ["assign hierarchical regimes to these rows",
-                                         "asigna los reg\u00edmenes jer\u00e1rquicos a estas filas"],
-    "causal_inference": ["Report ATE of treatment on outcome, with its uncertainty.",
-                         "\u00bfCu\u00e1l es el ATE of treatment on outcome y su incertidumbre?"],
-    "trading_policy": ["What action does eth_4h_sac_current_stack_anchor_v1 propose?",
-                       "\u00bfQu\u00e9 acci\u00f3n propone la pol\u00edtica eth_4h_sac_current_stack_anchor_v1?"],
-}
+PROSE = [
+    ("laya_news", "Noticia", "Which economy is named in this news?"),
+    ("laya_news", "Noticia", "\u00bfDe qu\u00e9 econom\u00eda habla esta noticia?"),
+    ("predictor_forecast", "household-power", "predict household power one hour ahead"),
+    ("predictor_forecast", "household-power", "\u00bfcu\u00e1nta potencia habr\u00e1 en la pr\u00f3xima hora?"),
+    ("predictor_forecast", "direction_cnn", "what is the direction_long probability at horizon 1?"),
+    ("predictor_forecast", "direction_cnn", "\u00bfcu\u00e1l es la probabilidad de direction_long a horizonte 1?"),
+    ("feature-eng-hierarchical-regimes", "OHLC", "assign hierarchical regimes to these rows"),
+    ("feature-eng-hierarchical-regimes", "OHLC", "asigna los reg\u00edmenes jer\u00e1rquicos a estas filas"),
+    ("causal_inference", "ATE", "Report ATE of treatment on outcome, with its uncertainty."),
+    ("causal_inference", "ATE", "\u00bfCu\u00e1l es el ATE of treatment on outcome y su incertidumbre?"),
+    ("trading_policy", "one observation", "What action does eth_4h_sac_current_stack_anchor_v1 propose?"),
+    ("trading_policy", "market data", "\u00bfQu\u00e9 acci\u00f3n propone la pol\u00edtica para estas barras?"),
+]
 
 #: questions that must be REFUSED, and the fragment of the reason that shows it was refused for the right cause
 REFUSALS = {
@@ -120,16 +123,19 @@ def main(argv=None):
             "execution_authorized": detail.get("execution_authorized"),
             "why": answer.get("content") if answer.get("status") != "OK" else None})
 
-    for provider in sorted(PROSE):
-        if provider not in examples:
+    # Each phrasing is bound to the example whose data and settings it is ABOUT. Keying only by provider ran the
+    # household question against the direction model's configuration and blamed the refusal on the phrasing.
+    for provider, fragment, prompt in PROSE:
+        chosen = [e for e in catalog["examples"]
+                  if e["config"]["provider"] == provider and fragment.lower() in e["title"].lower()]
+        if not chosen:
             continue
-        for prompt in PROSE[provider]:
-            answer = ask(args.base, examples[provider], prompt)
-            detail = answer.get("detail") or {}
-            report["prose"].append({"provider": provider, "prompt": prompt, "status": answer.get("status"),
-                                    "answered": answer.get("status") == "OK",
-                                    "sources": (detail.get("interpretation") or {}).get("sources"),
-                                    "why": answer.get("content") if answer.get("status") != "OK" else None})
+        answer = ask(args.base, chosen[0], prompt)
+        detail = answer.get("detail") or {}
+        report["prose"].append({"provider": provider, "example": chosen[0]["title"], "prompt": prompt,
+                                "status": answer.get("status"), "answered": answer.get("status") == "OK",
+                                "sources": (detail.get("interpretation") or {}).get("sources"),
+                                "why": answer.get("content") if answer.get("status") != "OK" else None})
 
     for provider, cases in REFUSALS.items():
         if provider not in examples:
