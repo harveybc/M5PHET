@@ -127,6 +127,56 @@ language installation with that name exists, inventory its actual endpoint/model
 before considering it; never repurpose broker credentials for interpretation.
 This clarification is local discovery, not a reason to pause other work.
 
+## Optional retrieval augmentation (RAG)
+
+Owner asks to consider RAG, not to make it a prerequisite or launch a new model
+training project. RAG retrieves external context for a language model; it is not
+another forecasting engine or a guarantee of correct answers. Initial candidate:
+retrieve versioned dataset documentation, provider capability descriptions,
+approved task examples and metric definitions for question interpretation.
+Use exact schema/registry lookups for facts already structured; do not replace
+those authoritative checks with approximate text search.
+
+Reuse existing retrieval/MCP facilities if suitable. An application skill can
+explain when to retrieve; a narrow MCP resource/tool can provide context; the
+provider contract still validates the resulting task. This does not grant shell,
+broker or arbitrary data access to the interpretation component. Keep the direct
+Python API and non-RAG route; no mandatory MCP server or vector database for
+community users. Start with bounded local text/metadata retrieval; benchmark
+semantic embeddings only if the lexical/structured baseline misses useful context.
+Do not train a new language model to add retrieval.
+
+Two distinct lanes must not be conflated:
+
+- **Task/documentation context:** help resolve schemas, supported outputs and
+  provider parameters. Pin the authoritative versions used by the task; exclude
+  test-reserve results from tuning context and do not equate retrieved prose
+  with a registry capability or accepted evidence.
+- **Market information:** news and calendar documents retrieved as predictive
+  input. This changes the model's information set and requires a separate
+  declared evaluation. Filter by rights, asset and actual receipt/vintage at the
+  decision cutoff BEFORE ranking/limiting results. No future releases, revised
+  actuals or outcome-derived summaries in historical decisions.
+
+Retrieved content is data, not instructions. Keep source/chunk identifiers,
+content digests, document revision, retrieval query/settings, eligible corpus
+snapshot and the exact selected context. Indexes are derived and rebuildable;
+the lake/warehouse retain their roles. Do not embed every raw row, prediction
+array or private account record. Use bounded corpus/context/disk budgets and
+respect the existing retention policy. No new storage service by default.
+
+Before adopting RAG, compare the SAME language provider and question set with
+and without retrieval: correct task fields, relevant-source coverage, unsupported
+claims, refusals, latency, tokens and disk/RAM. Negative cases include stale or
+contradictory docs, empty retrieval, malicious text, denied sources and future
+calendar revisions. Missing evidence must not produce invented context. If RAG
+augments a Laya input, SDK parity must compare that SAME augmented input and the
+new condition must not silently replace the existing no-RAG classification test.
+
+Status: **CONSIDERED_FOR_BOUNDED_EVALUATION, NOT_IMPLEMENTED**. First real Laya
+delivery and other independent work continue without it.
+Reference: [original RAG paper](https://arxiv.org/abs/2005.11401).
+
 ## Acceptance before implementation
 
 | ID | Required public-path behavior |
