@@ -60,7 +60,8 @@ function renderMessage(m){
   else if(m.status==='RUNNING'){const run=el('div','Ejecutando...','running');run.prepend(icon('loader-circle'));body.append(run);}
   else {
     const detail=m.detail||{}, result=detail.result;
-    if(m.status!=='OK'||!result){body.append(el('p',m.content));}
+    if(detail.response&&detail.response.answers){renderEnvelopeAnswers(body,m,detail);}
+    else if(m.status!=='OK'||!result){body.append(el('p',m.content));}
     else if(detail.config?.presentation==='json'){body.append(el('pre',JSON.stringify(result,null,2)));}
     else {
       for(const [name,answer] of Object.entries(result.outputs||{})){
@@ -122,9 +123,42 @@ async function watch(){
   const id=current.id;
   poll=setTimeout(async()=>{try{const updated=await api('/chats/'+id);if(current?.id===id){current=updated;render();$('messages').scrollTop=$('messages').scrollHeight;watch();}}catch(e){notify(e.message);}},650);
 }
+/* Question mode: the sentence is translated into a typed envelope the person REVIEWS before anything runs. The model
+   proposes and the contract disposes; what runs is what the person accepted, and it is stored beside its answers. */
+let taskMode=false;
+$('task-mode').onclick=()=>{taskMode=!taskMode;$('task-mode').classList.toggle('active',taskMode);$('task-mode').setAttribute('aria-pressed',String(taskMode));if(!taskMode)hideEnvelope();};
+function hideEnvelope(){$('envelope-panel').hidden=true;$('envelope').value='';$('envelope-problems').replaceChildren();$('envelope-status').textContent='';}
+function showEnvelope(proposal){
+  $('envelope-panel').hidden=false;
+  $('envelope').value=JSON.stringify(proposal.task||proposal.proposal||{},null,2);
+  const status=$('envelope-status');status.textContent=proposal.status;status.className='tag '+(proposal.status==='OK'?'ok':'warn');
+  const list=$('envelope-problems');list.replaceChildren();
+  for(const p of (proposal.problems||[]))list.append(el('li',p));
+  if(proposal.why&&proposal.status!=='OK')list.append(el('li',proposal.why));
+  $('envelope-run').disabled=false;
+}
+async function proposeEnvelope(prompt){
+  const id=current.id;
+  const proposal=await api(`/chats/${id}/tasks/propose`,{method:'POST',body:{prompt,file_ids:selected}});
+  showEnvelope(proposal);
+  if(current.title==='Nuevo chat')await api('/chats/'+id,{method:'PATCH',body:{title:prompt.slice(0,80)}});
+}
+$('envelope-discard').onclick=hideEnvelope;
+$('envelope-run').onclick=async()=>{
+  if(!current||busy||uploading)return;
+  let task;try{task=JSON.parse($('envelope').value);}catch(err){notify('El sobre no es JSON válido: '+err.message);return;}
+  notify();$('envelope-run').disabled=true;$('send').disabled=true;
+  try{
+    const id=current.id,prompt=$('prompt').value.trim();
+    await api(`/chats/${id}/tasks/run`,{method:'POST',body:{prompt,task,file_ids:selected,client_id:crypto.randomUUID(),language:'es'}});
+    hideEnvelope();$('prompt').value='';localStorage.removeItem('m5phet-draft-'+id);current=await api('/chats/'+id);render();await list();$('messages').scrollTop=$('messages').scrollHeight;watch();
+  }catch(error){notify(error.message);$('envelope-run').disabled=false;}
+  finally{$('send').disabled=false;}
+};
 $('composer').onsubmit=async e=>{
   e.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||uploading)return;
   notify();$('send').disabled=true;
+  if(taskMode){try{await proposeEnvelope(prompt);}catch(error){notify(error.message);}finally{$('send').disabled=false;}return;}
   try{
     const id=current.id;
     await api(`/chats/${id}/messages`,{method:'POST',body:{prompt,file_ids:selected,client_id:crypto.randomUUID()}});
@@ -198,3 +232,32 @@ async function boot(){
   icons();
 }
 boot().catch(e=>notify(e.message));
+
+/* One block per question of an envelope: answered questions show their fields, refused ones show the typed reason.
+   The narration underneath is marked by its source, because a sentence a model wrote and a sentence rendered from the
+   numbers are not the same kind of thing even when they say the same thing. */
+function renderEnvelopeAnswers(body,m,detail){
+  const response=detail.response, narration=detail.narration||{};
+  const head=el('div',undefined,'envelope-summary');
+  head.append(el('span',(response.area||'')+' · '+(response.provider||'sin proveedor'),'tag'));
+  head.append(el('span',`${response.answered||0} respondidas · ${response.refused||0} rechazadas`,'tag '+(response.refused?'warn':'ok')));
+  body.append(head);
+  for(const [name,answer] of Object.entries(response.answers||{})){
+    const card=el('div',undefined,'answer-card '+(answer.status==='OK'?'ok':'refused'));
+    const title=el('div',undefined,'answer-title');title.append(el('strong',name),el('span',answer.type||'','tag'));
+    card.append(title);
+    if(answer.status==='OK'){
+      const fields={...answer};for(const k of ['type','status','execution_authorized','sdk_answer','reading'])delete fields[k];
+      renderPayload(card,fields);
+    }else{
+      card.append(el('div',(answer.refusal||'REFUSED')+': '+(answer.why||''),'answer-refusal'));
+    }
+    body.append(card);
+  }
+  if(m.content){const n=el('div',undefined,'narration');n.append(el('p',m.content));
+    n.append(el('span',narration.source==='INTERPRETER'?('Narrado por el intérprete · verificado contra las cifras'+(narration.interpreter?.model?' · '+narration.interpreter.model:'')):'Redacción determinista desde las cifras','narration-source'));
+    if(narration.why)n.append(el('span',narration.why,'narration-why'));
+    body.append(n);}
+  const meta=el('div',undefined,'result-meta');meta.append(el('span','LOCAL_UNGOVERNED'));if(detail.elapsed_seconds!==undefined)meta.append(el('span',detail.elapsed_seconds.toFixed(3)+' s'));body.append(meta);
+  const details=el('details');details.append(el('summary','Sobre ejecutado y respuestas'),el('pre',JSON.stringify({envelope:detail.envelope||detail.task,response},null,2)));body.append(details);
+}

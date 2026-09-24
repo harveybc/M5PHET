@@ -5,3 +5,23 @@
 .interp-label{font-size:.8rem;opacity:.75}
 .interp-model{font-size:.75rem;opacity:.6}
 .tag.ok{background:color-mix(in srgb,var(--ok,#2e7d32) 18%,transparent);border-color:var(--ok,#2e7d32)}
+
+/* Question mode: the proposed envelope, the person's review, and the per-question answers. */
+.composer-spacer{flex:1}
+button.mode{display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;border-radius:999px;border:1px solid var(--border,#d6dad8);background:transparent;font-size:.8rem;cursor:pointer}
+button.mode.active{background:color-mix(in srgb,var(--accent,#1b6b4a) 14%,transparent);border-color:var(--accent,#1b6b4a)}
+.envelope-panel{margin:.4rem 0 .6rem;padding:.6rem;border:1px dashed var(--border,#d6dad8);border-radius:.6rem;display:flex;flex-direction:column;gap:.45rem}
+.envelope-head{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;opacity:.85;gap:.5rem;flex-wrap:wrap}
+#envelope{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;width:100%;resize:vertical;min-height:120px}
+.envelope-problems{margin:0;padding-left:1.1rem;font-size:.8rem;color:var(--warn-text,#8a5a00)}
+.envelope-actions{display:flex;justify-content:flex-end;gap:.5rem}
+.send-wide{padding:.45rem .9rem;border-radius:.5rem;border:none;background:var(--accent,#1b6b4a);color:#fff;cursor:pointer}
+button.secondary{padding:.45rem .9rem;border-radius:.5rem;border:1px solid var(--border,#d6dad8);background:transparent;cursor:pointer}
+.envelope-summary{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:.5rem}
+.answer-card{border:1px solid var(--border,#d6dad8);border-left:4px solid var(--ok,#2e7d32);border-radius:.5rem;padding:.5rem .7rem;margin:.4rem 0}
+.answer-card.refused{border-left-color:var(--warn,#c77700)}
+.answer-title{display:flex;align-items:center;gap:.5rem;margin-bottom:.3rem}
+.answer-refusal{font-size:.85rem;color:var(--warn-text,#8a5a00)}
+.narration{margin-top:.6rem;padding:.5rem .7rem;background:color-mix(in srgb,var(--accent,#1b6b4a) 6%,transparent);border-radius:.5rem}
+.narration-source{display:block;font-size:.72rem;opacity:.65;margin-top:.25rem}
+.narration-why{display:block;font-size:.72rem;color:var(--warn-text,#8a5a00);margin-top:.2rem}

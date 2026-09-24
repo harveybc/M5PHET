@@ -33,7 +33,13 @@
       <form id="composer">
         <div class="attachment-row"><button type="button" class="icon" id="attach" title="Adjuntar archivo" aria-label="Adjuntar archivo"><i data-lucide="plus"></i></button><div id="attachments"></div><input type="file" id="file-input" accept=".txt,.md,.json,.csv" multiple hidden></div>
         <textarea id="prompt" rows="2" placeholder="Escribe tu pregunta..." aria-label="Pregunta"></textarea>
-        <div class="composer-bottom"><span id="model-state">Sin seleccionar</span><button id="send" class="send" type="submit" title="Enviar pregunta" aria-label="Enviar pregunta"><i data-lucide="arrow-up"></i></button></div>
+        <div id="envelope-panel" class="envelope-panel" hidden>
+          <div class="envelope-head"><span>Sobre propuesto (área · estado · preguntas). Puede editarlo antes de ejecutar.</span><span id="envelope-status" class="tag"></span></div>
+          <textarea id="envelope" rows="10" spellcheck="false" aria-label="Sobre JSON"></textarea>
+          <ul id="envelope-problems" class="envelope-problems"></ul>
+          <div class="envelope-actions"><button type="button" id="envelope-discard" class="secondary">Descartar</button><button type="button" id="envelope-run" class="send-wide">Ejecutar sobre</button></div>
+        </div>
+        <div class="composer-bottom"><span id="model-state">Sin seleccionar</span><span class="composer-spacer"></span><button type="button" id="task-mode" class="mode" title="Modo pregunta: la frase se traduce a un sobre JSON tipado que usted revisa antes de ejecutar" aria-pressed="false"><i data-lucide="braces"></i><span>Pregunta → JSON</span></button><button id="send" class="send" type="submit" title="Enviar pregunta" aria-label="Enviar pregunta"><i data-lucide="arrow-up"></i></button></div>
       </form>
       <div class="footnote"><span>M5PHET</span><span>Sesión manual · Sin órdenes de trading</span></div>
     </section>
