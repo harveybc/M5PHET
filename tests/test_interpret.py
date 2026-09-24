@@ -172,3 +172,55 @@ def test_an_overlong_question_is_refused_before_any_model_is_consulted():
 def test_an_unvalidatable_slot_declaration_is_rejected_at_the_provider(slots):
     with pytest.raises(SlotError):
         interpret("anything", slots)
+
+
+# --- a named value the model does not have, refused before any interpreter is asked -----------------------------------------
+
+WITH_KNOWN_UNSUPPORTED = [
+    {"name": "target", "allowed": ["Global_active_power"],
+     "aliases": {"Global_active_power": ["household power"]},
+     "known_unsupported": ["Voltage", "Global_intensity", "Sub_metering_1"]},
+]
+
+
+class Helpful(Interpreter):
+    """The failure this guards against: an interpreter asked to choose among allowed values chooses the only one."""
+
+    def __init__(self):
+        super().__init__(command="fixture", model="over-eager-v1", environ={})
+        self.asked = []
+
+    @property
+    def available(self):
+        return True
+
+    def propose(self, prompt, slots):
+        self.asked.append(prompt)
+        return {slot["name"]: slot["allowed"][0] for slot in slots}
+
+
+def test_naming_a_series_the_bundle_does_not_hold_is_refused_before_the_model_is_asked():
+    helpful = Helpful()
+    report = interpret("forecast Voltage at 60 steps", WITH_KNOWN_UNSUPPORTED, interpreter=helpful)
+    assert report["status"] == STATUS_UNSUPPORTED
+    assert "Voltage" in report["why"] and "Global_active_power" in report["why"]
+    assert helpful.asked == [], "the interpreter is never given a chance to substitute the only allowed value"
+    assert report["parameters"] == {}
+
+
+def test_without_the_guard_a_helpful_interpreter_would_have_substituted():
+    """The same question against a slot that cannot enumerate what it lacks: the model resolves it, which is why a provider
+    that CAN enumerate its own unsupported values must declare them."""
+    bare = [{"name": "target", "allowed": ["Global_active_power"]}]
+    report = interpret("forecast Voltage at 60 steps", bare, interpreter=Helpful())
+    assert report["status"] == STATUS_OK and report["parameters"]["target"] == "Global_active_power"
+
+
+def test_a_supported_value_is_unaffected_by_the_guard():
+    report = interpret("forecast household power", WITH_KNOWN_UNSUPPORTED, interpreter=Helpful())
+    assert report["status"] == STATUS_OK and report["parameters"] == {"target": "Global_active_power"}
+
+
+def test_an_unsupported_name_inside_a_longer_word_does_not_trigger_the_guard():
+    report = interpret("forecast household power for VoltageCity", WITH_KNOWN_UNSUPPORTED, interpreter=Helpful())
+    assert report["status"] == STATUS_OK

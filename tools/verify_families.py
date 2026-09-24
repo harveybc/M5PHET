@@ -22,7 +22,9 @@ import urllib.request
 REFUSALS = {
     "predictor_forecast": [
         ("forecast Global_active_power at 90 steps", "only has"),
-        ("forecast Voltage at 60 steps", "does not name a supported target"),
+        # `Voltage` is a column this bundle reads and does not forecast. The bundle declares it as known-and-unsupported,
+        # so naming it is refused before any interpreter is consulted -- which is what makes this refusal deterministic.
+        ("forecast Voltage at 60 steps", "answering the nearest one would answer a different question"),
     ],
 }
 
@@ -113,8 +115,14 @@ def main(argv=None):
                                        "for_the_right_reason": refused and fragment in str(answer.get("content")),
                                        "content": str(answer.get("content"))[:200]})
 
+    # A provider that ships an example a person clicks, which its own slots then refuse, is broken in the way that
+    # matters most: the first thing anyone tries fails. Observed for real once, so it is checked every run.
+    for family in report["families"]:
+        family["example_resolves"] = family["status"] == "OK"
+
     answered = [f for f in report["families"] if f["status"] == "OK"]
     report["summary"] = {"families_answering": len(answered), "families": len(report["families"]),
+                         "examples_that_resolve": sum(1 for f in report["families"] if f["example_resolves"]),
                          "refusals_correct": sum(1 for r in report["refusals"] if r["for_the_right_reason"]),
                          "refusals": len(report["refusals"]),
                          "any_execution_authorized": any(f["execution_authorized"] for f in report["families"])}

@@ -114,6 +114,30 @@ def _vocabulary(slots, names):
     return "; ".join(parts)
 
 
+def unsupported_named(prompt, slots):
+    """Values the person NAMED that this model does not have, using each slot's declared `known_unsupported` vocabulary.
+
+    This is the string analogue of `unsupported_numbers`, and it exists because of a failure observed in the running product.
+    Asked to forecast `Voltage` when the bundle holds only `Global_active_power`, the deterministic pass left the slot
+    unresolved and the question went to the interpreter -- which was asked to choose among the allowed values and helpfully
+    chose the only one. The answer came back as a confident forecast of a different series, and because a language model is
+    not deterministic it did so only sometimes.
+
+    A provider that can enumerate what it does NOT serve -- the other columns of its own bundle, the studies it did not fit --
+    declares them here, and naming one is refused before any interpreter is consulted."""
+    problems = {}
+    lowered = prompt.lower()
+    for slot in slots:
+        named = []
+        for value in slot.get("known_unsupported") or ():
+            token = str(value).lower()
+            if token and re.search(r"(?<![a-z0-9_])" + re.escape(token) + r"(?![a-z0-9_])", lowered):
+                named.append(value)
+        if named:
+            problems[slot["name"]] = {"named": sorted(named), "allowed": list(slot["allowed"])}
+    return problems
+
+
 class Interpreter:
     """The optional language model, reached through the operator's configured command.
 
@@ -178,8 +202,11 @@ def interpret(prompt, slots, *, interpreter=None):
               "reading": ("values are chosen from what the provider declared; nothing here can introduce a target, a "
                           "horizon or an option the fitted model does not have")}
 
-    # a value the person named that the model does not have must be refused BEFORE anything tries to be helpful
-    impossible = unsupported_numbers(prompt, slots)
+    # A value the person named that the model does not have must be refused BEFORE anything tries to be helpful. Both
+    # checks run first for the same reason: an interpreter asked to choose among allowed values will choose one, and a
+    # confident answer about the wrong series is worse than a refusal.
+    impossible = dict(unsupported_named(prompt, slots))
+    impossible.update(unsupported_numbers(prompt, slots))
     if impossible:
         field, detail = sorted(impossible.items())[0]
         return {**report, "status": STATUS_UNSUPPORTED,
