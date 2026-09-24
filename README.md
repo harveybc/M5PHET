@@ -156,6 +156,11 @@ Binary, ordinal and hierarchical request adapters are not yet part of this API.
 
 ## Delivery plan and acceptance
 
+Current implementation order: [one working Laya classification slice first,
+with domain plugins in parallel](docs/CLASSIFICATION_FIRST_DELIVERY.md).
+The first slice is EURUSD news relevance, with direct-SDK parity measured
+separately from business accuracy. It is not yet a verified real-model release.
+
 1. **Typed decisions:** preserve the working news-signal integration; add explicit
    binary/ordinal contracts and provider capability tests, reusing upstream SDKs.
 2. **Economic calendar:** map the actual governed dataset, build vintage-aware

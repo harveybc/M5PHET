@@ -1,5 +1,10 @@
 # Product implementation plan
 
+**Current delivery priority:** [classification-first execution and repository
+ownership](CLASSIFICATION_FIRST_DELIVERY.md). Complete real Laya-to-M5PHET parity
+for EURUSD news relevance first; independent domain adapters proceed in parallel.
+The tables below retain the original design inventory, not current execution status.
+
 This revision designs a framework, not five new model implementations. Existing
 classification code remains unchanged. All tests below except M1-M5 are
 **specified, not executed**. `test_product_spec.py` checks the documentation
