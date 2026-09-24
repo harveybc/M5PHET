@@ -137,3 +137,89 @@ def test_percent_renderings_of_a_probability_are_accepted():
 def test_the_deterministic_rendering_names_refusals():
     text = render(RESPONSE)
     assert "not answered" in text and "no predictive distribution" in text and "0.5412" in text
+
+
+# --- a data column is not a fitted target ---------------------------------------------------------------------------------
+
+class Bundled(Forecaster):
+    """A provider that declares its fitted vocabulary, as the real forecaster does through chat_slots()."""
+
+    def chat_slots(self):
+        return [{"name": "target", "allowed": ["Global_active_power"]}, {"name": "horizon", "allowed": [60], "type": "integer"}]
+
+
+def bundled_registry():
+    r = Registry()
+    r.register(Bundled())
+    return r
+
+
+HISTORY = {"values": [1.0, 2.0], "scale": "original", "scaler_digest": "abc"}
+
+
+def test_the_router_is_shown_the_fitted_vocabulary_not_only_the_datas_keys():
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 60, "target": "Global_active_power"}}}))
+    out = route("pronostica la potencia a una hora", HISTORY, bundled_registry(), interpreter=fixed)
+    assert out["status"] == "OK"
+    assert "Global_active_power" in fixed.asked[0] and "allowed_values" in fixed.asked[0]
+
+
+def test_a_data_key_proposed_as_the_target_is_refused_naming_the_fitted_targets():
+    """Seen in the browser: the model picked `values` -- a key of the attached JSON -- as the target, the proposal passed
+    the column check because `values` IS a key, and the engine refused. The refusal was honest; the experience was broken."""
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 60, "target": "values"}}}))
+    out = route("pronostica la potencia", HISTORY, bundled_registry(), interpreter=fixed)
+    assert out["status"] == "INVALID_PROPOSAL"
+    assert any("'values'" in p and "Global_active_power" in p for p in out["problems"])
+
+
+def test_an_unfitted_horizon_in_a_proposal_is_refused_before_running():
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 90, "target": "Global_active_power"}}}))
+    out = route("pronostica 90 pasos", HISTORY, bundled_registry(), interpreter=fixed)
+    assert out["status"] == "INVALID_PROPOSAL" and any("horizon 90" in p for p in out["problems"])
+
+
+def test_a_governed_value_is_not_mistaken_for_a_missing_data_column():
+    """`Global_active_power` is not a column of the attached history object; it is the fitted target, and must pass."""
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {"target_variable": "Global_active_power"},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 60, "target": "Global_active_power"}}}))
+    out = route("pronostica", HISTORY, bundled_registry(), interpreter=fixed)
+    assert out["status"] == "OK", out["problems"]
+
+
+# --- two bundles: the pair that no bundle has is refused before the person presses run ------------------------------------
+
+class TwoBundles(Forecaster):
+    def chat_slots(self):
+        return [{"name": "target", "allowed": ["Global_active_power", "direction_long"]},
+                {"name": "horizon", "allowed": [60, 1], "type": "integer",
+                 "aliases": {"60": ["one hour", "una hora", "60 minutes"], "1": ["next bar", "one step"]}}]
+
+    def chat_combinations(self):
+        return [{"target": "Global_active_power", "horizon": 60}, {"target": "direction_long", "horizon": 1}]
+
+
+def two_bundle_registry():
+    r = Registry()
+    r.register(TwoBundles())
+    return r
+
+
+def test_a_target_paired_with_the_other_bundles_horizon_is_refused_as_not_fitted():
+    """Seen in the browser: `Global_active_power` at horizon 1. Each value is admissible; the pair is nobody's."""
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 1, "target": "Global_active_power"}}}))
+    out = route("pronostica la potencia a una hora", HISTORY, two_bundle_registry(), interpreter=fixed)
+    assert out["status"] == "INVALID_PROPOSAL" and any("not a fitted combination" in p for p in out["problems"])
+
+
+def test_the_router_is_told_what_each_value_means_and_which_pairs_are_fitted():
+    fixed = Fixed(json.dumps({"area": "forecasting", "state": {},
+                              "questions": {"p": {"type": "point_forecast", "horizon": 60, "target": "Global_active_power"}}}))
+    out = route("pronostica la potencia a una hora", HISTORY, two_bundle_registry(), interpreter=fixed)
+    assert out["status"] == "OK"
+    shown = fixed.asked[0]
+    assert "una hora" in shown and "fitted_combinations" in shown and "direction_long" in shown

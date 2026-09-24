@@ -93,6 +93,19 @@ def _columns_named(obj):
     return found
 
 
+def _governed_values(task, governed):
+    """Values sitting in provider-governed fields are engine vocabulary, not data columns, and are checked as such."""
+    found = set()
+    for question in task["questions"].values():
+        for field in governed:
+            if isinstance(question.get(field), str):
+                found.add(question[field])
+    for field in governed:
+        if isinstance(task["state"].get(field), str):
+            found.add(task["state"][field])
+    return found
+
+
 def check_proposal(proposal, catalog, profile):
     """Validate what the model proposed. Returns (task_or_None, problems)."""
     problems = []
@@ -105,13 +118,37 @@ def check_proposal(proposal, catalog, profile):
         problems.append(f"no installed provider serves area {task['area']!r}")
         return None, problems
     declared = area.get("question_types") or {}
+    parameters = area.get("parameters") or {}
     for name, question in task["questions"].items():
         if question["type"] not in declared:
             problems.append(f"question {name!r}: type {question['type']!r} is not one this area answers "
                             f"({sorted(declared)})")
+        # a field the provider governs -- target, horizon, policy, study -- must hold one of its declared values. This is
+        # the check that stops a router from naming a DATA column as a fitted target and getting a confident refusal.
+        for field, allowed in parameters.items():
+            if field in question and question[field] not in allowed:
+                problems.append(f"question {name!r}: {field} {question[field]!r} is not one the engine has "
+                                f"({allowed})")
+    # `state.target_variable` is the owner's spelling of the forecaster's `target`; both are governed by the same list
+    aliases = {"target_variable": "target"}
+    combinations = area.get("combinations") or []
+    if combinations:
+        # a target and a horizon may each be admissible and still not be fitted TOGETHER: two bundles, two horizons,
+        # and the pair that no bundle has is refused here rather than by the engine after the person pressed run
+        keys = sorted({k for c in combinations for k in c})
+        for name, question in task["questions"].items():
+            named = {k: question[k] for k in keys if k in question}
+            if len(named) >= 2 and not any(all(c.get(k) == v for k, v in named.items()) for c in combinations):
+                problems.append(f"question {name!r}: {named} is not a fitted combination; the engine has "
+                                f"{combinations}")
+    for field, allowed in parameters.items():
+        for spelling in [field] + [a for a, canonical in aliases.items() if canonical == field]:
+            if spelling in task["state"] and task["state"][spelling] not in allowed:
+                problems.append(f"state.{spelling} {task['state'][spelling]!r} is not one the engine has ({allowed})")
+    governed = set(parameters) | {a for a, canonical in aliases.items() if canonical in parameters}
     if profile.get("columns"):
         known = set(profile["columns"])
-        for column in sorted(_columns_named(task)):
+        for column in sorted(_columns_named(task) - _governed_values(task, governed)):
             if column not in known:
                 problems.append(f"column {column!r} is not in the attached data ({profile['columns'][:12]}...)"
                                 if len(profile["columns"]) > 12 else
@@ -134,12 +171,20 @@ def route(prompt, data, registry, *, interpreter=None):
         return {**report, "status": "REFUSED", "proposal": None, "problems": [],
                 "why": ("no interpreter is configured, so a sentence cannot be routed; write the envelope directly "
                         "(area, state, questions) or configure M5PHET_INTERPRETER_COMMAND")}
-    served = {area: spec for area, spec in catalog.items() if spec.get("provider")}
+    served = {area: {"provider": spec["provider"], "question_types": spec["question_types"],
+                     "allowed_values": spec.get("parameters") or {},
+                     "value_meanings": spec.get("aliases") or {},
+                     "fitted_combinations": spec.get("combinations") or []}
+              for area, spec in catalog.items() if spec.get("provider")}
     instruction = (
         "Return ONLY one compact JSON object and no prose.\n"
         "You are routing a request to a machine-learning engine. Choose the area, describe the state, and write the "
-        "questions, using ONLY the areas and question types listed and ONLY column names present in the data profile. "
-        "Never invent a column, a type or a field. If the request cannot be served by any listed area, return "
+        "questions, using ONLY the areas and question types listed. Where an area lists allowed_values for a field "
+        "(target, horizon, policy_id, study, ...), that field MUST take one of those values -- they are what the fitted "
+        "engine has, and a column name from the data is NOT a substitute. value_meanings gives the ordinary phrasings "
+        "each value stands for (e.g. which horizon means 'one hour'). Where fitted_combinations is given, the fields of a "
+        "question MUST together match ONE listed combination. Use data column names only for fields that have no "
+        "allowed_values. Never invent a column, a type or a field. If the request cannot be served, return "
         '{"area": null, "why": "<one sentence>"}.\n'
         f"Request: {json.dumps(prompt)}\n"
         f"Data profile (the shape only; you are not shown rows): {json.dumps(profile)}\n"

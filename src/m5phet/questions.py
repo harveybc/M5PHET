@@ -201,5 +201,51 @@ def catalog(registry):
             out[area] = {"provider": None, "error": str(error), "question_types": {}}
             continue
         out[area] = {"provider": provider.name if provider else None,
-                     "question_types": declared_types(provider) if provider else {}}
+                     "question_types": declared_types(provider) if provider else {},
+                     # the values a question field may take, straight from the provider's declared slots: the fitted
+                     # targets and horizons, the retained studies, the policy. A router shown only the data's columns
+                     # will pick one of THOSE as a target, and a column is not a fitted target.
+                     "parameters": declared_parameters(provider) if provider else {},
+                     "aliases": declared_aliases(provider) if provider else {},
+                     "combinations": declared_combinations(provider) if provider else []}
     return out
+
+
+def declared_parameters(provider):
+    """The provider's slot vocabulary as {field: [allowed values]}, or {} when it declares none."""
+    method = getattr(provider, "chat_slots", None)
+    if not callable(method):
+        return {}
+    try:
+        slots = method() or []
+    except Exception:                                                   # noqa: BLE001
+        return {}
+    return {slot["name"]: list(slot["allowed"]) for slot in slots
+            if isinstance(slot, dict) and slot.get("name") and isinstance(slot.get("allowed"), list)}
+
+
+def declared_aliases(provider):
+    """Ordinary phrasings per value, from the slots: "one hour" for horizon 60. A router that is shown only the number
+    60 has no way to know a person's "una hora" means it."""
+    method = getattr(provider, "chat_slots", None)
+    if not callable(method):
+        return {}
+    try:
+        slots = method() or []
+    except Exception:                                                   # noqa: BLE001
+        return {}
+    return {slot["name"]: slot["aliases"] for slot in slots
+            if isinstance(slot, dict) and slot.get("name") and isinstance(slot.get("aliases"), dict)}
+
+
+def declared_combinations(provider):
+    """The jointly valid values, when a provider serves more than one fitted state. A flat union of targets and horizons
+    lets a router pair a target with a horizon no bundle has; the combinations are what is actually fitted."""
+    method = getattr(provider, "chat_combinations", None)
+    if not callable(method):
+        return []
+    try:
+        combinations = method() or []
+    except Exception:                                                   # noqa: BLE001
+        return []
+    return [dict(c) for c in combinations if isinstance(c, dict)]
