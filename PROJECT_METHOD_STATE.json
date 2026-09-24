@@ -1,6 +1,16 @@
 {
   "schema": "m5phet.method.v1",
-  "current_stage": "user_questions_pilot_verified_installed_release_and_forecast_slice_pending",
+  "current_stage": "installed_questions_accepted_forecast_delivery_parallel_to_lifecycle_repairs",
+  "cl14_cl19_review_20260924": {
+    "orders": "docs/CL14_CL19_REVIEW_CONTINUATION.md",
+    "candidates": {"runtime": "3f4a833", "news-signal": "317dd35", "calendar": "d081d0f"},
+    "accepted": "Clean declared installation, explicit fixture ask and restart; recorded collector positive; previous real Laya parity retained",
+    "remaining": ["queue retry and identity integrity", "repeated shadow corruption recovery", "calendar publication ordering and vintage lineage", "CL17 native question-to-forecast not started"],
+    "scope": "Independent CPU fixture audit, no new inference or model quality measurement",
+    "next_actions": ["CL20/21 scoped repairs", "CL22 deliver outstanding forecast slice concurrently", "CL23 consumer integration and broker preparation", "CL24 all-lane return"],
+    "global_hold": false,
+    "new_training_budget": false
+  },
   "cl08_cl13_review_20260924": {
     "orders": "docs/CL08_CL13_REVIEW_CONTINUATION.md",
     "candidates": {"runtime": "3f4a833", "news-signal": "e40098b", "calendar": "1a0402e"},
@@ -33,7 +43,7 @@
     },
     "input": ["data_or_reference", "description_context", "natural_language_question", "optional_answer_schema"],
     "design": "docs/NATURAL_LANGUAGE_INTERFACE.md",
-    "acceptance": "NL01 choice implemented with retained native parity; clean deployment fails task-kind pin. NL02-NL08 remaining work retains its scoped status",
+    "acceptance": "NL01 retained native parity; clean declared installation and explicit fixture ask accepted at317dd35. NL02-NL08 remain scoped pending work",
     "routes": ["native_question_conditioned_provider", "interpreted_validated_task_to_specialized_engine"],
     "interpreter_deployment": {
       "first_candidate": "Existing supported Hermes/OpenCode language access; owner names DeepSeek Flash, exact provider/model and entitlement to be verified",
@@ -42,7 +52,7 @@
       "permissions": "No model-generated code execution, broker actions or implicit raw-data upload",
       "status": "ASSIGNED_NOT_DEPLOYED_OR_BENCHMARKED"
     },
-    "next_actions": ["Release the implemented question path with its actual compatible dependency", "Implement parallel question-to-forecast binding with native engine parity"],
+    "next_actions": ["Preserve accepted installed question path", "Deliver parallel question-to-forecast binding with native engine parity"],
     "new_repository": false,
     "new_training_budget": false,
     "changes_existing_running_job": false
@@ -50,7 +60,7 @@
   "classification_first_delivery": {
     "orders": "docs/CLASSIFICATION_FIRST_DELIVERY.md",
     "primary_task": "English news relevance to EURUSD: related/unrelated/unclear",
-    "runtime_reviewed": "3f4a833 + news-signal e40098b: two user questions with retained native parity; clean deployment and store/token edge cases pending",
+    "runtime_reviewed": "3f4a833 + news-signal317dd35: clean fixture ask installed; prior real-question parity retained; queue and repeated shadow recovery gaps",
     "setup": "Real-weight pilot delivered; current live host state not checked in this review",
     "acceptance": "CL01-CL07 specified before implementation; native SDK parity and domain quality reported separately",
     "owners": {
