@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "m5phet"
 version = "0.1.0"
-description = "Typed ML contracts and a five-domain open research program"
+description = "Typed machine-learning interfaces for decisions, forecasting and policies"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

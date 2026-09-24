@@ -1,12 +1,24 @@
 {
   "schema": "m5phet.method.v1",
-  "current_stage": "integration_verification",
+  "current_stage": "product_design_v2_acceptance_specified_runtime_pending",
+  "product_design": {
+    "identity": "typed_machine_learning_framework",
+    "use_cases": "specs/use_cases.json",
+    "interfaces": "docs/INTERFACES.md",
+    "calendar": "docs/ECONOMIC_CALENDAR.md",
+    "implementation_plan": "docs/IMPLEMENTATION_PLAN.md",
+    "behavioral_acceptance": "PENDING_IMPLEMENTATION",
+    "design_tests_scope": "Inventory consistency only; not provider or model validation"
+  },
   "implemented": ["classification_result_contract"],
   "planned": ["regression_forecasting", "representation_unsupervised", "reinforcement_learning", "causal_inference"],
   "traceability": "docs/DESIGN.md",
   "consumer": "https://github.com/harveybc/news-signal",
   "model_performance_measured": false,
   "real_capital_authorized": false,
-  "next_actions": ["Verify news-signal uses pinned contract package", "Real Laya smoke in the existing parallel plan", "Specify each subsequent task family with its actual consumer and oracle"],
-  "history": [{"date": "2026-09-24", "action": "Owner approved M5PHET identity; classification contract tests designed before code; other engines remain proposal-only"}]
+  "next_actions": ["Keep existing experiments and real Laya smoke independent", "Implement capability and primitive adapters after P01/P02 negative tests", "Map actual economic dataset and implement CAL01-CAL12 before calendar consumer use", "Connect real forecasting/representation/RL engines; causal analysis requires its own identification study"],
+  "history": [
+    {"date": "2026-09-24", "action": "Owner approved M5PHET identity; classification contract tests designed before code; other engines remain proposal-only"},
+    {"date": "2026-09-24", "action": "Owner clarified executable typed-ML framework, not research-program branding; use cases, provider lifecycle, calendar vintages, acceptance tests and consumer ownership specified. Runtime unchanged; no GPU work, model evaluation or broker action."}
+  ]
 }

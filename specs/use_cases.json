@@ -1,0 +1,61 @@
+{
+  "schema": "m5phet.product_spec.v2",
+  "status": "DESIGN_ONLY",
+  "families": ["classification", "regression_forecasting", "representation_unsupervised", "reinforcement_learning", "causal_inference"],
+  "use_cases": [
+    {
+      "id": "UC-01", "family": "classification", "consumer": "news-signal",
+      "inputs": ["text_or_records", "asset_context", "typed_questions"],
+      "outputs": ["choice", "binary_probability", "ordinal_distribution", "abstention"],
+      "requirements": ["P01", "P02", "P08"],
+      "refusals": ["UNSUPPORTED_TASK", "INVALID_INPUT", "INPUT_UNAVAILABLE"],
+      "evaluation": ["upstream_parity", "labelled_accuracy", "calibration", "selective_risk"],
+      "depends_on": [], "implementation": "CHOICE_RESULT_CONTRACT_ONLY"
+    },
+    {
+      "id": "UC-02", "family": "data_transform", "consumer": "feature-eng",
+      "inputs": ["schedule_vintages", "consensus_vintages", "actual_and_revision_vintages", "availability_evidence"],
+      "outputs": ["as_of_calendar", "surprise", "missingness", "field_lineage"],
+      "requirements": ["P03", "P08"],
+      "refusals": ["INPUT_UNAVAILABLE", "INVALID_INPUT"],
+      "evaluation": ["CAL01", "CAL02", "CAL03", "CAL04", "CAL05", "CAL06", "CAL07", "CAL08", "CAL09", "CAL10", "CAL11", "CAL12"],
+      "depends_on": [], "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": "UC-03", "family": "representation_unsupervised", "consumer": "feature-extractor",
+      "inputs": ["causal_windows", "calendar_features", "fitted_encoder_and_hierarchy"],
+      "outputs": ["embedding", "hierarchy_path", "assignment_method", "novelty", "missingness"],
+      "requirements": ["P02", "P04", "P08", "P09"],
+      "refusals": ["MODEL_NOT_FITTED", "INPUT_UNAVAILABLE", "INVALID_INPUT"],
+      "evaluation": ["future_perturbation", "new_point_assignment", "stability", "downstream_utility"],
+      "depends_on": ["UC-02"], "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": "UC-04", "family": "regression_forecasting", "consumer": "prediction_provider",
+      "inputs": ["causal_windows", "calendar_features", "target_contract", "fitted_model", "calibration"],
+      "outputs": ["target_horizon_points", "quantiles_or_distribution", "uncertainty_method", "scale_and_units"],
+      "requirements": ["P02", "P05", "P08", "P09"],
+      "refusals": ["UNSUPPORTED_TASK", "CALIBRATION_UNAVAILABLE", "INPUT_UNAVAILABLE"],
+      "evaluation": ["same_row_naive", "matched_reference", "MAE_z", "coverage_and_width", "pinball_or_CRPS"],
+      "depends_on": ["UC-02"], "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": "UC-05", "family": "reinforcement_learning", "consumer": "agent-multi",
+      "inputs": ["as_of_observation", "calendar_features", "portfolio", "pending_orders", "policy_release"],
+      "outputs": ["action_proposal", "action_units", "valid_until", "optional_policy_and_value"],
+      "requirements": ["P02", "P06", "P08", "P09"],
+      "refusals": ["INPUT_UNAVAILABLE", "INVALID_INPUT", "MODEL_NOT_FITTED"],
+      "evaluation": ["weekly_release", "actual_execution_path", "net_return_and_cost", "drawdown", "turnover", "Sharpe_with_temporal_support"],
+      "depends_on": ["UC-02"], "implementation": "NOT_IMPLEMENTED"
+    },
+    {
+      "id": "UC-06", "family": "causal_inference", "consumer": "offline_causal_analysis",
+      "inputs": ["vintage_correct_releases", "treatment", "outcome", "pre_treatment_covariates", "graph_and_assumptions", "estimand"],
+      "outputs": ["identification_status", "identified_effect_if_supported", "uncertainty_method", "sensitivity"],
+      "requirements": ["P02", "P07", "P08", "P09"],
+      "refusals": ["NOT_IDENTIFIED", "INPUT_UNAVAILABLE", "INVALID_INPUT"],
+      "evaluation": ["known_effect_fixture", "confounded_control", "support", "placebo_and_sensitivity"],
+      "depends_on": ["UC-02"], "implementation": "NOT_IMPLEMENTED"
+    }
+  ]
+}

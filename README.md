@@ -1,80 +1,116 @@
 # M5PHET
 
-**Master's 5PHET**: an open research program for five typed machine-learning
-fronts, sharing reproducibility and distributed evaluation without requiring
-one model to solve every problem. The name honours mentorship; the work and
-its evidence take precedence over personal branding.
+**Typed machine-learning interfaces for applications that need decisions,
+forecasts, market representations and policies, not generated prose.**
 
-## Status: a foundation, not five completed engines
+M5PHET (Master's 5PHET) is being built as a Python framework: supply text,
+structured records or time series, specify a task and its output contract, and
+use a suitable engine through a common interface. Its first application domain
+is algorithmic trading, starting with news and **point-in-time economic calendar
+data**. The interfaces are intended for other domains too.
 
-Version 0.1.0 implements a small, dependency-free **classification result
-contract**. [news-signal](https://github.com/harveybc/news-signal) is its first
-consumer: a local Laya adapter for shadow news analysis. The remaining four
-fronts below are a research and implementation roadmap, not working backends.
-There is no general inference service, broker, scheduler or universal learner
-in this package. No financial performance has been demonstrated here.
+**Release status:** v0.1.0 implements the classification result contract consumed
+by [news-signal](https://github.com/harveybc/news-signal). The provider runtime,
+calendar integration and other task contracts below are designed, not shipped.
+There is no five-engine inference service or demonstrated trading advantage yet.
 
-## Five fronts
+## What you will be able to ask
 
-This is the program's operational grouping, not a universal taxonomy of ML.
+These are five supported-by-design **task families**, not a claim that machine
+learning has exactly five branches.
 
-| Front | Intended output and acceptance | Current implementation |
-|---|---|---|
-| Classification | Declared classes, probabilities, calibration scope and abstention; matched labelled evaluation | Uncalibrated result contract; Laya adapter in news-signal |
-| Regression / forecasting | Variables and horizons with timestamps, units, point estimates or distributions; same-population baselines and interval coverage | Planned |
-| Representation / unsupervised learning | Embeddings, clusters, novelty/OOD and missingness; downstream utility and stability tests | Planned |
-| Reinforcement learning | Policy/actions/value estimates with environment and reward contracts; evaluated sequential behavior | Planned |
-| Causal inference | Estimand, population, intervention, assumptions, identification, effect uncertainty and sensitivity | Planned |
+| Task family | Application question | Structured result | Engine boundary |
+|---|---|---|---|
+| Classification | Is this release relevant to EURUSD? What event type is it? How hawkish is this statement on a defined rubric? | Categories, binary probabilities or ordinal distributions, with abstention and calibration scope | Reuse Laya; optional Jev interoperability, not a new text classifier |
+| Regression / forecasting | What are the price or return forecasts at 6 h and 72 h, and their uncertainty? | Target/horizon-indexed points, quantiles or predictive distributions with units and calibration evidence | Existing predictor models and matched forecasting engines |
+| Representation / unsupervised learning | Which hierarchical market state describes the observable history? Is the current state unfamiliar? | Versioned embedding, cluster path, novelty score and missingness | Fitted temporal encoders and clustering engines, not text labels invented after a trade |
+| Reinforcement learning | Given the market state, calendar and portfolio, what position should the policy target? | Proposed action, policy/value outputs when supported, validity and constraints | Existing agent-multi/gym-fx; execution remains in LTS |
+| Causal inference | Under explicit assumptions, what is the effect of a release surprise on subsequent returns or volatility? | Identified estimand, effect and uncertainty, diagnostics; or NOT_IDENTIFIED | Specialized causal tools and a declared study design |
 
-Distributed optimization is **cross-cutting**, through the existing DOIN
-ecosystem. It does not replace task-specific objectives or identification.
-Classification confidence, forecast intervals and causal confidence intervals
-are different mathematical objects, not interchangeable fields named confidence.
+See [real-world use cases](docs/USE_CASES.md), [interface design](docs/INTERFACES.md)
+and the [economic calendar contract](docs/ECONOMIC_CALENDAR.md).
 
-## Architecture and repository boundaries
+## Why M5PHET instead of calling Laya directly?
+
+**For standalone text decisions, call Laya or Jev directly.** Jev's documented
+pattern is state plus typed questions; Laya offers a local implementation of
+similar decision primitives. Those existing APIs are the starting point, not
+something M5PHET needs to reinvent. See the [official Jev introduction](https://docs.typesafe.ai/introduction)
+and [Laya source](https://github.com/NandhaKishorM/laya).
+
+M5PHET adds value when a workflow combines heterogeneous models: a release
+classifier, a market-state encoder, an uncertain forecast and a trading policy.
+The framework's responsibility is to preserve their **input availability,
+output meaning, fitted state, uncertainty and compatibility** across composition.
+An ordinal tone score cannot silently become an expected return; a forecast
+interval cannot silently become a causal confidence interval.
+
+## Calendar-first application architecture
 
 ```text
-                 M5PHET task-specific contracts and evaluation protocols
-                 / classification / forecasting / representation / RL / causal
-data-gov -> task data -> specialized engine -> typed evidence -> application
-                            ^
-                  DOIN evaluates/searches eligible candidates
+economic releases + consensus vintages + prices + optional news
+                    |
+             point-in-time assembly
+                    |
+       +------------+------------------+
+       |                               |
+ typed event decisions        temporal market representation
+ (Laya/news-signal)            (prices + calendar + observed releases)
+       |                               |
+       +---------------+---------------+
+                       |
+          multi-horizon forecast / RL policy
+                       |
+          existing risk and execution boundary
+                 MT5 demo / Alpaca paper
 
-first application: news-signal -> future evaluated policy -> existing LTS risk
-                                                     -> MT5 demo / Alpaca paper
+causal studies: offline, using explicitly identified data and assumptions
+DOIN: fit/search/evaluation across eligible providers, not an inference engine
 ```
 
-- M5PHET owns the shared program and small task contracts, not existing engines.
-- [news-signal](https://github.com/harveybc/news-signal) owns news interpretation
-  and consumes the classification contract. Laya is one candidate engine.
-- [predictor](https://github.com/harveybc/predictor) retains forecasting work;
-  [agent-multi](https://github.com/harveybc/agent-multi) retains RL work.
-- [doin-core](https://github.com/harveybc/doin-core) and related DOIN repositories
-  retain distributed search; their generalized adapters remain to be evaluated.
-- [data-gov](https://github.com/harveybc/data-gov) remains provenance/accounting
-  authority; [trading-contracts](https://github.com/harveybc/trading-contracts)
-  and [lts](https://github.com/harveybc/lts) retain trading intent/risk/execution.
+The scheduled time of a release may be known in advance; its actual value is
+not. Consensus, release values and revisions keep separate observation times.
+Before release, use known schedule features. After receipt, use the observed
+surprise. Geopolitical text is a later extension, not a reason to postpone the
+structured calendar pipeline or to infer unpublished economic numbers from text.
 
-No consumer should depend on a news-specific module to implement causal or RL
-tasks. No classifier or optimization worker is authorized to place an order.
+## Interface and repository boundaries
 
-## Engine-selection policy
+Planned interface: `TaskRequest -> capability check -> bound provider -> TaskResult`.
+Requests declare task, typed input, clock, output schema and model/calibration
+references. Providers declare which operations and output types they support.
+Inference never fits a model implicitly. Unsupported tasks return a typed refusal.
 
-Use the strongest suitable open-source tools supported by a **matched task**,
-not a permanent favourite or an unqualified SOTA label. Pin source/weights,
-license and data provenance; reproduce the relevant reference; compare accuracy,
-calibration, causal support, cost, resource use and deployment constraints.
-Engine selection is per task/domain, with explicit evidence and limitations.
-Do not claim current winners in the four unimplemented fronts.
+| Repository | Ownership |
+|---|---|
+| M5PHET | Task contracts, capability negotiation, provider interfaces and composition validation |
+| [news-signal](https://github.com/harveybc/news-signal) | Laya adapter and news/event interpretation |
+| [predictor](https://github.com/harveybc/predictor), [prediction_provider](https://github.com/harveybc/prediction_provider) | Forecast training and serving |
+| [feature-extractor](https://github.com/harveybc/feature-extractor), [feature-eng](https://github.com/harveybc/feature-eng) | Learned representations and feature transformations |
+| [agent-multi](https://github.com/harveybc/agent-multi), [gym-fx](https://github.com/harveybc/gym-fx) | Policies, training and trading environments |
+| [data-gov](https://github.com/harveybc/data-gov), [data-lake](https://github.com/harveybc/data-lake), [data-warehouse](https://github.com/harveybc/data-warehouse) | Data delivery, storage and experiment accounting |
+| [doin-core](https://github.com/harveybc/doin-core) | Distributed optimization |
+| [lts](https://github.com/harveybc/lts), [trading-contracts](https://github.com/harveybc/trading-contracts) | Risk, intent validation and broker execution |
 
-Laya can be tested as a classifier, textual representation branch, or an
-adapted head. A wrapper alone does not turn ordinal scores into regression,
-create a calibrated joint forecast, or identify causal effects. Multi-horizon
-direct heads and joint multi-output forecasting are separate proposed contrasts.
+These are integration boundaries, not claims that all adapters already exist.
+No classifier, forecast or causal estimate authorizes an order.
 
-## Installation and working example
+## Choosing engines
 
-Python >=3.10; no runtime dependencies. Git source install:
+Use task-matched open-source implementations and reproduce their reference
+protocols before making comparative claims. Compare predictive performance,
+uncertainty, cost and deployment suitability under the same data contract.
+There is no permanent best model for every task. Existing successful models must
+not be replaced by toy implementations just to fit a common API.
+
+[Provider decisions](docs/PROVIDERS.md) distinguish upstream capabilities,
+integration candidates and evidence still required. Bayesian output heads,
+ensembles and calibrated quantiles are forecasting options, not interchangeable
+labels for guaranteed uncertainty. A provider must declare its actual method.
+
+## Install and use what exists today
+
+Python >=3.10; the current contract library has no runtime dependencies.
 
 ```bash
 git clone https://github.com/harveybc/M5PHET.git
@@ -91,52 +127,53 @@ result = make_classification_result(
     {"tone": {"label": "positive",
               "uncalibrated_probabilities": {"positive": 0.75, "negative": 0.25}}},
     expected_labels={"tone": ["positive", "negative"]},
-    input_sha256="a" * 64,  # illustrative only; real callers compute hashes
+    input_sha256="a" * 64,  # illustrative; real callers compute these hashes
     model_sha256="b" * 64,
     task_sha256="c" * 64,
 )
 assert result["execution_authorized"] is False
 ```
 
-The builder checks exact task/label coverage, finite nonboolean probabilities,
-declared rounding precision, argmax consistency and SHA256 shape. It snapshots
-inputs and hashes the resulting envelope. It does not authenticate the producer,
-recompute the model, certify calibration or establish data-gov acceptance.
-Other result families are deliberately not accepted by this classification API.
+This validates and snapshots already computed class results. It does not run a
+model. For the implemented classifier application, use the
+[news-signal fixture CLI](https://github.com/harveybc/news-signal#reproducible-fixture-demo).
+The builder validates exact populations, finite probabilities, declared rounding,
+argmax and identity shape; hashes do not authenticate a producer or calibrate it.
+Binary, ordinal and hierarchical request adapters are not yet part of this API.
 
-## Testing and traceability
+## Delivery plan and acceptance
 
-[Design and requirement matrix](docs/DESIGN.md), [method state](PROJECT_METHOD_STATE.json)
-and `tests/test_contract.py` distinguish software validation from scientific
-evidence. Tests include empty/missing/extra populations, duplicate labels,
-NaN/inf/bool/oversized integers, wrong argmax, identity errors and rounding.
-The downstream news-signal CLI verifies the package is actually consumed.
-No model downloads, GPU jobs, broker calls or financial conclusions in this suite.
+1. **Typed decisions:** preserve the working news-signal integration; add explicit
+   binary/ordinal contracts and provider capability tests, reusing upstream SDKs.
+2. **Economic calendar:** map the actual governed dataset, build vintage-aware
+   as-of views and prospective receipt collection; test boundary and revision cases.
+3. **Market representation and forecasting:** connect existing engines, expose
+   hierarchical state and multi-horizon uncertainty; evaluate calendar ablations.
+4. **RL and causal analysis:** integrate the same as-of features into trading
+   environments and run separately identified causal studies. Neither is a shortcut
+   around forecast evaluation or execution risk checks.
 
-## Using with an agent
+These are dependency-aware increments, not a global serial queue. Existing
+experiments and independent tasks continue in parallel. Exact acceptance tests,
+ownership and entry conditions are in [IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
 
-Read [AGENTS.md](AGENTS.md), the method state and design first. Choose a bounded
-task family, define its output semantics and negative tests, then implement its
-adapter. Reuse existing engines and validators. Keep unsupported tasks explicit;
-do not return fabricated confidence, blanket VERIFIED states or successful stubs.
-Parallel work must not interrupt experiments, bypass provenance or mutate brokers.
+## Testing and agent usage
 
-## Roadmap and collaboration
+Read [AGENTS.md](AGENTS.md), [DESIGN.md](docs/DESIGN.md) and
+[PROJECT_METHOD_STATE.json](PROJECT_METHOD_STATE.json) before changes.
+`tests/test_contract.py` validates the shipped classification contract.
+`tests/test_product_spec.py` checks the design inventory's internal consistency,
+not unimplemented model behavior. Future behavior tests are explicitly pending.
+No weights, GPUs, broker requests or scientific outcomes are produced by these tests.
 
-1. Exercise the real Laya checkpoint and prospective news-signal application.
-2. Specify each next family's contract with an actual consumer and independent
-   oracle, including temporal support and distinct uncertainty semantics.
-3. Reproduce task-matched open-source references before engine comparisons.
-4. Add bounded DOIN adapters with task-specific fitness and reproducible evidence.
-5. Evaluate transfer/fusion and multi-task components as experiments, not defaults.
+Agents must implement bounded increments against real consumers, preserve
+availability and schema semantics, and run negative tests through actual adapters.
+Never advertise a schema example as a running provider or a probability as profit.
 
-The [combined Laya submission](docs/SUBMISSION.md) links the general proposal
-and its concrete application. The broader program is a collaboration proposal;
-it is not claimed as a completed Laya feature set. No form has been submitted.
+## Submission, license and attribution
 
-## License and attribution
-
-MIT for this package, see [LICENSE](LICENSE). Engines, weights and datasets retain
-their own licenses. Project-facing attribution uses M5PHET contributors. Hosting
-under an existing GitHub account and preserving Git history are not anonymity.
-Independent project, not affiliated with ConvAI or the Laya community directory.
+[Submission draft](docs/SUBMISSION.md) links M5PHET and its first application;
+it distinguishes this framework design from released functionality. Not submitted.
+MIT for this package; see [LICENSE](LICENSE). Provider code, weights and datasets
+retain their own licenses. Independent project, not affiliated with TypeSafe,
+ConvAI or the Laya directory. Existing GitHub attribution is not anonymity.
