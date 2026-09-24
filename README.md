@@ -3,7 +3,7 @@
 **Typed machine-learning interfaces for applications that need decisions,
 forecasts, market representations and policies, not generated prose.**
 
-M5PHET (Master's 5PHET) is being built as a Python framework: supply text,
+M5PHET is being built as a Python framework: supply text,
 structured records or time series, specify a task and its output contract, and
 use a suitable engine through a common interface. Its first application domain
 is algorithmic trading, starting with news and **point-in-time economic calendar
