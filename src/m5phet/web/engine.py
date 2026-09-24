@@ -9,6 +9,7 @@ import shlex
 import subprocess
 from datetime import datetime, timezone
 
+from m5phet.interpret import STATUS_OK, Interpreter, interpret
 from m5phet.runtime import Registry, request_digest, run
 
 
@@ -91,6 +92,7 @@ class Engine:
         self.remote = os.getenv("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
         self.remote_command = os.getenv("M5PHET_CHAT_LAYA_COMMAND", "")
         self.remote_caps = None
+        self.interpreter = Interpreter()
         if self.remote:
             try:
                 self.remote_caps = self._remote({"action": "describe"}).get("capabilities")
@@ -128,10 +130,12 @@ class Engine:
                                "config": {"input": "text", "provider": "laya_news", "family": "classification", "output_kind": "typed_questions",
                                           "options": [["euro_area", "Euro area"], ["united_states", "United States"], ["other", "Another economy"]]}})
         return {"providers": providers, "examples": examples, "discovery": self.discovery,
-                "defaults": DEFAULT_CONFIG, "profile": "LOCAL_UNGOVERNED", "execution_authorized": False}
+                "defaults": DEFAULT_CONFIG, "profile": "LOCAL_UNGOVERNED", "execution_authorized": False,
+                "interpreter": self.interpreter.identity()}
 
     def execute(self, prompt, config, attachments):
         config = validate_config(config)
+        interpretation = None
         provider = self.registry.get(config["provider"])
         if provider is None:
             raise ValueError(f"Provider '{config['provider']}' is not installed; no fallback was used")
@@ -183,7 +187,23 @@ class Engine:
                 raise ValueError(f"'{config['provider']}' has no question adapter yet; use an explicit typed request")
             context = data[0] if len(data) == 1 else data if data else config["context"]
             adapter_config = {key: config[key] for key in ("input", "provider", "family", "output_kind", "state", "parameters")}
-            request = builder(prompt, context, adapter_config | {"as_of": as_of})
+            adapter_config["as_of"] = as_of
+            # A provider that declares slots is telling us which parameters its engine needs and which values it can
+            # accept. Ordinary phrasing is resolved against THAT vocabulary -- by the words first, and only then by the
+            # configured interpreter, which may choose among those values and can introduce none.
+            slots = getattr(provider, "chat_slots", None)
+            if callable(slots):
+                declared = slots()
+                if declared:
+                    resolution = interpret(prompt, declared, interpreter=self.interpreter)
+                    if resolution["status"] != STATUS_OK:
+                        raise ValueError(resolution["why"])
+                    interpretation = resolution
+                    request = builder(prompt, context, adapter_config, parameters=resolution["parameters"])
+                else:
+                    request = builder(prompt, context, adapter_config)
+            else:
+                request = builder(prompt, context, adapter_config)
             if not isinstance(request, dict) or request.get("operation") != "infer":
                 raise ValueError("Question adapters must produce infer requests; chat does not authorize training")
             for field, selected in (("provider_ref", "provider"), ("family", "family"), ("output_kind", "output_kind")):
@@ -196,4 +216,5 @@ class Engine:
         else:
             result = run(request, self.registry)
         return {"request": request, "result": result, "profile": "LOCAL_UNGOVERNED",
-                "backend": caps.get("backend", "declared_provider"), "execution_authorized": False}
+                "backend": caps.get("backend", "declared_provider"), "execution_authorized": False,
+                "interpretation": interpretation}
