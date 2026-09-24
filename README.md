@@ -1,6 +1,6 @@
 # M5PHET
 
-**Master's 5PHET**: an open research program for five typed machine-learning
+**M5PHET**: an open research program for five typed machine-learning
 fronts, sharing reproducibility and distributed evaluation without requiring
 one model to solve every problem. The name honours mentorship; the work and
 its evidence take precedence over personal branding.
