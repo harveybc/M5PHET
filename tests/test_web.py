@@ -86,7 +86,14 @@ def test_upload_identity_scope_and_validation(setup):
     assert c.post(url, files={"file": ("bad.json", b'{"a":1,"a":2}', "application/json")}).status_code == 422
     assert c.post(url, files={"file": ("bad.csv", b"a,a\n1,2\n", "text/csv")}).status_code == 422
     assert c.post(url, files={"file": ("code.py", b"exit()", "text/plain")}).status_code == 422
-    assert c.post(url, files={"file": ("large.txt", b"a" * (8 * 1024 * 1024 + 1), "text/plain")}).status_code == 413
+    oversize = c.post(url, files={"file": ("large.txt", b"a" * (8 * 1024 * 1024 + 1), "text/plain")})
+    assert oversize.status_code == 413
+    # A refusal that does not name the limit leaves someone holding a 10 MB CSV with nothing to act on. The multipart
+    # parser answers "there was an error parsing the body" on its own, so the size is refused before it parses anything.
+    assert "8 MiB" in oversize.json()["detail"]
+    clearly_over = c.post(url, files={"file": ("huge.txt", b"a" * (9 * 1024 * 1024), "text/plain")})
+    assert clearly_over.status_code == 413 and "9.0 MiB" in clearly_over.json()["detail"]
+    assert c.post(url, files={"file": ("fits.txt", b"a" * (7 * 1024 * 1024), "text/plain")}).status_code == 201
 
 
 def test_native_runtime_and_send_idempotency(setup):

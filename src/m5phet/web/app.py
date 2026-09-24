@@ -48,6 +48,8 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         yield
         pool.shutdown(wait=True)
 
+    ATTACHMENT_LIMIT = 8 * 1024 * 1024
+
     app = FastAPI(title="M5PHET Chat", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
     @app.middleware("http")
@@ -63,6 +65,14 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         if access_token and request.url.path.startswith("/api/") and request.url.path != "/api/login":
             if not hmac.compare_digest(request.cookies.get("m5phet_owner", ""), cookie):
                 return JSONResponse({"detail": "Owner access token required"}, status_code=401)
+        # A declared length over the attachment limit is refused here, before anything parses the body. The multipart
+        # parser gives up on its own first and answers "there was an error parsing the body", which tells someone holding
+        # a 10 MB CSV nothing about what to do; this names the limit and the size they sent.
+        declared = request.headers.get("content-length")
+        if (request.url.path.endswith("/files") and declared and declared.isdigit()
+                and int(declared) > ATTACHMENT_LIMIT + 4096):
+            return JSONResponse({"detail": f"Attachment limit: {ATTACHMENT_LIMIT // (1024 * 1024)} MiB; this one is "
+                                           f"{int(declared) / (1024 * 1024):.1f} MiB"}, status_code=413)
         # Limit streamed bodies before multipart/JSON parsing, including chunked requests.
         size = 0
         receive = request._receive
@@ -126,13 +136,20 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         return JSONResponse(store.get(cid), headers={"Content-Disposition": 'attachment; filename="m5phet-chat.json"'})
 
     @app.post("/api/chats/{cid}/files", status_code=201)
-    async def upload(cid: str, file: UploadFile = File()):
+    async def upload(cid: str, request: Request, file: UploadFile = File()):
+        # The multipart parser gives up on an oversize body before the check below can run, and its message -- "there was
+        # an error parsing the body" -- tells someone with a 10 MB CSV nothing about what to do. The declared length is
+        # refused first, with the limit named, and without reading the body at all.
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > ATTACHMENT_LIMIT + 4096:
+            return JSONResponse({"detail": f"Attachment limit: {ATTACHMENT_LIMIT // (1024 * 1024)} MiB; "
+                                           f"this one declares {int(declared) // (1024 * 1024)} MiB"}, status_code=413)
         try:
-            data = await file.read(8 * 1024 * 1024 + 1)
+            data = await file.read(ATTACHMENT_LIMIT + 1)
         finally:
             await file.close()
-        if len(data) > 8 * 1024 * 1024:
-            return JSONResponse({"detail": "Attachment limit: 8 MiB"}, status_code=413)
+        if len(data) > ATTACHMENT_LIMIT:
+            return JSONResponse({"detail": f"Attachment limit: {ATTACHMENT_LIMIT // (1024 * 1024)} MiB"}, status_code=413)
         name = Path((file.filename or "upload").replace("\\", "/")).name
         name = "".join(ch for ch in name if ch.isprintable())[:160]
         parse_file(name, data)
