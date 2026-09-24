@@ -108,13 +108,14 @@ class Store:
             raise ValueError("Attachment failed integrity validation")
         return row
 
-    def begin(self, cid, client_id, prompt, file_ids):
+    def begin(self, cid, client_id, prompt, file_ids, extra=None):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             chat = db.execute("SELECT * FROM chats WHERE id=?", (cid,)).fetchone()
             if chat is None:
                 raise KeyError("Chat not found")
-            fingerprint = hashlib.sha256(dump({"prompt": prompt, "files": file_ids}).encode()).hexdigest()
+            # an envelope the person edited is a different request: it is part of the identity, not a detail of it
+            fingerprint = hashlib.sha256(dump({"prompt": prompt, "files": file_ids, "extra": extra}).encode()).hexdigest()
             prior = db.execute("SELECT * FROM messages WHERE chat=? AND client_id=? AND role='assistant'", (cid, client_id)).fetchone()
             if prior:
                 if prior["request_digest"] != fingerprint:
@@ -125,6 +126,8 @@ class Store:
             attachments = [self.file(cid, fid) for fid in file_ids]
             config, mid, clock = json.loads(chat["config"]), uuid.uuid4().hex, now()
             snapshot = {"config": config, "attachments": [{"id": f["id"], "name": f["name"], "sha256": f["sha"]} for f in attachments]}
+            if extra is not None:
+                snapshot["envelope"] = extra
             db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?)",
                        (uuid.uuid4().hex,cid,client_id,fingerprint,"user",prompt,"SENT",dump(snapshot),clock))
             db.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?)",

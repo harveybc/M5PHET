@@ -10,6 +10,8 @@ import subprocess
 from datetime import datetime, timezone
 
 from m5phet.interpret import STATUS_OK, Interpreter, interpret
+from m5phet.orchestrate import narrate, route
+from m5phet.questions import catalog as question_catalog, run_task
 from m5phet.runtime import Registry, request_digest, run
 
 
@@ -132,6 +134,25 @@ class Engine:
         return {"providers": providers, "examples": examples, "discovery": self.discovery,
                 "defaults": DEFAULT_CONFIG, "profile": "LOCAL_UNGOVERNED", "execution_authorized": False,
                 "interpreter": self.interpreter.identity()}
+
+    # --- the question envelope: one shape for every area ----------------------------------------------------------------
+    def task_catalog(self):
+        return question_catalog(self.registry)
+
+    def propose_task(self, prompt, attachments):
+        """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first."""
+        data = [parse_file(item["name"], item["data"]) for item in attachments]
+        payload = data[0] if len(data) == 1 else (data if data else None)
+        return route(prompt, payload, self.registry, interpreter=self.interpreter)
+
+    def execute_task(self, prompt, task, attachments, language="es"):
+        """Run an envelope the person accepted (or wrote), then narrate its answers without touching a number."""
+        data = [parse_file(item["name"], item["data"]) for item in attachments]
+        payload = data[0] if len(data) == 1 else (data if data else None)
+        response = run_task(task, self.registry, data=payload)
+        narration = narrate(prompt, response, interpreter=self.interpreter, language=language)
+        return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
+                "execution_authorized": False}
 
     def execute(self, prompt, config, attachments):
         config = validate_config(config)

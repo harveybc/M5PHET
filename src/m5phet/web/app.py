@@ -27,6 +27,21 @@ class EditChat(BaseModel):
     config: dict | None = None
 
 
+class ProposeTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(max_length=4000)
+    file_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class RunTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    prompt: str = Field(default="", max_length=4000)
+    task: dict
+    file_ids: list[str] = Field(default_factory=list, max_length=8)
+    client_id: str = Field(min_length=1, max_length=80)
+    language: str = Field(default="es", pattern="^(es|en)$")
+
+
 class SendMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str = Field(min_length=1, max_length=64000)
@@ -173,6 +188,40 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         except Exception as error:
             store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | {
                 "elapsed_seconds": time.monotonic() - started, "execution_authorized": False})
+
+    @app.get("/api/tasks/catalog")
+    def task_catalog():
+        return {"areas": engine.task_catalog(), "interpreter": engine.interpreter.identity(),
+                "execution_authorized": False}
+
+    @app.post("/api/chats/{cid}/tasks/propose")
+    def propose(cid: str, body: ProposeTask):
+        # a preview, not a message: nothing is recorded until the person runs the envelope they saw
+        attachments = [store.file(cid, fid) for fid in body.file_ids]
+        return engine.propose_task(body.prompt, attachments)
+
+    def execute_task(mid, job, task, language):
+        prompt, _config, attachments, snapshot = job
+        started = time.monotonic()
+        try:
+            detail = engine.execute_task(prompt, task, attachments, language=language)
+            response = detail["response"]
+            status = "OK" if response["refused"] == 0 else ("PARTIAL" if response["answered"] else "REFUSED")
+            store.finish(mid, status, detail["narration"]["text"],
+                         snapshot | detail | {"elapsed_seconds": time.monotonic() - started})
+        except Exception as error:
+            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | {
+                "task": task, "elapsed_seconds": time.monotonic() - started, "execution_authorized": False})
+
+    @app.post("/api/chats/{cid}/tasks/run", status_code=202)
+    def run_envelope(cid: str, body: RunTask):
+        if not isinstance(body.task, dict):
+            raise ValueError("The envelope must be a JSON object")
+        # the envelope is part of the request identity, so editing it and sending again is a new request, not a replay
+        mid, job = store.begin(cid, body.client_id, body.prompt or "", body.file_ids, extra=body.task)
+        if job is not None:
+            pool.submit(execute_task, mid, job, body.task, body.language)
+        return {"message_id": mid}
 
     @app.post("/api/chats/{cid}/messages", status_code=202)
     def send(cid: str, body: SendMessage):
