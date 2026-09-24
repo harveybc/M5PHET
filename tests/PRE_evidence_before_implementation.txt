@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+___________________ ERROR collecting tests/test_evidence.py ____________________
+ImportError while importing test module '/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/m5phet-src/tests/test_evidence.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/home/harveybc/anaconda3/envs/trading-stack/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_evidence.py:17: in <module>
+    from m5phet.evidence import (
+E   ModuleNotFoundError: No module named 'm5phet.evidence'
+=========================== short test summary info ============================
+ERROR tests/test_evidence.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.07s
