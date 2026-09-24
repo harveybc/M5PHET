@@ -45,6 +45,11 @@ class Status:
     CALIBRATION_UNAVAILABLE = "CALIBRATION_UNAVAILABLE"
     NOT_IDENTIFIED = "NOT_IDENTIFIED"
     RESOURCE_EXCEEDED = "RESOURCE_EXCEEDED"
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+
+
+class ProviderError(ContractError):
+    """A provider that failed. Its real exception class and message are carried through, never renamed to exhaustion."""
 
 
 class RequestError(ContractError):
@@ -129,8 +134,9 @@ class Registry:
             return report
         for ep in found:
             try:
-                factory = ep.load()
-                provider = factory() if callable(factory) and not hasattr(factory, "capabilities") else factory
+                loaded = ep.load()
+                # a class exposes capabilities as an UNBOUND function, so `hasattr` cannot tell a class from an instance
+                provider = loaded() if isinstance(loaded, type) else (loaded() if callable(loaded) and not hasattr(loaded, "capabilities") else loaded)
                 self.register(provider)
                 report["registered"].append(ep.name)
             except Exception as exc:                                # noqa: BLE001
@@ -185,6 +191,10 @@ def _check_outputs(requested, returned, caps):
                 entry = {"status": Status.INVALID_INPUT,
                          "why": f"uncertainty {uncertainty!r} is not declared by this provider"}
                 problems.append(f"{question}: uncertainty {uncertainty!r} is not declared by this provider")
+            elif answer.get("payload") is None:
+                entry = {"status": Status.INVALID_INPUT,
+                         "why": "an OK answer must carry a payload; a null payload certifies nothing"}
+                problems.append(f"{question}: an OK answer with a null payload")
             else:
                 entry["uncertainty"] = uncertainty
                 entry["payload"] = answer.get("payload")
@@ -227,6 +237,10 @@ def run(request, registry: Registry) -> dict:
             return _envelope(checked, Status.UNSUPPORTED_TASK,
                              f"provider {checked['provider_ref']!r} does not declare {field} {checked[field]!r}",
                              schema_valid=True, capability_checked=True)
+    if operation == "infer" and not ((checked.get("output_schema") or {}).get("questions")):
+        return _envelope(checked, Status.INVALID_INPUT,
+                         "an infer request must declare the questions to answer; nothing is loaded for an unanswerable request",
+                         schema_valid=True, capability_checked=True)
     state_ref = checked.get("fitted_state_ref")
     if operation in STATE_CONSUMING:
         if not state_ref:
@@ -251,9 +265,6 @@ def run(request, registry: Registry) -> dict:
         if operation == "infer":
             returned = provider.infer(copy.deepcopy(checked), copy.deepcopy(state))
             requested = list((checked.get("output_schema") or {}).get("questions") or [])
-            if not requested:
-                return _envelope(checked, Status.INVALID_INPUT, "the request declares no questions to answer",
-                                 schema_valid=True, capability_checked=True, binding=binding)
             outputs, problems = _check_outputs(requested, (returned or {}).get("outputs"), caps)
             partial_allowed = bool((checked.get("execution_constraints") or {}).get("partial_results"))
             status = _overall(outputs, problems, partial_allowed)
@@ -273,6 +284,19 @@ def run(request, registry: Registry) -> dict:
                 if not (isinstance(calibration, dict) and calibration.get(field)):
                     return _envelope(checked, Status.CALIBRATION_UNAVAILABLE, f"calibrate returned no {field}",
                                      schema_valid=True, capability_checked=True, binding=binding)
+            # a calibration binds THIS task, THIS fitted state and a clock at or before the decision time
+            mismatch = []
+            if calibration.get("task_id") not in (None, checked["task_id"]):
+                mismatch.append(f"it was calibrated for task {calibration['task_id']!r}, not {checked['task_id']!r}")
+            if calibration.get("state_ref") not in (None, state_ref):
+                mismatch.append(f"it binds state {calibration['state_ref']!r}, not {state_ref!r}")
+            end = (calibration.get("clocks") or {}).get("calibration_end")
+            if isinstance(end, str) and end > checked["as_of"]:
+                mismatch.append(f"its calibration_end {end} is after the decision clock {checked['as_of']}")
+            if mismatch:
+                return _envelope(checked, Status.CALIBRATION_UNAVAILABLE, "; ".join(mismatch),
+                                 schema_valid=True, capability_checked=True, binding=binding,
+                                 calibration=copy.deepcopy(calibration))
             return _envelope(checked, Status.OK, None, schema_valid=True, capability_checked=True,
                              calibration_bound=True, binding=binding, calibration=copy.deepcopy(calibration))
         if operation == "evaluate":
@@ -286,6 +310,7 @@ def run(request, registry: Registry) -> dict:
                          f"operation {operation!r} has no implemented path in this runtime",
                          schema_valid=True, capability_checked=True, binding=binding)
     except Exception as exc:                                        # noqa: BLE001
-        # a provider that fails is reported with what it said; the runtime never substitutes a result for it
-        return _envelope(checked, Status.RESOURCE_EXCEEDED, f"the provider raised: {exc}",
-                         schema_valid=True, capability_checked=True, binding=binding)
+        # a provider that fails is reported with what it said AND with its real class; nothing is renamed to exhaustion
+        return _envelope(checked, Status.PROVIDER_ERROR, f"the provider raised: {exc}",
+                         schema_valid=True, capability_checked=True, binding=binding,
+                         provider_exception={"type": type(exc).__name__, "message": str(exc)})

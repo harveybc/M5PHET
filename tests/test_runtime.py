@@ -354,7 +354,9 @@ def test_a_provider_that_raises_is_reported_not_swallowed(registry):
 
     registry.register(Broken())
     result = run(base_request(provider_ref="broken"), registry)
-    assert result["status"] == Status.RESOURCE_EXCEEDED or result["status"] == Status.INVALID_INPUT
+    # superseded by the review's finding 3: a provider failure keeps its own class instead of being renamed to exhaustion
+    assert result["status"] == Status.PROVIDER_ERROR
+    assert result["provider_exception"]["type"] == "RuntimeError"
     assert "the engine died" in result["why"]
     assert "outputs" not in result or not result.get("outputs")
 

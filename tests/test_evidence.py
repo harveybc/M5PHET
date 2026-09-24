@@ -130,7 +130,7 @@ def test_INT11_an_interrupted_write_is_recovered_without_losing_or_duplicating_a
     reopened = open_run(tmp_path, run_id="crash-1", task={"task_id": "t", "family": "classification"},
                         code_identity={"tool_sha256": "a" * 64}, resume=True)
     report = reopened.recover()
-    assert report["truncated_records_dropped"] == 1
+    assert report["truncated_trailing_records_dropped"] == 1 and report["interior_corruption"] == 0
     assert report["attempts_recovered"] == 1
     second = reopened.start_attempt(candidate="c1")
     assert second != first, "a retry is a new attempt, not the same one"

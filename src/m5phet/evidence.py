@@ -11,7 +11,9 @@ view over these records, never a second authoritative accounting.
 
 import hashlib
 import json
+import math
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -28,6 +30,20 @@ REQUIRED_METRIC_FIELDS = ("metric", "definition", "definition_version", "unit", 
 
 class DeliveryDenied(ContractError):
     """A governed delivery that was refused. There is no local fallback and no partial run."""
+
+
+def _validate_receipt(name: str, receipt) -> dict:
+    """An accepted delivery, not anything truthy. A denied or pending receipt is a denial, and a malformed one is not evidence."""
+    if not isinstance(receipt, dict):
+        raise DeliveryDenied(f"the delivery for {name} returned {type(receipt).__name__}, not a receipt")
+    status = receipt.get("status", "ACCEPTED")
+    if status != "ACCEPTED":
+        raise DeliveryDenied(f"the delivery for {name} is {status!r}, not ACCEPTED")
+    if not isinstance(receipt.get("delivery_id"), str) or not receipt["delivery_id"].strip():
+        raise DeliveryDenied(f"the delivery for {name} carries no delivery_id")
+    if not isinstance(receipt.get("sha256"), str) or re.fullmatch(r"[0-9a-f]{64}", receipt["sha256"]) is None:
+        raise DeliveryDenied(f"the delivery for {name} carries no lowercase sha256 digest")
+    return dict(receipt)
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -52,7 +68,36 @@ class EvidenceRun:
         self._attempts = self.directory / "attempts.jsonl"
         self._metrics = self.directory / "metrics.jsonl"
         self._artifacts = self.directory / "artifacts.json"
-        self._open_attempts = set()
+        self._started, self._finished, self._metric_events = {}, {}, {}
+        self._rebuild_state()
+
+    def _rebuild_state(self) -> None:
+        """Durable events are the state. Anything the process forgot is read back from them, so a restart neither loses an
+        unfinished attempt nor forgets which event ids have already been recorded."""
+        for line in (self._attempts.read_text().splitlines() if self._attempts.is_file() else []):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue                                        # recover() decides what a broken record means
+            if event.get("event") == "attempt_started":
+                self._started[event["attempt_id"]] = event
+            elif event.get("event") == "attempt_finished":
+                self._finished[event["attempt_id"]] = event
+        for line in (self._metrics.read_text().splitlines() if self._metrics.is_file() else []):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            if record.get("event_id"):
+                self._metric_events[record["event_id"]] = record.get("content_sha256")
+
+    @property
+    def _open_attempts(self):
+        return {a for a in self._started if a not in self._finished}
 
     # --- records -----------------------------------------------------------------------------------------------------
     def _append(self, path: Path, record: dict) -> None:
@@ -63,13 +108,26 @@ class EvidenceRun:
 
     def start_attempt(self, *, candidate: str, parameters: dict | None = None) -> str:
         attempt_id = uuid.uuid4().hex
-        self._open_attempts.add(attempt_id)
-        self._append(self._attempts, {"event": "attempt_started", "attempt_id": attempt_id, "candidate": candidate,
-                                      "parameters": parameters or {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                      "run_id": self.manifest["run_id"]})
+        record = {"event": "attempt_started", "attempt_id": attempt_id, "candidate": candidate,
+                  "parameters": parameters or {}, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "run_id": self.manifest["run_id"]}
+        self._append(self._attempts, record)
+        self._started[attempt_id] = record          # open attempts are derived from the durable events, never tracked apart
         return attempt_id
 
     def finish_attempt(self, attempt_id: str, *, status: str, retry_of: str | None = None, cost: dict | None = None) -> None:
+        """A transition, not an append. An unknown attempt is refused, the same finish retransmitted has one effect, and a
+        contradictory finish is refused rather than recorded twice."""
+        if attempt_id not in self._started:
+            raise ContractError(f"attempt {attempt_id!r} was never started in this run")
+        previous = self._finished.get(attempt_id)
+        if previous is not None:
+            if previous.get("status") == status and previous.get("retry_of") == retry_of:
+                return                                          # idempotent retransmission
+            raise ContractError(f"attempt {attempt_id!r} is already finished as {previous.get('status')!r}; "
+                                f"a contradictory finish is refused")
+        if retry_of is not None and retry_of not in self._started:
+            raise ContractError(f"retry_of {retry_of!r} is not an attempt of this run")
         record = {"event": "attempt_finished", "attempt_id": attempt_id, "status": status,
                   "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "run_id": self.manifest["run_id"]}
         if retry_of:
@@ -77,16 +135,43 @@ class EvidenceRun:
         if cost:
             record["cost"] = cost
         self._append(self._attempts, record)
-        self._open_attempts.discard(attempt_id)
+        self._finished[attempt_id] = record
 
-    def record_metric(self, attempt_id: str, record: dict) -> None:
+    def record_metric(self, attempt_id: str, record: dict, *, event_id: str | None = None) -> str:
+        """A typed observation with a stable identity. Returns the event id; the same id with the same content is idempotent,
+        and the same id with different content is a contradiction."""
+        if attempt_id not in self._started:
+            raise ContractError(f"attempt {attempt_id!r} was never started in this run")
         missing = [f for f in REQUIRED_METRIC_FIELDS if f not in record]
         if missing:
             raise ContractError(f"a metric record must carry {', '.join(missing)}")
-        if record.get("value") is None and record.get("status") in (None, "OK"):
-            raise ContractError("a metric with no value must declare a status other than OK; it is never a zero")
-        self._append(self._metrics, {**record, "attempt_id": attempt_id, "run_id": self.manifest["run_id"],
+        for field in ("metric", "definition", "definition_version", "unit", "scale", "aggregation", "task", "split", "status"):
+            if not isinstance(record.get(field), str) or not record[field].strip():
+                raise ContractError(f"metric field {field!r} must be a non-empty string")
+        population = record.get("population")
+        if isinstance(population, bool) or not isinstance(population, int) or population < 0:
+            raise ContractError("population must be a non-negative integer count, and a boolean is not a count")
+        value = record.get("value")
+        if value is None:
+            if record["status"] == "OK":
+                raise ContractError("a metric with no value must declare a status other than OK; it is never a zero")
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ContractError(f"metric value {value!r} must be a finite number and never a boolean")
+            if record["status"] != "OK":
+                raise ContractError(f"a metric with a value must not declare status {record['status']!r}")
+        content = {**record, "attempt_id": attempt_id, "run_id": self.manifest["run_id"]}
+        content_sha = _digest(content)
+        identity = event_id or content_sha
+        seen = self._metric_events.get(identity)
+        if seen is not None:
+            if seen == content_sha:
+                return identity                                 # the same event retransmitted
+            raise ContractError(f"metric event {identity!r} already recorded with other content")
+        self._append(self._metrics, {**content, "event_id": identity, "content_sha256": content_sha,
                                      "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+        self._metric_events[identity] = content_sha
+        return identity
 
     def record_artifact(self, name: str, *, reference: str, sha256: str, bytes_: int | None = None,
                         retention: str = "UNDECLARED", available: bool = True) -> None:
@@ -97,29 +182,41 @@ class EvidenceRun:
 
     # --- recovery ----------------------------------------------------------------------------------------------------
     def recover(self) -> dict:
-        """Drop a torn trailing record and report what survived. An interrupted write never silently changes a count."""
-        report = {"truncated_records_dropped": 0, "attempts_recovered": 0, "metrics_recovered": 0}
+        """Only an identified TORN TRAILING append is recoverable. Interior corruption is quarantined and refused: rewriting it
+        away would silently change a count. Open attempts are rebuilt from the events that survived."""
+        report = {"truncated_trailing_records_dropped": 0, "interior_corruption": 0, "attempts_recovered": 0,
+                  "metrics_recovered": 0, "open_attempts": []}
+        problems = []
         for path, key in ((self._attempts, "attempts_recovered"), (self._metrics, "metrics_recovered")):
             if not path.is_file():
                 continue
-            kept, dropped = [], 0
-            for line in path.read_text().splitlines():
-                if not line.strip():
-                    continue
+            lines = [l for l in path.read_text().splitlines() if l.strip()]
+            bad = []
+            for index, line in enumerate(lines):
                 try:
                     json.loads(line)
                 except ValueError:
-                    dropped += 1
-                    continue
-                kept.append(line)
-            if dropped:
-                _atomic_write(path, "\n".join(kept) + ("\n" if kept else ""))
-            report["truncated_records_dropped"] += dropped
-            if key == "attempts_recovered":
-                report[key] = len({json.loads(l)["attempt_id"] for l in kept
-                                   if json.loads(l).get("event") == "attempt_started"})
-            else:
-                report[key] = len(kept)
+                    bad.append(index)
+            interior = [i for i in bad if i != len(lines) - 1]
+            if interior:
+                quarantine = path.with_suffix(path.suffix + ".corrupt")
+                quarantine.write_text("\n".join(lines[i] for i in interior) + "\n")
+                report["interior_corruption"] += len(interior)
+                problems.append(f"{path.name}: {len(interior)} interior record(s) are corrupt and were quarantined to "
+                                f"{quarantine.name}; the file is left exactly as found")
+                continue
+            if bad:
+                _atomic_write(path, "\n".join(lines[:-1]) + ("\n" if len(lines) > 1 else ""))
+                report["truncated_trailing_records_dropped"] += 1
+                lines = lines[:-1]
+            report[key] = len(lines)
+        if problems:
+            raise ContractError("; ".join(problems))
+        self._started, self._finished, self._metric_events = {}, {}, {}
+        self._rebuild_state()
+        report["attempts_recovered"] = len(self._started)
+        report["metrics_recovered"] = len(self._metric_events)
+        report["open_attempts"] = sorted(self._open_attempts)
         return report
 
     def close(self) -> dict:
@@ -142,9 +239,7 @@ def open_run(root: Path, *, run_id: str, task: dict, code_identity: dict, model_
             raise ContractError("a governed run needs its deliveries and a resolver; it may not fall back to local access")
         receipts = {}
         for name, resource in deliveries.items():
-            receipts[name] = delivery_resolver(resource)          # DeliveryDenied propagates: nothing is created
-            if not receipts[name]:
-                raise DeliveryDenied(f"the delivery for {name} returned no receipt")
+            receipts[name] = _validate_receipt(name, delivery_resolver(resource))   # denial propagates: nothing is created
     if directory.exists() and not resume:
         raise ContractError(f"run {run_id!r} already exists; a rerun is a new run id, not an overwrite")
     directory.mkdir(parents=True, exist_ok=True)
@@ -164,7 +259,17 @@ def open_run(root: Path, *, run_id: str, task: dict, code_identity: dict, model_
                     "or delivery authority and cannot acquire one later"),
     }
     if resume and (directory / "manifest.json").is_file():
-        manifest = json.loads((directory / "manifest.json").read_text())
+        stored = json.loads((directory / "manifest.json").read_text())
+        if stored.get("identity_sha256") != manifest["identity_sha256"]:
+            raise ContractError(
+                f"run {run_id!r} was opened under identity {str(stored.get('identity_sha256'))[:12]} and the request asks for "
+                f"{manifest['identity_sha256'][:12]}: a changed task, code, model, data or calibration identity requires a NEW run")
+        if bool(stored.get("governed")) != bool(governed):
+            raise ContractError(
+                f"run {run_id!r} was opened under the {stored.get('authority')} profile and is being resumed as "
+                f"{'GOVERNED' if governed else AUTHORITY_LOCAL}: a profile is not changed by resuming, and local history never "
+                f"gains governed authority")
+        manifest = stored
     else:
         _atomic_write(directory / "manifest.json", json.dumps(manifest, indent=1, sort_keys=True, default=str))
     for name in ("attempts.jsonl", "metrics.jsonl"):

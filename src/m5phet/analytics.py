@@ -7,6 +7,7 @@ units and populations.
 """
 
 import json
+import os
 from pathlib import Path
 
 PROJECTION_NAME = "analytics.duckdb"
@@ -28,8 +29,11 @@ def build_projection(run_directory: Path, *, rebuild: bool = False) -> Path:
     duckdb = _require_duckdb()
     directory = Path(run_directory)
     target = directory / PROJECTION_NAME
-    if target.exists() and rebuild:
-        target.unlink()
+    staging = directory / (PROJECTION_NAME + ".building")
+    if staging.exists():
+        staging.unlink()
+    if target.exists() and not rebuild:
+        return target
     rows = []
     metrics = directory / "metrics.jsonl"
     if metrics.is_file():
@@ -39,9 +43,10 @@ def build_projection(run_directory: Path, *, rebuild: bool = False) -> Path:
             try:
                 record = json.loads(line)
             except ValueError:
-                continue                                            # a torn trailing record is dropped, never guessed
+                # the projection never decides what a broken record meant; recovery belongs to the evidence layer
+                raise ValueError(f"{metrics.name} holds a record this projection cannot read; run EvidenceRun.recover() first")
             rows.append({column: record.get(column) for column in METRIC_COLUMNS})
-    connection = duckdb.connect(str(target))
+    connection = duckdb.connect(str(staging))
     try:
         connection.execute("DROP TABLE IF EXISTS metrics")
         connection.execute(
@@ -51,11 +56,17 @@ def build_projection(run_directory: Path, *, rebuild: bool = False) -> Path:
         for row in rows:
             connection.execute("INSERT INTO metrics VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                [row[c] for c in METRIC_COLUMNS])
-        connection.execute("CREATE OR REPLACE VIEW metrics_by_task_horizon AS "
-                           "SELECT task, horizon, metric, unit, scale, aggregation, count(*) AS n, "
-                           "sum(population) AS population FROM metrics GROUP BY 1,2,3,4,5,6")
+        # the grain is preserved: a view that groups away split, target, definition or status would compare unlike rows, and
+        # a sum of overlapping populations is a summed count, never a unique row coverage
+        connection.execute(
+            "CREATE OR REPLACE VIEW metrics_by_grain AS SELECT task, split, target, horizon, metric, definition, "
+            "definition_version, unit, scale, aggregation, status, count(*) AS records, "
+            "count(DISTINCT attempt_id) AS attempts, sum(population) AS summed_population, "
+            "max(population) AS max_population FROM metrics "
+            "GROUP BY 1,2,3,4,5,6,7,8,9,10,11")
     finally:
         connection.close()
+    os.replace(staging, target)                                     # a rebuild is published atomically
     return target
 
 
