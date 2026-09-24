@@ -1,11 +1,11 @@
 {
   "schema": "m5phet.method.v1",
-  "current_stage": "classification_first_real_provider_integration_pending",
+  "current_stage": "classification_first_real_provider_verified_on_external_5090",
   "classification_first_delivery": {
     "orders": "docs/CLASSIFICATION_FIRST_DELIVERY.md",
     "primary_task": "English news relevance to EURUSD: related/unrelated/unclear",
-    "runtime_reviewed": "d9ffc4d: provider contracts implemented, real Laya provider not evidenced",
-    "setup": "Owner-reported weights materialized and isolated SDK setup in progress; not live-verified here",
+    "runtime_reviewed": "d9ffc4d: provider contracts implemented, real Laya provider not evidenced AT THAT COMMIT",
+    "setup": "isolated SDK venv and a materialized 2.3 GB checkpoint verified live on WORKER_B; sealed manifest bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89 over 117 files",
     "acceptance": "CL01-CL07 specified before implementation; native SDK parity and domain quality reported separately",
     "owners": {
       "classification": "news-signal",
@@ -17,9 +17,22 @@
     },
     "implementation_owner": "Satoshi",
     "parallel_independent_lanes": true,
-    "real_provider_verified": false,
+    "real_provider_verified": true,
     "new_training_budget": false,
-    "real_capital_authorized": false
+    "real_capital_authorized": false,
+    "release_status": {
+      "shipped_master": "origin/master@6165089 carries the design documents only; it does NOT contain the d9ffc4d runtime",
+      "implemented_branch": "satoshi/runtime-p02-20260924, runtime and evidence layer, merged with the classification contract branch musashi/classification-first-20260924@f5ea67a; 139 tests pass",
+      "real_pilot": "news-signal laya_news provider, pinned SDK 1e28ac20c0896b1c37a744cd11f740eb98f8b178 on the external RTX 5090 GPU-a9f35631-d36a-6cc6-c23b-eb0b36d50fb8 (MEASURED), 2026-09-24",
+      "reading": "a passing contract test in this repository is not a shipped release and is not a measured model result"
+    },
+    "pilot_result": {
+      "task_id": "news_relevance_eurusd.v1",
+      "cl01_parity": "12 of 12 distinct inputs: every SDK decision field exactly equal, no tolerance",
+      "cl04_process_reload": "12 of 12 equal across a separate process",
+      "cl07_domain_quality": "SMOKE_TEST_AUTHOR_WRITTEN_LABELS: macro-F1 0.3333, accuracy 6/13 on 13 author-written rows; this is not a business-quality measurement",
+      "separate_sdk_experiment": "predict_batch agrees on all 13 labels but on no probability map; max delta 0.0218"
+    }
   },
   "product_design": {
     "identity": "typed_machine_learning_framework",
@@ -28,21 +41,47 @@
     "calendar": "docs/ECONOMIC_CALENDAR.md",
     "implementation_plan": "docs/IMPLEMENTATION_PLAN.md",
     "integration_and_optimization": "docs/INTEGRATION_AND_OPTIMIZATION.md",
-    "deployment_profiles": ["LOCAL_UNGOVERNED", "GOVERNED"],
+    "deployment_profiles": [
+      "LOCAL_UNGOVERNED",
+      "GOVERNED"
+    ],
     "integration_acceptance": "INT01-INT12_SPECIFIED_NOT_IMPLEMENTED",
     "example_app_default": "Local durable records; optional embedded DuckDB analytics; governance and DOIN independently opt-in",
     "behavioral_acceptance": "PENDING_IMPLEMENTATION",
     "design_tests_scope": "Inventory consistency only; not provider or model validation"
   },
-  "implemented": ["classification_result_contract"],
-  "planned": ["regression_forecasting", "representation_unsupervised", "reinforcement_learning", "causal_inference"],
+  "implemented": [
+    "classification_result_contract"
+  ],
+  "planned": [
+    "regression_forecasting",
+    "representation_unsupervised",
+    "reinforcement_learning",
+    "causal_inference"
+  ],
   "traceability": "docs/DESIGN.md",
   "consumer": "https://github.com/harveybc/news-signal",
   "model_performance_measured": false,
   "real_capital_authorized": false,
-  "next_actions": ["Keep existing experiments and real Laya smoke independent", "Implement capability and primitive adapters after P01/P02 negative tests", "Map actual economic dataset and implement CAL01-CAL12 before calendar consumer use", "Connect real forecasting/representation/RL engines; causal analysis requires its own identification study"],
+  "next_actions": [
+    "Keep existing experiments and real Laya smoke independent",
+    "Implement capability and primitive adapters after P01/P02 negative tests",
+    "Map actual economic dataset and implement CAL01-CAL12 before calendar consumer use",
+    "Connect real forecasting/representation/RL engines; causal analysis requires its own identification study"
+  ],
   "history": [
-    {"date": "2026-09-24", "action": "Owner approved M5PHET identity; classification contract tests designed before code; other engines remain proposal-only"},
-    {"date": "2026-09-24", "action": "Owner clarified executable typed-ML framework, not research-program branding; use cases, provider lifecycle, calendar vintages, acceptance tests and consumer ownership specified. Runtime unchanged; no GPU work, model evaluation or broker action."}
+    {
+      "date": "2026-09-24",
+      "action": "Owner approved M5PHET identity; classification contract tests designed before code; other engines remain proposal-only"
+    },
+    {
+      "date": "2026-09-24",
+      "action": "Owner clarified executable typed-ML framework, not research-program branding; use cases, provider lifecycle, calendar vintages, acceptance tests and consumer ownership specified. Runtime unchanged; no GPU work, model evaluation or broker action."
+    },
+    {
+      "date": "2026-09-24",
+      "event": "first real business slice executed: EURUSD news relevance through the installed m5phet.providers entry point against real Laya weights, with direct-SDK parity, persistence and replay",
+      "evidence": "news-signal examples/eurusd and the pilot artefacts under predictor docs/audits/evidence/CL01_CL07_20260924"
+    }
   ]
 }
