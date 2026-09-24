@@ -54,6 +54,20 @@ def main():
                     "model": provider.identity_for(request.get("fitted_state_ref")),
                     "provider_source_sha256": hashlib.sha256(open(sys.modules[type(provider).__module__].__file__, "rb").read()).hexdigest(),
                 }
+            elif command.get("action") == "task":
+                # the question envelope, on the same contract the interface uses: one shape on both ends of the wire
+                from m5phet.questions import run_task
+                task = command["task"]
+                if not isinstance(task, dict) or task.get("area") != "classification":
+                    raise ValueError("Worker permits classification envelopes only")
+                admit_gpu()
+                result = run_task(task, registry, data=command.get("data"))
+                provider = registry.get("laya_news")
+                result["worker_observation"] = {
+                    "device_uuid": os.environ.get("NEWS_SIGNAL_GPU_UUID"),
+                    "model": provider.identity_for(result.get("state_ref")) if result.get("state_ref") else None,
+                    "provider_source_sha256": hashlib.sha256(open(sys.modules[type(provider).__module__].__file__, "rb").read()).hexdigest(),
+                }
             else:
                 raise ValueError("Unknown worker action")
         print(json.dumps(result, ensure_ascii=False, allow_nan=False))

@@ -149,7 +149,16 @@ class Engine:
         """Run an envelope the person accepted (or wrote), then narrate its answers without touching a number."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
-        response = run_task(task, self.registry, data=payload)
+        if self.remote and isinstance(task, dict) and task.get("area") == "classification":
+            # the real checkpoint lives on the private worker; the envelope goes there on the same contract and comes
+            # back bound to the request it answered, exactly as the single-question path does
+            response = self._remote({"action": "task", "task": task, "data": payload})
+            from m5phet.questions import digest as task_digest, validate_task
+            expected = task_digest(validate_task(task))
+            if response.get("request_sha256") != expected or response.get("execution_authorized") is not False:
+                raise ValueError("Worker result is not bound to this envelope or declares execution authority")
+        else:
+            response = run_task(task, self.registry, data=payload)
         narration = narrate(prompt, response, interpreter=self.interpreter, language=language)
         return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
                 "execution_authorized": False}

@@ -169,3 +169,56 @@ def test_a_narration_that_invents_a_number_is_replaced(client):
     data = finished(c, cid)
     detail = data["messages"][-1]["detail"]
     assert detail["narration"]["source"] == "DETERMINISTIC" and "99" not in data["messages"][-1]["content"]
+
+
+# --- a classification envelope goes to the private worker when one is configured -------------------------------------------
+
+def test_a_classification_envelope_is_routed_to_the_worker_and_bound_to_the_request(tmp_path, monkeypatch):
+    from m5phet.questions import digest, validate_task
+
+    registry = Registry()
+    registry.register(Forecaster())
+    engine = Engine(registry=registry)
+    engine.interpreter = Fixed(["narración fiel: euro_area con 0.9231"])
+    envelope = {"area": "classification", "state": {"asset": "EURUSD", "language": "en"},
+                "questions": {"economia": {"type": "choice", "instructions": "Which economy?",
+                                           "options": [["euro_area", "Euro area"], ["other", "Other"]]}}}
+    sent = []
+
+    def fake_remote(command):
+        sent.append(command)
+        return {"schema": "m5phet.answers.v1", "request_sha256": digest(validate_task(command["task"])),
+                "area": "classification", "provider": "laya_news", "answered": 1, "refused": 0,
+                "answers": {"economia": {"type": "choice", "status": "OK", "label": "euro_area",
+                                         "uncalibrated_probabilities": {"euro_area": 0.9231, "other": 0.0769}}},
+                "execution_authorized": False}
+
+    engine.remote, engine._remote = "worker-host", fake_remote
+    out = engine.execute_task("¿de qué economía habla?", envelope,
+                              [{"name": "news.txt", "data": b"The ECB left its deposit rate unchanged."}])
+    assert sent[0]["action"] == "task" and sent[0]["task"] == envelope
+    assert sent[0]["data"] == "The ECB left its deposit rate unchanged.", "the news goes to the worker, not to the model"
+    assert out["response"]["answers"]["economia"]["label"] == "euro_area"
+    assert out["narration"]["source"] == "INTERPRETER"
+
+
+def test_a_worker_answer_not_bound_to_the_envelope_is_refused(tmp_path):
+    registry = Registry()
+    registry.register(Forecaster())
+    engine = Engine(registry=registry)
+    engine.interpreter = Fixed([])
+    envelope = {"area": "classification", "state": {}, "questions": {"q": {"type": "choice", "options": [["a", "A"], ["b", "B"]]}}}
+    engine.remote, engine._remote = "worker-host", lambda command: {"request_sha256": "0" * 64, "answers": {},
+                                                                    "execution_authorized": False}
+    with pytest.raises(ValueError, match="not bound"):
+        engine.execute_task("q", envelope, [])
+
+
+def test_a_forecasting_envelope_never_goes_to_the_classification_worker():
+    registry = Registry()
+    registry.register(Forecaster())
+    engine = Engine(registry=registry)
+    engine.interpreter = Fixed(["texto"])
+    engine.remote, engine._remote = "worker-host", lambda command: (_ for _ in ()).throw(AssertionError("routed"))
+    out = engine.execute_task("p", PROPOSAL, [])
+    assert out["response"]["answers"]["proximo"]["status"] == "OK"
