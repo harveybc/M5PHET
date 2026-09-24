@@ -367,13 +367,23 @@ def run(request, registry: Registry) -> dict:
             # it DECLARES compatibility with this one; an ignored contradiction is not cross-task reuse.
             declared_task = state.get("task_id")
             if declared_task is not None and declared_task != checked["task_id"]:
+                # A state may declare compatibility with named tasks, and -- for a zero-shot model, whose input IS the
+                # question -- with a KIND of task: a validated family whose every member the provider constructs and checks
+                # itself. The kind is the part of the id before the first colon, so it names a contract, not a pattern to
+                # match loosely: `adhoc.question.v1:<digest>` is compatible, `adhoc.question.v2:...` is not.
+                kind = checked["task_id"].split(":")[0]
                 if checked["task_id"] in (state.get("compatible_task_ids") or ()):
                     binding["task_compatibility"] = "DECLARED_BY_STATE"
                     binding["state_task_id"] = declared_task
+                elif kind in (state.get("compatible_task_kinds") or ()) and kind != checked["task_id"]:
+                    binding["task_compatibility"] = "DECLARED_KIND_BY_STATE"
+                    binding["state_task_id"] = declared_task
+                    binding["task_kind"] = kind
                 else:
                     return _envelope(checked, Status.INVALID_INPUT,
                                      f"the loaded state is fitted to task {declared_task!r} and the request is for "
-                                     f"{checked['task_id']!r}, which it does not declare as compatible",
+                                     f"{checked['task_id']!r}, which it declares as neither a compatible task nor a "
+                                     f"compatible task kind",
                                      schema_valid=True, capability_checked=True, binding=binding)
             else:
                 binding["task_compatibility"] = "SAME_TASK"

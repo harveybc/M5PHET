@@ -175,3 +175,45 @@ def test_a_language_model_cannot_answer_a_task_it_did_not_declare():
     result = run(request(provider_ref="llm-explainer", family="causal_inference", output_kind="effects"), registry)
     assert result["status"] == Status.UNSUPPORTED_TASK
     assert explainer.called("load") == []
+
+
+# --- a zero-shot state may declare a KIND of task, never an unchecked pattern --------------------------------------------------
+
+class ZeroShot(Specialized):
+    """A provider whose model takes the question as input, so its state is compatible with a validated FAMILY of tasks."""
+
+    def load(self, state_ref):
+        self.calls.append(("load", state_ref))
+        return {"state_ref": state_ref, "digest": "d" * 64, "model_sha256": self.model_sha,
+                "task_id": "zero_shot_checkpoint", "compatible_task_ids": ["task-1"],
+                "compatible_task_kinds": ["adhoc.question.v1"]}
+
+
+def test_a_state_may_declare_a_task_kind_and_the_binding_says_that_is_what_happened():
+    registry = Registry()
+    registry.register(ZeroShot("zs", [CLASSIFY]))
+    result = run(request(provider_ref="zs", task_id="adhoc.question.v1:" + "e" * 64), registry)
+    assert result["status"] == Status.OK
+    assert result["binding"]["task_compatibility"] == "DECLARED_KIND_BY_STATE"
+    assert result["binding"]["task_kind"] == "adhoc.question.v1"
+    assert result["binding"]["state_task_id"] == "zero_shot_checkpoint"
+
+
+def test_a_declared_kind_does_not_admit_another_version_of_itself():
+    registry = Registry()
+    provider = ZeroShot("zs", [CLASSIFY])
+    registry.register(provider)
+    result = run(request(provider_ref="zs", task_id="adhoc.question.v2:" + "e" * 64), registry)
+    assert result["status"] == Status.INVALID_INPUT
+    assert "compatible task kind" in result["why"]
+    assert provider.called("infer") == [], "an undeclared kind never reaches the model"
+
+
+def test_a_bare_kind_is_not_a_task_and_a_named_task_still_takes_precedence():
+    registry = Registry()
+    registry.register(ZeroShot("zs", [CLASSIFY]))
+    bare = run(request(provider_ref="zs", task_id="adhoc.question.v1"), registry)
+    assert bare["status"] == Status.INVALID_INPUT, "the kind names a family; it is not itself a member of it"
+    named = run(request(provider_ref="zs", task_id="task-1"), registry)
+    assert named["status"] == Status.OK
+    assert named["binding"]["task_compatibility"] == "DECLARED_BY_STATE", "a named task is matched by name, not by its kind"
