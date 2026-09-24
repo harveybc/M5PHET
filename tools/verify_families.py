@@ -18,6 +18,20 @@ import time
 import urllib.error
 import urllib.request
 
+#: ordinary phrasings a person would actually type, in both languages this workbench is used in. A family that only
+#: answers the phrasing its engine happens to use is a family nobody can use.
+PROSE = {
+    "laya_news": ["Which economy is named in this news?", "\u00bfDe qu\u00e9 econom\u00eda habla esta noticia?"],
+    "predictor_forecast": ["predict household power one hour ahead",
+                           "\u00bfcu\u00e1nta potencia habr\u00e1 en la pr\u00f3xima hora?"],
+    "feature-eng-hierarchical-regimes": ["assign hierarchical regimes to these rows",
+                                         "asigna los reg\u00edmenes jer\u00e1rquicos a estas filas"],
+    "causal_inference": ["Report ATE of treatment on outcome, with its uncertainty.",
+                         "\u00bfCu\u00e1l es el ATE of treatment on outcome y su incertidumbre?"],
+    "trading_policy": ["What action does eth_4h_sac_current_stack_anchor_v1 propose?",
+                       "\u00bfQu\u00e9 acci\u00f3n propone la pol\u00edtica eth_4h_sac_current_stack_anchor_v1?"],
+}
+
 #: questions that must be REFUSED, and the fragment of the reason that shows it was refused for the right cause
 REFUSALS = {
     "predictor_forecast": [
@@ -86,7 +100,7 @@ def main(argv=None):
 
     report = {"schema": "m5phet_family_verification.v1", "base": args.base,
               "providers": [p["name"] for p in catalog["providers"]],
-              "interpreter": catalog.get("interpreter"), "families": [], "refusals": []}
+              "interpreter": catalog.get("interpreter"), "families": [], "prose": [], "refusals": []}
     examples = {e["config"]["provider"]: e for e in catalog["examples"]}
     for provider in sorted(examples):
         example = examples[provider]
@@ -103,6 +117,17 @@ def main(argv=None):
             "interpretation": detail.get("interpretation"),
             "execution_authorized": detail.get("execution_authorized"),
             "why": answer.get("content") if answer.get("status") != "OK" else None})
+
+    for provider in sorted(PROSE):
+        if provider not in examples:
+            continue
+        for prompt in PROSE[provider]:
+            answer = ask(args.base, examples[provider], prompt)
+            detail = answer.get("detail") or {}
+            report["prose"].append({"provider": provider, "prompt": prompt, "status": answer.get("status"),
+                                    "answered": answer.get("status") == "OK",
+                                    "sources": (detail.get("interpretation") or {}).get("sources"),
+                                    "why": answer.get("content") if answer.get("status") != "OK" else None})
 
     for provider, cases in REFUSALS.items():
         if provider not in examples:
@@ -123,6 +148,8 @@ def main(argv=None):
     answered = [f for f in report["families"] if f["status"] == "OK"]
     report["summary"] = {"families_answering": len(answered), "families": len(report["families"]),
                          "examples_that_resolve": sum(1 for f in report["families"] if f["example_resolves"]),
+                         "prose_answered": sum(1 for r in report["prose"] if r["answered"]),
+                         "prose": len(report["prose"]),
                          "refusals_correct": sum(1 for r in report["refusals"] if r["for_the_right_reason"]),
                          "refusals": len(report["refusals"]),
                          "any_execution_authorized": any(f["execution_authorized"] for f in report["families"])}
@@ -131,6 +158,11 @@ def main(argv=None):
         print(f"{mark}{family['provider']:<34} {str(family['status']):<9} {family['title'][:52]}")
         if family["why"]:
             print(f"      {family['why'][:150]}")
+    for row in report["prose"]:
+        mark = "OK " if row["answered"] else "!! "
+        print(f"{mark}prose   {row['provider']:<26} {row['prompt'][:44]}")
+        if row["why"]:
+            print(f"      {row['why'][:150]}")
     for refusal in report["refusals"]:
         mark = "OK " if refusal["for_the_right_reason"] else "!! "
         print(f"{mark}refusal {refusal['provider']:<26} {refusal['prompt'][:46]}")
@@ -139,6 +171,7 @@ def main(argv=None):
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=1, sort_keys=True)
     ok = (report["summary"]["families_answering"] == report["summary"]["families"]
+          and report["summary"]["prose_answered"] == report["summary"]["prose"]
           and report["summary"]["refusals_correct"] == report["summary"]["refusals"]
           and not report["summary"]["any_execution_authorized"])
     return 0 if ok else 1
