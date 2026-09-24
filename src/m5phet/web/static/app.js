@@ -73,6 +73,25 @@ function renderMessage(m){
         }else {body.append(el('strong',name));renderPayload(body,p);}
       }
     }
+    /* Which parameters the words settled and which a language model chose. A reader should never have to guess
+       whether an interpreter was involved in reaching this answer. */
+    const interp=detail.interpretation;
+    if(interp&&interp.sources&&Object.keys(interp.sources).length){
+      const row=el('div',undefined,'result-interp');
+      row.append(el('span','Interpretación:','interp-label'));
+      for(const [field,source] of Object.entries(interp.sources)){
+        const value=interp.parameters?interp.parameters[field]:undefined;
+        const chip=el('span',field+' = '+String(value),'tag '+(source==='INTERPRETER'?'warn':'ok'));
+        chip.title=source==='INTERPRETER'
+          ?'Elegido por el modelo intérprete entre los valores declarados por el proveedor'
+          :'Resuelto por sus propias palabras; no se consultó ningún modelo';
+        row.append(chip);
+      }
+      if(Object.values(interp.sources).includes('INTERPRETER')&&interp.interpreter){
+        row.append(el('span',interp.interpreter.model||interp.interpreter.command||'intérprete','interp-model'));
+      }
+      body.append(row);
+    }
     const meta=el('div',undefined,'result-meta');meta.append(el('span',detail.config?.provider||''));
     if(detail.backend==='fixture')meta.append(el('span','NON_MODEL_FIXTURE','tag warn'));
     if(detail.elapsed_seconds!==undefined)meta.append(el('span',detail.elapsed_seconds.toFixed(3)+' s'));

@@ -150,3 +150,37 @@ A study is fitted once, explicitly, before it can be served:
 
 Every state above is DEVELOPMENT provenance. The workbench shows what these
 engines answer; it establishes nothing about how well they answer.
+
+## Asking in your own words
+
+A provider that declares `chat_slots()` tells the workbench which parameters its
+engine needs and, for each one, every value it actually has. Ordinary phrasing is
+resolved against exactly that vocabulary: the words are matched first, and only
+what remains goes to the configured interpreter, which is shown the question and
+the allowed values and whose answer is accepted only if every value in it was
+already declared.
+
+```bash
+M5PHET_INTERPRETER_COMMAND='hermes --ignore-user-config' \
+M5PHET_INTERPRETER_MODEL='deepseek-v4-pro (OpenCode Go)' \
+    tools/start_chat.sh
+```
+
+Without those variables the workbench still resolves whatever the words settle and
+refuses the rest, naming the missing parameter and the values the model does have.
+Each answer shows which parameters came from your words and which the interpreter
+chose, with the interpreter's identity beside them.
+
+What the interpreter cannot do, by construction: introduce a target the bundle
+does not hold, a horizon the model was not trained for, or any value outside the
+provider's declaration. A question naming an unsupported value is refused by name
+rather than answered with the nearest supported one -- that would answer a
+different question. An ambiguous question is refused with its candidates named.
+The interpreter is never shown the uploaded data, only the question and the
+vocabulary.
+
+Measured against the real TensorFlow bundle: `forecast Global_active_power at 60
+steps`, `predict household power one hour ahead` and `cuánta potencia habrá en la
+próxima hora?` all reach the engine and return its recorded 0.5412255525588989;
+`what will consumption look like shortly?` is completed by the interpreter and
+returns the same; `at 90 steps` and `forecast Voltage` are refused.
