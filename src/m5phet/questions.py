@@ -207,8 +207,32 @@ def catalog(registry):
                      # will pick one of THOSE as a target, and a column is not a fitted target.
                      "parameters": declared_parameters(provider) if provider else {},
                      "aliases": declared_aliases(provider) if provider else {},
-                     "combinations": declared_combinations(provider) if provider else []}
+                     "combinations": declared_combinations(provider) if provider else [],
+                     # whether this area's engine needs the caller's rows, as the PROVIDER declares it. A framework
+                     # that guesses this refuses the wrong things; a framework that ignores it lets a person run an
+                     # envelope the engine can only refuse (2026-09-24: a household forecast ran with nothing
+                     # attached and came back PROVIDER_ERROR after ten seconds).
+                     "data_requirement": declared_data_requirement(provider) if provider else UNKNOWN_DATA_REQUIREMENT}
     return out
+
+
+#: what the framework says when a provider does not declare whether it needs the caller's data
+UNKNOWN_DATA_REQUIREMENT = {"required": None, "why": "this provider does not declare whether it needs attached data"}
+
+
+def declared_data_requirement(provider):
+    """`{"required": bool|None, "why": str, "shape": str?}` as the provider declares it, else UNKNOWN."""
+    method = getattr(provider, "data_requirement", None)
+    if not callable(method):
+        return dict(UNKNOWN_DATA_REQUIREMENT)
+    try:
+        declared = method()
+    except Exception as error:                                              # noqa: BLE001
+        return {"required": None, "why": f"the provider could not declare its data requirement: {error}"}
+    if not isinstance(declared, dict) or not isinstance(declared.get("required"), bool):
+        return dict(UNKNOWN_DATA_REQUIREMENT)
+    return {"required": declared["required"], "why": str(declared.get("why", "")),
+            **({"shape": str(declared["shape"])} if declared.get("shape") else {})}
 
 
 def declared_parameters(provider):

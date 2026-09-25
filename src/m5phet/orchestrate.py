@@ -146,6 +146,13 @@ def check_proposal(proposal, catalog, profile):
         for spelling in [field] + [a for a, canonical in aliases.items() if canonical == field]:
             if spelling in task["state"] and task["state"][spelling] not in allowed:
                 problems.append(f"state.{spelling} {task['state'][spelling]!r} is not one the engine has ({allowed})")
+    # an engine that needs rows must not be handed an envelope with none: the refusal belongs here, before the run,
+    # naming what to attach -- not ten seconds later as the engine's PROVIDER_ERROR
+    requirement = area.get("data_requirement") or {}
+    nothing_attached = profile.get("kind") == "none" or not (profile.get("columns") or profile.get("rows"))
+    if requirement.get("required") and nothing_attached:
+        shape = f" Expected: {requirement['shape']}" if requirement.get("shape") else ""
+        problems.append(f"area {task['area']!r} needs data attached and none is: {requirement.get('why')}.{shape}")
     governed = set(parameters) | {a for a, canonical in aliases.items() if canonical in parameters}
     if profile.get("columns"):
         known = set(profile["columns"])
@@ -320,7 +327,18 @@ def render(response):
     return default_output.text(response)
 
 
-def narrate(prompt, response, *, interpreter=None, language="es", area=None, plugin=None):
+def _asked_view(task, response):
+    """The numbers and words the CALLER put in the envelope: the question fields and the state values.
+
+    A narration may repeat what was asked -- the horizon, the confidence level, the policy id -- because the person
+    wrote it. It may not invent a number the answers do not carry; that check is unchanged."""
+    envelope = task if isinstance(task, dict) else response.get("task")
+    if not isinstance(envelope, dict):
+        return {}
+    return {"questions": envelope.get("questions") or {}, "state": envelope.get("state") or {}}
+
+
+def narrate(prompt, response, *, interpreter=None, language="es", area=None, plugin=None, task=None):
     """What the person reads: the configured output procedure's text, checked against the answers it was given.
 
     Two things happen here and both are guarded by the same rule. The area's output plugin (WP04) renders the answers
@@ -358,6 +376,10 @@ def narrate(prompt, response, *, interpreter=None, language="es", area=None, plu
     # parity checks) and `provenance` (digests) are not that: a raw SDK field named "confidence" was narrated as
     # "confianza 0.3403" once, a number the answers deliberately do not surface. The guard checks the same view.
     answers = narratable(response.get("answers") or {})
+    # The person's own envelope is not an invention: a horizon of 60 steps or a confidence level of 0.95 is a number
+    # they wrote, and a narration that repeats it is faithful. Refusing it discarded correct sentences about refused
+    # questions, whose answers carry no numbers at all (2026-09-24: "'60' is a figure the answers do not carry").
+    asked = _asked_view(task, response)
     instruction = (
         f"Write a short answer in {'Spanish' if language == 'es' else 'English'} for a person who asked: "
         f"{json.dumps(prompt)}\n"
@@ -370,7 +392,8 @@ def narrate(prompt, response, *, interpreter=None, language="es", area=None, plu
         return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
                 "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json"),
                 "why": "the interpreter could not be consulted"}
-    problems = narration_problems(text, answers) if text else ["the interpreter returned nothing"]
+    problems = narration_problems(text, {"answers": answers, "asked": asked}) if text else \
+        ["the interpreter returned nothing"]
     if not problems:
         return {"text": text, "source": "INTERPRETER", "faithful": True, "interpreter": interpreter.identity(),
                 "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json")}
