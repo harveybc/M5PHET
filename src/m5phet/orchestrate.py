@@ -300,6 +300,15 @@ def narration_problems(text, answers):
     return problems
 
 
+NOT_NARRATED = ("sdk_answer", "provenance")
+
+
+def narratable(answers):
+    """The answers as the person should read them: every field except the backend's verbatim object and the digests."""
+    return {name: ({k: v for k, v in answer.items() if k not in NOT_NARRATED} if isinstance(answer, dict) else answer)
+            for name, answer in answers.items()}
+
+
 def narration_is_faithful(text, answers):
     """True when every number in the text is one the answers carry and no claim goes beyond them. A narration may leave
     figures out; it may not add, scale or act on them."""
@@ -333,7 +342,10 @@ def narrate(prompt, response, *, interpreter=None, language="es"):
     fallback = render(response)
     if not interpreter.available:
         return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity()}
-    answers = response.get("answers") or {}
+    # The narrator reads what the person is meant to read. `sdk_answer` (the backend's verbatim object, kept for
+    # parity checks) and `provenance` (digests) are not that: a raw SDK field named "confidence" was narrated as
+    # "confianza 0.3403" once, a number the answers deliberately do not surface. The guard checks the same view.
+    answers = narratable(response.get("answers") or {})
     instruction = (
         f"Write a short answer in {'Spanish' if language == 'es' else 'English'} for a person who asked: "
         f"{json.dumps(prompt)}\n"

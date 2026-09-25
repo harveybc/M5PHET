@@ -39,6 +39,20 @@ export CAUSAL_INFERENCE_STATE_DIR="${CAUSAL_INFERENCE_STATE_DIR:-$HOME/.local/sh
 export M5PHET_POLICY_PYTHON="${M5PHET_POLICY_PYTHON:-$HOME/anaconda3/envs/trading-stack/bin/python}"
 export M5PHET_POLICY_BUNDLE="${M5PHET_POLICY_BUNDLE:-$STATE/policy-eth4h-dev-20260924}"
 
+# JSON configuration (schema m5phet.config.v1). When ~/.config/m5phet/m5phet.json exists -- or M5PHET_CONFIG names
+# another file -- the app reads its bindings through m5phet.config and they WIN over the variables above; everything the
+# file does not bind stays exactly as this script left it. Nothing is required: without a file the variables above are
+# the configuration. The path is only passed through here; the app validates it and refuses an unknown key, an unset
+# $VARIABLE or a host literal. `tools/m5phet.json.example` is the template.
+if [ -n "${M5PHET_CONFIG:-}" ]; then
+    export M5PHET_CONFIG
+    echo "configuration: ${M5PHET_CONFIG} (JSON bindings win)"
+elif [ -f "$HOME/.config/m5phet/m5phet.json" ]; then
+    echo "configuration: $HOME/.config/m5phet/m5phet.json (JSON bindings win)"
+else
+    echo "configuration: environment (no m5phet.json)"
+fi
+
 PORT="${PORT:-8765}"
 echo "M5PHET workbench on http://127.0.0.1:${PORT}"
 exec "$CHAT_VENV/bin/m5phet-chat" --port "$PORT" "$@"

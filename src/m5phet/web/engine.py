@@ -9,6 +9,7 @@ import shlex
 import subprocess
 from datetime import datetime, timezone
 
+from m5phet import config as configuration_module
 from m5phet.interpret import STATUS_OK, Interpreter, interpret
 from m5phet.orchestrate import narrate, route
 from m5phet.questions import catalog as question_catalog, run_task
@@ -88,13 +89,26 @@ def validate_config(value):
 
 
 class Engine:
-    def __init__(self, registry=None):
+    def __init__(self, registry=None, configuration=None, environ=None):
+        """Read the bindings before anything is constructed.
+
+        Every provider owns its own environment variables and reads them when it is built, so the JSON configuration
+        has to reach the environment BEFORE the registry loads the entry points -- otherwise a provider would be
+        constructed from the env file while the catalog reported the JSON. `config.load()` returns the environment
+        itself as a valid configuration when no file exists, so the operator's chat.env keeps working unchanged."""
+        self.environ = os.environ if environ is None else environ
+        self.configuration = configuration_module.load(environ=self.environ) if configuration is None else configuration
+        self.config_source = self.configuration.source
+        self.configuration.apply(self.environ)
         self.registry = registry or Registry()
         self.discovery = self.registry.load_entry_points() if registry is None else {"registered": registry.names(), "refused": {}}
-        self.remote = os.getenv("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
-        self.remote_command = os.getenv("M5PHET_CHAT_LAYA_COMMAND", "")
+        classification = self.configuration.core("classification")
+        self.remote = classification.get("worker") or self.environ.get("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
+        self.remote_command = classification.get("command") or self.environ.get("M5PHET_CHAT_LAYA_COMMAND", "")
         self.remote_caps = None
-        self.interpreter = Interpreter()
+        interpreter = self.configuration.interpreter
+        self.interpreter = Interpreter(command=interpreter.get("command"), model=interpreter.get("model"),
+                                       environ=self.environ)
         if self.remote:
             self.remote_capabilities()
 
@@ -146,7 +160,13 @@ class Engine:
                                           "options": [["euro_area", "Euro area"], ["united_states", "United States"], ["other", "Another economy"]]}})
         return {"providers": providers, "examples": examples, "discovery": self.discovery,
                 "defaults": DEFAULT_CONFIG, "profile": "LOCAL_UNGOVERNED", "execution_authorized": False,
-                "interpreter": self.interpreter.identity()}
+                "interpreter": self.interpreter.identity(),
+                # which of the two configurations is in force: the JSON file, or the operator's environment
+                "config_source": self.config_source,
+                "config": {"areas": {area: {"provider": self.configuration.provider(area),
+                                            "output": self.configuration.output(area)}
+                                     for area in configuration_module.AREAS if self.configuration.provider(area)},
+                           "surfaces": self.configuration.surfaces}}
 
     # --- the question envelope: one shape for every area ----------------------------------------------------------------
     def task_catalog(self):

@@ -56,11 +56,18 @@ TOOLS = [
 
 
 class Server:
-    def __init__(self, registry=None):
+    def __init__(self, registry=None, engine=None):
         self.registry = registry
+        # Without an explicit registry the server is the workbench's engine: the same entry points AND the same route to
+        # the private classification worker, bound by the envelope digest. Calling run_task on the local registry
+        # alone answered classification from whatever backend this host declares, which on the coordinator is the
+        # fixture -- an MCP client saw label `other` at 1.0 where the workbench says euro_area 0.9666 (WP11, 2026-09-24).
+        self.engine = engine
         if self.registry is None:
-            self.registry = Registry()
-            self.discovery = self.registry.load_entry_points()
+            from .web.engine import Engine
+            self.engine = engine or Engine()
+            self.registry = self.engine.registry
+            self.discovery = self.engine.discovery
         else:
             self.discovery = {"registered": self.registry.names(), "refused": {}}
 
@@ -92,6 +99,14 @@ class Server:
     def _error(ident, code, message):
         return {"jsonrpc": "2.0", "id": ident, "error": {"code": code, "message": message}}
 
+    def _execute(self, envelope, data):
+        """Through the engine when there is one (worker route, digest binding, checked narration); else the runtime."""
+        if self.engine is None:
+            return run_task(envelope, self.registry, data=data)
+        attachments = [] if data is None else [{"name": "data.json", "data": json.dumps(data).encode()}]
+        detail = self.engine.execute_task("", envelope, attachments, language="en")
+        return {**detail["response"], "narration": detail["narration"], "execution_authorized": False}
+
     # --- tools --------------------------------------------------------------------------------------------------------
     def call(self, name, arguments):
         if name == "m5phet_catalog":
@@ -101,7 +116,7 @@ class Server:
             envelope = {k: arguments[k] for k in ("area", "state", "questions") if k in arguments}
             if arguments.get("as_of"):
                 envelope["as_of"] = arguments["as_of"]
-            payload = run_task(envelope, self.registry, data=arguments.get("data"))
+            payload = self._execute(envelope, arguments.get("data"))
         elif name == "m5phet_propose_task":
             payload = route(arguments.get("prompt", ""), arguments.get("data"), self.registry)
             payload.pop("catalog", None)

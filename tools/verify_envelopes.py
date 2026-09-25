@@ -55,6 +55,23 @@ def envelopes(examples):
                   "questions": {"accion": {"type": "next_action"},
                                 "retorno": {"type": "value_estimation"}}},
          "expect": {"accion": "OK", "retorno": "OK"}},
+        # --- RL negative paths (WP08): the same policy, unusable inputs, refused by name and with no number ----------
+        {"area": "rl", "example": data_of("market data"), "prompt": "que accion propone con estas pocas barras",
+         "data_transform": lambda csv: "\n".join(csv.splitlines()[:6]) + "\n",
+         "task": {"area": "rl", "state": {"policy_id": "eth_4h_sac_current_stack_anchor_v1"},
+                  "questions": {"accion": {"type": "next_action"}}},
+         "expect": {"accion": "REFUSED:STATE_REQUIRED"}, "why_contains": {"accion": "TOO_FEW_ROWS"}},
+        {"area": "rl", "example": data_of("market data"), "prompt": "que accion propone sin una de las columnas",
+         "data_transform": lambda csv: _drop_last_column(csv),
+         "task": {"area": "rl", "state": {"policy_id": "eth_4h_sac_current_stack_anchor_v1"},
+                  "questions": {"accion": {"type": "next_action"}}},
+         "expect": {"accion": "REFUSED:STATE_REQUIRED"}, "why_contains": {"accion": "MISSING_COLUMNS"}},
+        {"area": "rl", "example": data_of("all-zero"), "prompt": "que accion propone para este vector corto",
+         "data_transform": lambda vector: json.dumps([0.0] * 10),
+         "task": {"area": "rl", "state": {"policy_id": "eth_4h_sac_current_stack_anchor_v1"},
+                  "questions": {"accion": {"type": "next_action"}, "valor": {"type": "value_estimation"}}},
+         "expect": {"accion": "REFUSED:STATE_REQUIRED", "valor": "REFUSED:STATE_REQUIRED"},
+         "why_contains": {"accion": "OBSERVATION_SIZE_MISMATCH", "valor": "OBSERVATION_SIZE_MISMATCH"}},
         {"area": "unsupervised", "example": data_of("OHLC"), "prompt": "segmenta estas filas y describe el cluster alto",
          "task": {"area": "unsupervised", "state": {},
                   "questions": {"segmentacion": {"type": "clustering", "method": "auto"},
@@ -72,6 +89,12 @@ def envelopes(examples):
     ]
 
 
+def _drop_last_column(csv):
+    """The bars without their last fitted column, so the table is market data missing one thing it needs."""
+    rows = [line.split(",") for line in csv.splitlines() if line]
+    return "\n".join(",".join(row[:-1]) for row in rows) + "\n"
+
+
 def run_envelope(base, spec, defaults):
     example = spec["example"]
     chat = call(base, "POST", "/api/chats", {"title": "sobre " + spec["area"]})
@@ -82,6 +105,8 @@ def run_envelope(base, spec, defaults):
     if example.get("data"):
         suffix = {"json": "json", "csv": "csv"}.get(example["config"].get("input"), "txt")
         blob = example["data"] if isinstance(example["data"], str) else json.dumps(example["data"])
+        if spec.get("data_transform"):
+            blob = spec["data_transform"](blob)
         file_ids = [call(base, "POST", f"/api/chats/{cid}/files", raw=blob.encode(), filename=f"d.{suffix}")["id"]]
     sent = call(base, "POST", f"/api/chats/{cid}/tasks/run",
                 {"prompt": spec["prompt"], "task": spec["task"], "file_ids": file_ids,
@@ -117,8 +142,11 @@ def main(argv=None):
                 got = f"REFUSED:{answer.get('refusal')}"
             invented = got.startswith("REFUSED") and any(isinstance(v, (int, float)) and not isinstance(v, bool)
                                                          for k, v in answer.items() if k not in ("type",))
+            wanted = (spec.get("why_contains") or {}).get(name)
+            why_ok = wanted is None or wanted in str(answer.get("why", ""))
             rows.append({"question": name, "type": answer.get("type"), "expected": expected, "got": got,
-                         "as_expected": got == expected, "number_in_refusal": invented,
+                         "as_expected": got == expected and why_ok, "number_in_refusal": invented,
+                         "why_expected": wanted,
                          "why": answer.get("why"), "preview": {k: v for k, v in list(answer.items())[:5]}})
         narration = detail.get("narration") or {}
         report["envelopes"].append({"area": spec["area"], "message_status": message.get("status"),
