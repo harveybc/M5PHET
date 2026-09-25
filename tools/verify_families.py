@@ -27,11 +27,14 @@ PROSE = [
     ("predictor_forecast", "household-power", "\u00bfcu\u00e1nta potencia habr\u00e1 en la pr\u00f3xima hora?"),
     ("predictor_forecast", "direction_cnn", "what is the direction_long probability at horizon 1?"),
     ("predictor_forecast", "direction_cnn", "\u00bfcu\u00e1l es la probabilidad de direction_long a horizonte 1?"),
+    # WP05: a cluster described by its words, never by a column expression (resolved by the words alone)
+    ("feature-eng-hierarchical-regimes", "OHLC", "describe el grupo de velas con cuerpo alto"),
+    ("feature-eng-hierarchical-regimes", "OHLC", "describe the cluster with a large body"),
     ("feature-eng-hierarchical-regimes", "OHLC", "assign hierarchical regimes to these rows"),
     ("feature-eng-hierarchical-regimes", "OHLC", "asigna los reg\u00edmenes jer\u00e1rquicos a estas filas"),
     ("causal_inference", "ATE", "Report ATE of treatment on outcome, with its uncertainty."),
     ("causal_inference", "ATE", "\u00bfCu\u00e1l es el ATE of treatment on outcome y su incertidumbre?"),
-    ("trading_policy", "one observation", "What action does eth_4h_sac_current_stack_anchor_v1 propose?"),
+    ("trading_policy", "observation vector", "What action does eth_4h_sac_current_stack_anchor_v1 propose?"),
     ("trading_policy", "market data", "\u00bfQu\u00e9 acci\u00f3n propone la pol\u00edtica para estas barras?"),
 ]
 
@@ -129,6 +132,12 @@ def main(argv=None):
         chosen = [e for e in catalog["examples"]
                   if e["config"]["provider"] == provider and fragment.lower() in e["title"].lower()]
         if not chosen:
+            # Silence here once cost a whole sentence: an example's TITLE changed upstream, the fragment stopped
+            # matching, and the harness quietly printed 11/11 instead of 11 of 12. A sentence with no example is
+            # recorded as unanswered, so the denominator cannot shrink without anyone noticing.
+            report["prose"].append({"provider": provider, "example": None, "prompt": prompt,
+                                    "status": "NO_EXAMPLE", "answered": False, "sources": None,
+                                    "why": f"no shipped example of {provider} whose title contains {fragment!r}"})
             continue
         answer = ask(args.base, chosen[0], prompt)
         detail = answer.get("detail") or {}
@@ -159,7 +168,7 @@ def main(argv=None):
                          "families": len({f["provider"] for f in report["families"]}),
                          "examples_that_resolve": sum(1 for f in report["families"] if f["example_resolves"]),
                          "prose_answered": sum(1 for r in report["prose"] if r["answered"]),
-                         "prose": len(report["prose"]),
+                         "prose": len(report["prose"]), "prose_declared": len(PROSE),
                          "refusals_correct": sum(1 for r in report["refusals"] if r["for_the_right_reason"]),
                          "refusals": len(report["refusals"]),
                          "any_execution_authorized": any(f["execution_authorized"] for f in report["families"])}
