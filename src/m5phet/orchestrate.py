@@ -22,7 +22,7 @@ import io
 import json
 import re
 
-from .interpret import Interpreter
+from .interpret import build as build_interpreter
 from .questions import AREAS, TaskError, catalog as question_catalog, validate_task
 
 MAX_PROMPT = 4000
@@ -165,7 +165,7 @@ def route(prompt, data, registry, *, interpreter=None):
                 "proposal": None, "problems": []}
     catalog = question_catalog(registry)
     profile = dataset_profile(data)
-    interpreter = interpreter if interpreter is not None else Interpreter()
+    interpreter = interpreter if interpreter is not None else build_interpreter()
     report = {"profile": profile, "catalog": catalog, "interpreter": interpreter.identity()}
     if not interpreter.available:
         return {**report, "status": "REFUSED", "proposal": None, "problems": [],
@@ -338,7 +338,7 @@ def _short(value):
 def narrate(prompt, response, *, interpreter=None, language="es"):
     """A sentence about the answers, checked against them. Falls back to the deterministic rendering rather than let a
     number through that the engines did not produce."""
-    interpreter = interpreter if interpreter is not None else Interpreter()
+    interpreter = interpreter if interpreter is not None else build_interpreter()
     fallback = render(response)
     if not interpreter.available:
         return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity()}

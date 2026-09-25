@@ -185,6 +185,61 @@ próxima hora?` all reach the engine and return its recorded 0.5412255525588989;
 `what will consumption look like shortly?` is completed by the interpreter and
 returns the same; `at 90 steps` and `forecast Voltage` are refused.
 
+## Which interpreter reads the sentence (`m5phet.interpreters`)
+
+Reading a person's words is the one place a language model is consulted, and
+**how** it is reached is a configuration choice, not an import. Three plugins
+ship, registered under the entry-point group `m5phet.interpreters`; an external
+distribution registers its own the same way and is found the same way.
+
+| `interpreter.plugin` | How the model is reached | Settings it reads |
+|---|---|---|
+| `command` (default) | a program on this machine, called as `COMMAND -z PROMPT`; stdout is the reply | `command`, `model`, `timeout_seconds` |
+| `ollama` | a local ollama server over HTTP, CPU only (`num_gpu: 0`), thinking off, reply bounded | `model`, `base_url`, `max_tokens`, `timeout_seconds` |
+| `openai_compatible` | `POST {base_url}/chat/completions` with a bearer token | `base_url`, `model`, `api_key_env`, **`consent`**, `max_tokens` |
+
+```json
+{"schema": "m5phet.config.v1",
+ "interpreter": {"plugin": "ollama", "model": "llama3.2:3b"}}
+```
+
+With **no** JSON file nothing changes: the `command` plugin reads
+`M5PHET_INTERPRETER_COMMAND`, `_MODEL` and `_TIMEOUT` exactly as before, which is
+how `tools/start_chat.sh` and `~/.config/m5phet/chat.env` keep working.
+
+`tools/interpreter_ollama.py` is now a thin shim over the `ollama` plugin, kept
+so the environment-only route (`M5PHET_INTERPRETER_COMMAND=".../interpreter_ollama.py
+llama3.2:3b"`) still works; the request body lives in one place, so the two
+routes cannot drift apart. The `ollama` plugin defaults to the loopback ollama
+server, so leave `base_url` out for a local one — a **host literal** in the
+configuration file is refused (WP02), and `"$OLLAMA_HOST"` is how another one is
+named.
+
+**`openai_compatible` refuses to run without written consent.** It is the only
+plugin that can send the person's sentence and the engine's declared vocabulary
+off this machine, so the configuration must say
+
+```json
+{"interpreter": {"plugin": "openai_compatible", "consent": "cloud_ok",
+                 "base_url": "$M5PHET_OPENAI_BASE_URL", "model": "...",
+                 "api_key_env": "M5PHET_OPENAI_API_KEY"}}
+```
+
+Without `"consent": "cloud_ok"` the interpreter is unavailable, says why, and
+asking it anyway raises — it never falls back to another plugin. The token is
+never written in the file: `api_key_env` names the *environment variable* that
+holds it, an unset variable is refused by name, and neither the key nor the
+endpoint appears in the interpreter's identity, so neither reaches the browser or
+a receipt. The owner's standing decision of 2026-09-24 is that no cloud model is
+the default; this plugin exists so a paid one can be tried at the end of a
+comparison and named in the report, never arrived at by accident.
+
+What no plugin can do, for any of the three transports: show the model the
+uploaded data, or introduce a value the provider did not declare. Those rules
+live in `m5phet.interpret` and are checked for all three in
+`tests/test_interpreters.py`, against a fake command script and a fake HTTP
+server on the loopback interface — no network, no key, no real model.
+
 ## The JSON configuration (`m5phet.config.v1`)
 
 The environment is a valid configuration and stays one: without any file,

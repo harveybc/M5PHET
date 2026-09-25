@@ -141,10 +141,18 @@ def unsupported_named(prompt, slots):
 class Interpreter:
     """The optional language model, reached through the operator's configured command.
 
-    It is given the question and the allowed values. It is not given the data, a tool, a path or a shell."""
+    It is given the question and the allowed values. It is not given the data, a tool, a path or a shell.
+
+    This class is also the `command` plugin's behaviour and the base every other interpreter plugin subclasses: a
+    plugin implements `_ask(text) -> str` and inherits `propose`, which is where the rule that the model may only
+    choose among declared values is enforced. `build()` below is how one is selected by configuration."""
+
+    #: the name this implementation is selected by in `interpreter.plugin`
+    plugin = "command"
 
     def __init__(self, command=None, model=None, environ=None):
         env = os.environ if environ is None else environ
+        self.environ = env
         self.command = command or env.get("M5PHET_INTERPRETER_COMMAND") or ""
         self.model = model or env.get("M5PHET_INTERPRETER_MODEL") or ""
         self.timeout = int(env.get("M5PHET_INTERPRETER_TIMEOUT", DEFAULT_TIMEOUT_SECONDS))
@@ -156,7 +164,8 @@ class Interpreter:
         return shutil.which(self.command.split()[0]) is not None or os.path.isfile(self.command.split()[0])
 
     def identity(self):
-        return {"command": self.command.split()[0] if self.command else None, "model": self.model or None,
+        return {"plugin": self.plugin,
+                "command": self.command.split()[0] if self.command else None, "model": self.model or None,
                 "available": self.available,
                 "reading": "the model chooses among declared values; it cannot introduce one"}
 
@@ -185,6 +194,26 @@ class Interpreter:
         if not isinstance(proposed, dict):
             raise ValueError("the interpreter returned something that is not an object")
         return proposed
+
+
+def build(settings=None, environ=None):
+    """The interpreter this installation is configured to use.
+
+    `interpreter.plugin` in `~/.config/m5phet/m5phet.json` names it and defaults to `command`; the block is handed to
+    the plugin unchanged, so a plugin's own settings (a model, a base URL, a consent) need no change here. With no JSON
+    configuration the `command` plugin reads `M5PHET_INTERPRETER_COMMAND` exactly as it always has, which is why an
+    operator who never writes a JSON file sees no difference.
+
+    A configuration that cannot be READ is not a reason to run with a different interpreter than the one asked for:
+    `ConfigError` is raised, as everywhere else. A configuration FILE that does not exist is not that -- it means the
+    environment is the configuration, which is a supported way to run and is what `config.load()` returns."""
+    env = os.environ if environ is None else environ
+    if settings is None:
+        from . import config as configuration
+        settings = configuration.load(environ=env).interpreter
+    settings = dict(settings or {})
+    from .interpreters import DEFAULT_PLUGIN, load as load_plugin
+    return load_plugin(settings.get("plugin") or DEFAULT_PLUGIN)(settings, environ=env)
 
 
 def interpret(prompt, slots, *, interpreter=None):
@@ -223,7 +252,7 @@ def interpret(prompt, slots, *, interpreter=None):
     if not unresolved:
         return {**report, "status": STATUS_OK}
 
-    interpreter = interpreter if interpreter is not None else Interpreter()
+    interpreter = interpreter if interpreter is not None else build()
     report["interpreter"] = interpreter.identity()
     if not interpreter.available:
         return {**report, "status": STATUS_MISSING,

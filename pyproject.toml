@@ -19,6 +19,13 @@ web-test = ["httpx>=0.27,<1", "pytest>=8", "playwright>=1.50,<2"]
 [project.scripts]
 m5phet-chat = "m5phet.web.app:main"
 
+# WP03 -- the input component's language model, selected by `interpreter.plugin`. An external distribution registers
+# its own implementation under this group and is found exactly as the three shipped ones are.
+[project.entry-points."m5phet.interpreters"]
+command = "m5phet.interpreters.command:CommandInterpreter"
+ollama = "m5phet.interpreters.ollama:OllamaInterpreter"
+openai_compatible = "m5phet.interpreters.openai_compatible:OpenAICompatibleInterpreter"
+
 [tool.setuptools.package-data]
 "m5phet" = ["config.schema.json"]
 "m5phet.web" = ["static/*", "static/vendor/*"]

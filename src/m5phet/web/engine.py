@@ -10,7 +10,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from m5phet import config as configuration_module
-from m5phet.interpret import STATUS_OK, Interpreter, interpret
+from m5phet.interpret import STATUS_OK, build as build_interpreter, interpret
 from m5phet.orchestrate import narrate, route
 from m5phet.questions import catalog as question_catalog, run_task
 from m5phet.runtime import Registry, request_digest, run
@@ -106,9 +106,10 @@ class Engine:
         self.remote = classification.get("worker") or self.environ.get("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
         self.remote_command = classification.get("command") or self.environ.get("M5PHET_CHAT_LAYA_COMMAND", "")
         self.remote_caps = None
-        interpreter = self.configuration.interpreter
-        self.interpreter = Interpreter(command=interpreter.get("command"), model=interpreter.get("model"),
-                                       environ=self.environ)
+        # WP03: which interpreter implementation reads a sentence is a configuration choice, not an import. The
+        # `interpreter` block goes to the plugin unchanged; with no JSON file it is empty and the `command` plugin
+        # reads M5PHET_INTERPRETER_COMMAND exactly as before.
+        self.interpreter = build_interpreter(self.configuration.interpreter, environ=self.environ)
         if self.remote:
             self.remote_capabilities()
 
