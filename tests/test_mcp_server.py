@@ -84,3 +84,25 @@ def test_the_stdio_loop_answers_one_line_per_request():
 def test_the_server_exposes_no_tool_that_is_not_about_fitted_models():
     names = {t["name"] for t in TOOLS}
     assert names == {"m5phet_catalog", "m5phet_execute_ml_task", "m5phet_propose_task"}
+
+
+def test_without_an_explicit_registry_execution_goes_through_the_workbench_engine(monkeypatch):
+    """WP11 found the MCP surface answering classification from the coordinator's fixture: run_task on the local
+    registry never took the worker route. The default server is the engine, so every tool call takes the same road as
+    the web workbench, including the private worker and the digest binding."""
+    from m5phet.web.engine import Engine
+    from m5phet.runtime import Registry
+    registry = Registry()
+    engine = Engine(registry=registry)
+    seen = {}
+
+    def execute_task(prompt, task, attachments, language="es"):
+        seen.update(task=task, attachments=attachments)
+        return {"task": task, "response": {"answers": {}, "answered": 0, "refused": 0},
+                "narration": {"text": "nothing", "source": "DETERMINISTIC"}, "execution_authorized": False}
+    monkeypatch.setattr(engine, "execute_task", execute_task)
+    server = Server(engine=engine)
+    out = server.call("m5phet_execute_ml_task", {"area": "forecasting", "state": {}, "questions": {}, "data": {"x": [1]}})
+    assert seen["task"] == {"area": "forecasting", "state": {}, "questions": {}}
+    assert json.loads(seen["attachments"][0]["data"]) == {"x": [1]}
+    assert out["structuredContent"]["execution_authorized"] is False and out["structuredContent"]["narration"]
