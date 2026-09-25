@@ -1,24 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-labelledby="t d">
   <title id="t">M5PHET</title>
-  <desc id="d">A downward triangle (the triad: decentralization, self-awareness, evolution) enclosing a circle (the link between everything) that holds a five-petal flower seen from above (the five machine-learning disciplines).</desc>
-  <!-- the triad -->
-  <polygon points="20,40 180,40 100,178.56" fill="#17694e"/>
+  <desc id="d">Line art: a downward triangle with rounded corners (the triad: decentralization, self-awareness, evolution) enclosing a circle (the link between everything) that holds a five-petal flower seen from above (the five machine-learning disciplines), with one stamen per petal.</desc>
+  <style>.l{fill:none;stroke:#17694e;stroke-linejoin:round;stroke-linecap:round}.dot{fill:#17694e;stroke:none}</style>
+  <!-- the triad: one stroke, rounded corners -->
+  <polygon class="l" points="30,52 210,52 120,207.9" stroke-width="7"/>
   <!-- the circle that links everything: the incircle of the triad -->
-  <circle cx="100.00" cy="86.19" r="46.19" fill="#f4f7f5" stroke="#0f4a36" stroke-width="2"/>
-  <!-- the five disciplines, one petal each, seen from above; no stem, no leaves -->
-  <g fill="#17694e" stroke="#f4f7f5" stroke-width="1.6">
-        <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(0 100.00 86.19)"/>
-    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(72 100.00 86.19)"/>
-    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(144 100.00 86.19)"/>
-    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(216 100.00 86.19)"/>
-    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(288 100.00 86.19)"/>
+  <circle class="l" cx="120.00" cy="103.96" r="51.96" stroke-width="4.5"/>
+  <!-- the five disciplines: five petals from above, no stem, no leaves; one stamen each -->
+  <g class="l" stroke-width="4">
+        <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(0)"/>
+    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(72)"/>
+    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(144)"/>
+    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(216)"/>
+    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(288)"/>
   </g>
-  <g fill="#f4f7f5">
-        <circle cx="100.00" cy="55.19" r="2.2"/>
-    <circle cx="129.48" cy="76.61" r="2.2"/>
-    <circle cx="118.22" cy="111.27" r="2.2"/>
-    <circle cx="81.78" cy="111.27" r="2.2"/>
-    <circle cx="70.52" cy="76.61" r="2.2"/>
+  <g class="l" stroke-width="3">
+        <line x1="120.00" y1="94.96" x2="120.00" y2="80.96"/><circle cx="120.00" cy="80.96" r="2.6" class="dot"/>
+    <line x1="128.56" y1="101.18" x2="141.87" y2="96.85"/><circle cx="141.87" cy="96.85" r="2.6" class="dot"/>
+    <line x1="125.29" y1="111.24" x2="133.52" y2="122.57"/><circle cx="133.52" cy="122.57" r="2.6" class="dot"/>
+    <line x1="114.71" y1="111.24" x2="106.48" y2="122.57"/><circle cx="106.48" cy="122.57" r="2.6" class="dot"/>
+    <line x1="111.44" y1="101.18" x2="98.13" y2="96.85"/><circle cx="98.13" cy="96.85" r="2.6" class="dot"/>
   </g>
-  <circle cx="100.00" cy="86.19" r="6.5" fill="#925669" stroke="#f4f7f5" stroke-width="1.6"/>
 </svg>
