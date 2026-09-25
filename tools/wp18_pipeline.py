@@ -32,6 +32,8 @@ def _load(path):
 def _probabilities(entry, width=6):
     if entry.get("status") != "OK":
         return f"REFUSED {entry.get('refusal')}: {str(entry.get('why'))[:160]}"
+    if not entry.get("probabilities"):
+        return f"{entry['chosen']:<{width}} {entry.get('why', '')}"
     ordered = sorted(entry["probabilities"].items(), key=lambda item: -item[1])
     return f"{entry['chosen']:<{width}} " + ", ".join(f"{key} {value}" for key, value in ordered)
 
@@ -44,6 +46,9 @@ def main(argv=None):
     parser.add_argument("--candidate", help="which candidate_id to carry; the first one by default")
     parser.add_argument("--records", default=DEFAULT_RECORDS, help=f"where decision records go (default {DEFAULT_RECORDS})")
     parser.add_argument("--out", required=True, help="where the pipeline spec is written")
+    parser.add_argument("--replay", action="store_true",
+                        help="rebuild from the decision records already in --records instead of asking anything; a "
+                             "state with no record is refused by name, and nothing new is asked")
     args = parser.parse_args(argv)
 
     sheet, groups, design = _load(args.metrics), _load(args.groups), _load(args.candidates)
@@ -56,7 +61,10 @@ def main(argv=None):
         return 2
 
     records = Path(args.records).expanduser()
-    engine = Engine()
+    replay = pipeline.load_records(records) if args.replay else None
+    engine = None if args.replay else Engine()
+    if replay is not None:
+        print(f"[replay] {len(replay)} recorded decision(s) in {records}; nothing will be asked")
     preprocessors, extractors = pipeline.catalog_preprocessors(), pipeline.catalog_extractors()
     cores = pipeline.catalog_cores()
     for catalog in (preprocessors, extractors, cores):
@@ -64,12 +72,12 @@ def main(argv=None):
               + (f"; problems: {catalog['problems']}" if catalog["problems"] else ""))
 
     print("\n[step 2] one decision per feature -- preprocessing")
-    plan = pipeline.choose_preprocessing(engine, sheet, preprocessors, record_dir=records)
+    plan = pipeline.choose_preprocessing(engine, sheet, preprocessors, record_dir=records, replay=replay)
     for feature, entry in plan.get("features", {}).items():
         print(f"  {feature:<22} {_probabilities(entry, 22)}")
 
     print("\n[step 3b] one decision among the declared cuts")
-    grouping = pipeline.confirm_grouping(engine, groups, record_dir=records)
+    grouping = pipeline.confirm_grouping(engine, groups, record_dir=records, replay=replay)
     print(f"  cut {_probabilities(grouping, 4)}")
 
     cut = grouping.get("cut")
@@ -78,14 +86,17 @@ def main(argv=None):
             "refusal": "GROUPING_REFUSED", "why": "no cut was chosen, so there are no branches to read"}
     if cut is not None:
         print("\n[step 4] one decision per group -- extractor")
-        extraction = pipeline.choose_extractors(engine, cut, extractors, record_dir=records)
+        extraction = pipeline.choose_extractors(engine, cut, extractors, record_dir=records, replay=replay)
         for group_id, entry in extraction.get("groups", {}).items():
             members = next(g["members"] for g in cut["groups"] if g["group_id"] == group_id)
             print(f"  {group_id} {','.join(members)}\n      {_probabilities(entry, 10)}")
 
         print("\n[step 5] one decision over the fused branches -- core")
-        core = pipeline.choose_core(engine, cut, cores, record_dir=records, extractor_plan=extraction)
-        print(f"  {_probabilities(core, 10) if core.get('status') == 'OK' else core['refusal'] + ': ' + str(core['why'])}")
+        core = pipeline.choose_core(engine, cut, cores, record_dir=records, extractor_plan=extraction, replay=replay)
+        if core.get("status") == "OK":
+            print(f"  {core['core']} ({core['chosen_by']}): {core.get('why') or _probabilities(core, 10)}")
+        else:
+            print(f"  {core['refusal']}: {core['why']}")
         if core.get("plan"):
             print(f"  plan: {core['plan']}")
 
@@ -95,6 +106,11 @@ def main(argv=None):
     pipeline.validate_pipeline(spec, catalogs={"preprocessing": preprocessors, "extractor": extractors,
                                                "core": cores}, record_dir=records)
     Path(args.out).expanduser().write_text(json.dumps(spec, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    mapping = spec["core"]["encoder_mapping"]
+    print(f"\n[core] {json.dumps(spec['core'], sort_keys=True)}")
+    print(f"[encoder_mapping] {mapping['status']}: " +
+          ", ".join(f"{group}: extractor {branch['extractor']} -> encoder {branch['encoder']}"
+                    for group, branch in mapping.get("branches", {}).items()))
     print(f"\n[step 6] {args.out}: representation {representation.get('candidate_id')} "
           f"({spec['representation_id'][:12]}...), {len(spec['decisions'])} decision(s) in {records}")
     print("These are uncalibrated choices, not measurements. Nothing has been fitted; WP18 step 7 has not run.")

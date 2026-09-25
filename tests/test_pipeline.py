@@ -74,6 +74,7 @@ def registries(tmp_path, monkeypatch):
     _module(predictor, "predictor_plugins.predictor_plugin_ann",
             '"""A dense multi-horizon predictor."""\nclass Plugin:\n    """A dense core over one window."""\n')
     _module(predictor, "predictor_plugins.predictor_plugin_fused",
+            'ENCODERS = {"cnn": "a conv stack", "lstm": "stacked LSTM"}\n'
             'class Plugin:\n    """A core that fuses one branch per group."""\n')
     _module(predictor, "preprocessor_plugins.default_preprocessor",
             '"""Sliding windows and normalization."""\nclass PreprocessorPlugin:\n    pass\n')
@@ -102,17 +103,25 @@ def capability_table(tmp_path, verdicts):
 
 def test_the_preprocessor_catalog_is_read_from_both_registries_with_each_plugins_own_docstring(registries):
     catalog = pipeline.catalog_preprocessors()
-    assert [record["key"] for record in catalog["options"]] == ["default_preprocessor", "stl_preprocessor",
-                                                                "normalizer"]
+    assert [record["key"] for record in catalog["options"]] == ["default_preprocessor", "normalizer"]
     labels = {record["key"]: (record["label"], record["label_source"]) for record in catalog["options"]}
     assert labels["default_preprocessor"] == ("Sliding windows and normalization.", "module_docstring")
     assert labels["normalizer"] == ("Z-score normalization of every column.", "class_docstring")
-    # the module of a declared plugin could not be read, so the label is the key -- never an invented description
-    assert labels["stl_preprocessor"] == ("stl_preprocessor", "key")
-    found = {record["key"]: record["module_found"] for record in catalog["options"]}
-    assert found == {"default_preprocessor": True, "stl_preprocessor": False, "normalizer": True}
-    # a declared entry point whose module is missing stays an option and is named as a problem, not dropped
+    assert all(record["module_found"] for record in catalog["options"])
+
+
+def test_a_declared_plugin_whose_module_is_missing_is_named_but_never_offered(registries):
+    """`stl_preprocessor` is declared by the fixture registry and its module is not there."""
+    catalog = pipeline.catalog_preprocessors()
+    assert "stl_preprocessor" not in [record["key"] for record in catalog["options"]]
+    not_offerable = {record["key"]: record for record in catalog["not_offerable"]}
+    assert list(not_offerable) == ["stl_preprocessor"]
+    assert not_offerable["stl_preprocessor"]["module_found"] is False
+    # the label is still the key -- never an invented description -- and the reason names the module that is missing
+    assert not_offerable["stl_preprocessor"]["label"] == "stl_preprocessor"
+    assert "preprocessor_plugins.stl_preprocessor" in not_offerable["stl_preprocessor"]["why"]
     assert [problem.split(":")[0] for problem in catalog["problems"]] == [pipeline.MODULE_NOT_FOUND]
+    assert "NOT offered" in catalog["problems"][0]
     assert pipeline.options(catalog)[0] == ["default_preprocessor", "Sliding windows and normalization."]
 
 
@@ -125,7 +134,7 @@ def test_the_extractor_catalog_reads_pyproject_entry_points_and_only_the_encoder
 def test_a_registry_that_cannot_be_read_contributes_nothing_and_says_so(registries, tmp_path, monkeypatch):
     monkeypatch.setenv("M5PHET_PREPROCESSOR_REPO", str(tmp_path / "nowhere"))
     catalog = pipeline.catalog_preprocessors()
-    assert [record["key"] for record in catalog["options"]] == ["default_preprocessor", "stl_preprocessor"]
+    assert [record["key"] for record in catalog["options"]] == ["default_preprocessor"]
     assert any(problem.startswith(pipeline.REGISTRY_NOT_READ) for problem in catalog["problems"])
     assert [source["status"] for source in catalog["sources"]] == ["READ", "NOT_READ"]
 
@@ -346,18 +355,23 @@ def test_choose_core_asks_one_decision_when_a_core_was_probed_multi_branch(regis
     provider = laya("fused", ["fused", "ann"])
     choice = pipeline.choose_core(engine_with(provider), cut, catalog)
     assert len(provider.seen) == 1 and choice["core"] == "fused"
+    assert choice["chosen_by"] == pipeline.LAYA_DECISION and choice["decision_sha256"]
     assert "branch_count: 2" in provider.seen[0]["state"]["news"]
 
 
 # --- the spec -------------------------------------------------------------------------------------------------------
 
-def full_run(registries, tmp_path, *, core_verdict=pipeline.MULTI_BRANCH):
-    """Steps 2 to 6 end to end against the fake provider, with every record written to `tmp_path`."""
+def full_run(registries, tmp_path, *, core_verdict=pipeline.MULTI_BRANCH, cores=None):
+    """Steps 2 to 6 end to end against the fake provider, with every record written to `tmp_path`.
+
+    `cores` declares the probe's verdict per plugin; by default both declared cores are multi-branch, so step 5 is a
+    real decision. One multi-branch core exercises the `ONLY_CANDIDATE` path instead.
+    """
+    verdicts = cores or {"fused": core_verdict, "ann": core_verdict}
     preprocessors = pipeline.catalog_preprocessors()
     extractors = pipeline.catalog_extractors()
     cores = pipeline.catalog_cores(capability_path=capability_table(
-        tmp_path, {"fused": {"verdict": core_verdict, "why": "probe"},
-                   "ann": {"verdict": core_verdict, "why": "probe"}}))
+        tmp_path, {key: {"verdict": verdict, "why": "probe"} for key, verdict in verdicts.items()}))
     plan = pipeline.choose_preprocessing(
         engine_with(laya("normalizer", [r["key"] for r in preprocessors["options"]])), sheet_fixture(),
         preprocessors, record_dir=tmp_path)
@@ -378,7 +392,7 @@ def test_a_full_spec_round_trips_through_json_and_validates_against_the_records_
     assert spec["schema"] == pipeline.PIPELINE_SCHEMA and spec["execution_authorized"] is False
     assert sorted(spec["preprocessing"]) == sorted(FEATURES)
     assert sorted(spec["extractors"]) == ["g1", "g2"]
-    assert spec["core"]["plugin"] == "fused"
+    assert spec["core"]["key"] == "fused"
     assert len(spec["decisions"]) == len(FEATURES) + 1 + 2 + 1                   # features, cut, groups, core
 
     reloaded = json.loads(json.dumps(spec))
@@ -387,7 +401,8 @@ def test_a_full_spec_round_trips_through_json_and_validates_against_the_records_
 
 def test_a_spec_whose_core_could_not_be_chosen_is_still_a_valid_spec_and_says_so(registries, tmp_path):
     spec, catalogs = full_run(registries, tmp_path, core_verdict="SINGLE_BRANCH_ONLY")
-    assert spec["core"]["plugin"] == pipeline.NOT_AVAILABLE_MULTI_BRANCH and spec["core"]["decision"] is None
+    assert spec["core"]["key"] == pipeline.NOT_AVAILABLE_MULTI_BRANCH and spec["core"]["decision"] is None
+    assert spec["core"]["chosen_by"] == pipeline.NOT_AVAILABLE
     assert pipeline.validate_pipeline(spec, catalogs=catalogs, record_dir=tmp_path) is spec
 
 
@@ -395,7 +410,7 @@ def test_a_spec_whose_core_could_not_be_chosen_is_still_a_valid_spec_and_says_so
     (lambda spec: spec["preprocessing"]["price"].update(plugin="a_preprocessor_nobody_declared"),
      pipeline.UNKNOWN_PREPROCESSOR),
     (lambda spec: spec["extractors"]["g1"].update(plugin="an_extractor_nobody_declared"), pipeline.UNKNOWN_EXTRACTOR),
-    (lambda spec: spec["core"].update(plugin="a_core_nobody_declared"), pipeline.UNKNOWN_CORE),
+    (lambda spec: spec["core"].update(key="a_core_nobody_declared"), pipeline.UNKNOWN_CORE),
     (lambda spec: spec["preprocessing"].pop("volume"), pipeline.FEATURE_WITHOUT_PREPROCESSING),
     (lambda spec: spec["extractors"].pop("g2"), pipeline.GROUP_WITHOUT_EXTRACTOR),
     (lambda spec: spec.update(schema="m5phet.pipeline.v2"), "WRONG_SCHEMA"),
@@ -431,5 +446,132 @@ def test_a_plugin_key_that_its_own_decision_record_did_not_choose_is_refused(reg
 
 def test_an_archived_spec_validates_against_the_lists_it_carries_when_no_catalog_is_given(registries, tmp_path):
     spec, _ = full_run(registries, tmp_path)
-    assert spec["catalogs"]["preprocessing"] == ["default_preprocessor", "stl_preprocessor", "normalizer"]
+    assert spec["catalogs"]["preprocessing"] == ["default_preprocessor", "normalizer"]
     assert pipeline.validate_pipeline(json.loads(json.dumps(spec)), record_dir=tmp_path)
+
+
+def test_a_single_candidate_core_is_recorded_as_the_only_candidate_and_no_decision_is_asked(registries, tmp_path):
+    """`decide` refuses a one-option choice, and rightly: a foregone conclusion is not a decision."""
+    catalog = pipeline.catalog_cores(capability_path=capability_table(
+        tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "built a model with 2 inputs"},
+                   "ann": {"verdict": "SINGLE_BRANCH_ONLY", "why": "one tensor only"}}))
+    cut = pipeline.confirm_grouping(engine_with(laya("k=2", ["k=2", "k=3"])), groups_fixture())["cut"]
+    provider = laya("fused", ["fused"])
+    choice = pipeline.choose_core(engine_with(provider), cut, catalog, record_dir=tmp_path)
+
+    assert provider.seen == []                                  # nothing was asked of the model
+    assert choice["status"] == "OK" and choice["core"] == "fused"
+    assert choice["chosen_by"] == pipeline.ONLY_CANDIDATE
+    assert choice["decision_sha256"] is None and choice["probabilities"] is None
+
+
+def test_a_spec_whose_core_was_the_only_candidate_validates_with_no_decision(registries, tmp_path):
+    spec, catalogs = full_run(registries, tmp_path, cores={"fused": pipeline.MULTI_BRANCH,
+                                                           "ann": "SINGLE_BRANCH_ONLY"})
+    assert spec["core"] == {"key": "fused", "chosen_by": pipeline.ONLY_CANDIDATE, "decision": None,
+                            "why": spec["core"]["why"], "encoder_mapping": spec["core"]["encoder_mapping"]}
+    assert pipeline.validate_pipeline(json.loads(json.dumps(spec)), catalogs=catalogs, record_dir=tmp_path)
+
+
+def test_a_sole_candidate_claim_is_refused_when_the_declared_list_holds_several(registries, tmp_path):
+    spec, catalogs = full_run(registries, tmp_path)               # two declared cores, a real decision
+    spec["core"].update(chosen_by=pipeline.ONLY_CANDIDATE, decision=None)
+    with pytest.raises(pipeline.PipelineError) as refused:
+        pipeline.validate_pipeline(spec, catalogs=catalogs, record_dir=tmp_path)
+    assert refused.value.code == pipeline.CHOSEN_BY_MISMATCH
+
+
+# --- the core's own inline encoders -----------------------------------------------------------------------------------
+
+def test_the_cores_inline_encoders_are_read_from_its_module_not_assumed(registries, tmp_path):
+    catalog = pipeline.catalog_cores(capability_path=capability_table(
+        tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
+    assert pipeline.inline_encoders("fused", catalog) == {"cnn": "a conv stack", "lstm": "stacked LSTM"}
+    # `ann`'s module declares no ENCODERS mapping, so nothing is known about it -- and nothing is guessed
+    assert pipeline.inline_encoders("ann", catalog) is None
+
+
+def test_a_branch_is_mapped_only_when_its_extractor_is_one_of_the_cores_own_encoders(registries, tmp_path):
+    catalog = pipeline.catalog_cores(capability_path=capability_table(
+        tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
+    plan = {"groups": {"g1": {"status": "OK", "chosen": "lstm"}, "g2": {"status": "OK", "chosen": "vae_small"}}}
+    mapping = pipeline.map_encoders("fused", plan, catalog)
+
+    assert mapping["status"] == pipeline.NOT_MAPPED and mapping["inline_encoders"] == ["cnn", "lstm"]
+    assert mapping["branches"]["g1"] == {"extractor": "lstm", "encoder": "lstm", "status": pipeline.MAPPED,
+                                         "why": mapping["branches"]["g1"]["why"]}
+    assert mapping["branches"]["g2"]["status"] == pipeline.NOT_MAPPED
+    assert mapping["branches"]["g2"]["encoder"] is None
+    assert "vae_small" in mapping["branches"]["g2"]["why"]        # the extractor is NAMED, never translated
+
+
+def test_every_branch_mapped_makes_the_mapping_mapped(registries, tmp_path):
+    catalog = pipeline.catalog_cores(capability_path=capability_table(
+        tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
+    plan = {"groups": {"g1": {"status": "OK", "chosen": "cnn"}, "g2": {"status": "OK", "chosen": "lstm"}}}
+    assert pipeline.map_encoders("fused", plan, catalog)["status"] == pipeline.MAPPED
+
+
+# --- replaying recorded decisions --------------------------------------------------------------------------------------
+
+def test_a_plan_can_be_rebuilt_from_the_records_without_asking_the_model_again(registries, tmp_path):
+    catalog = pipeline.catalog_preprocessors()
+    keys = [record["key"] for record in catalog["options"]]
+    first = pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(), catalog,
+                                          record_dir=tmp_path)
+    replay = pipeline.load_records(tmp_path)
+    provider = laya("normalizer", keys)
+    again = pipeline.choose_preprocessing(engine_with(provider), sheet_fixture(), catalog, replay=replay)
+
+    assert provider.seen == []                                   # the records answered, not the model
+    assert again["decisions"] == first["decisions"]
+    assert all(entry["replayed"] for entry in again["features"].values())
+
+
+def test_a_state_with_no_record_is_refused_rather_than_quietly_asked_again(registries, tmp_path):
+    catalog = pipeline.catalog_preprocessors()
+    provider = laya("normalizer", [record["key"] for record in catalog["options"]])
+    plan = pipeline.choose_preprocessing(engine_with(provider), sheet_fixture(), catalog,
+                                         replay=pipeline.load_records(tmp_path))
+    assert provider.seen == []
+    assert {entry["refusal"] for entry in plan["features"].values()} == {pipeline.NO_RECORD_TO_REPLAY}
+
+
+def test_a_replayed_choice_says_when_the_registry_moved_under_its_record(registries, tmp_path):
+    """The choice stands -- it was made among THOSE candidates -- and the spec shows both lists."""
+    catalog = pipeline.catalog_preprocessors()
+    keys = [record["key"] for record in catalog["options"]]
+    pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(), catalog,
+                                  record_dir=tmp_path)
+    replay = pipeline.load_records(tmp_path)
+
+    # the registry gains a plugin after the decisions were recorded
+    (registries["preprocessor"] / "setup.py").write_text(
+        PREPROCESSOR_SETUP.replace('"normalizer=app.plugins.plugin_normalizer:Plugin",',
+                                   '"normalizer=app.plugins.plugin_normalizer:Plugin",\n'
+                                   '    "scaler=app.plugins.plugin_scaler:Plugin",'), encoding="utf-8")
+    _module(registries["preprocessor"], "app.plugins.plugin_scaler",
+            'class Plugin:\n    """A scaler that did not exist when the decision was made."""\n')
+    wider = pipeline.catalog_preprocessors()
+    plan = pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(), wider, replay=replay)
+
+    entry = plan["features"]["price"]
+    assert entry["status"] == "OK" and entry["chosen"] == "normalizer"
+    assert entry["options_changed"]["added"] == ["scaler"] and entry["options_changed"]["removed"] == []
+    assert [pair[0] for pair in entry["options_at_decision"]] == keys
+
+
+def test_a_recorded_choice_the_registries_no_longer_declare_cannot_be_replayed(registries, tmp_path):
+    catalog = pipeline.catalog_preprocessors()
+    keys = [record["key"] for record in catalog["options"]]
+    pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(), catalog,
+                                  record_dir=tmp_path, features=["price"])
+    replay = pipeline.load_records(tmp_path)
+    # the chosen plugin is withdrawn from the registry that declared it
+    (registries["preprocessor"] / "setup.py").write_text(
+        PREPROCESSOR_SETUP.replace("normalizer=app.plugins.plugin_normalizer:Plugin", "other=app.plugins.other:Plugin"),
+        encoding="utf-8")
+    _module(registries["preprocessor"], "app.plugins.other", 'class Plugin:\n    """Another plugin."""\n')
+    plan = pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(),
+                                         pipeline.catalog_preprocessors(), replay=replay, features=["price"])
+    assert plan["features"]["price"]["refusal"] == pipeline.CHOICE_NO_LONGER_DECLARED
