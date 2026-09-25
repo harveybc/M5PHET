@@ -174,6 +174,10 @@ class Engine:
                 # NOT_MEASURED, which is what every M5PHET report said about it until 2026-09-25 without saying so
                 "interpreter": {**self.interpreter.identity(),
                                 "reliability": self.interpreter_reliability()},
+                # WP30: and the OTHER language-model path -- the one where the model writes a whole envelope instead
+                # of choosing a declared value. Measured the same way, published beside the interpreter's, and
+                # NOT_MEASURED until somebody measures it
+                "route": self.route_view(),
                 # the rule a language model's choices are held to here, published so that anything reading this
                 # catalog -- the web, an MCP client, a Telegram skill -- can see it before it trusts an answer
                 "abstention": self.abstention(),
@@ -190,6 +194,20 @@ class Engine:
         from m5phet import interpret as interpret_module
         return interpret_module.declared_reliability(self.configuration, self.environ, interpreter=self.interpreter)
 
+    def route_view(self):
+        """`route.reliability` as the catalog publishes it, with the confidence this path does NOT report.
+
+        The two facts belong together. How often the router is right is a measurement (or `NOT_MEASURED`); whether
+        the abstention rule can be applied to it at all is a property of the path, and it is `CONFIDENCE_NOT_REPORTED`
+        with every shipped plugin -- `route` asks for a whole envelope as free text and reads no per-value
+        probability, not even from the plugin whose endpoint can report one."""
+        from m5phet import orchestrate as orchestrate_module
+        return {"reliability": orchestrate_module.declared_route_reliability(self.configuration, self.environ,
+                                                                            interpreter=self.interpreter),
+                "confidence": orchestrate_module.ROUTE_CONFIDENCE_NOT_REPORTED,
+                "gate": ("a proposal that fails check_proposal is refused by name and does not run; no confidence is "
+                         "reported for this path, so a declared abstention threshold is not applied to it")}
+
     def abstention(self):
         """The declared rule, for the interpreter and for every area's chooser -- or `NOT_CONFIGURED`.
 
@@ -198,7 +216,7 @@ class Engine:
         parameter, and it carries whether the configured plugin can be held to it at all. A plugin that reports no
         confidence is published as `CONFIDENCE_NOT_REPORTED`: the rule exists, it cannot be applied here, and neither
         the catalog nor the sentence path pretends otherwise."""
-        from m5phet import decide, interpret as interpret_module
+        from m5phet import decide, interpret as interpret_module, orchestrate as orchestrate_module
         rule = decide.declared_rule(self.configuration, self.environ)
         identity = self.interpreter.identity()
         reports = bool(identity.get("reports_confidence"))
@@ -211,7 +229,32 @@ class Engine:
                                        f"confidence for the values it chooses among the declared ones. With a "
                                        f"threshold declared, a sentence whose parameters only a model could settle is "
                                        f"refused as CONFIDENCE_NOT_REPORTED rather than passed as if the rule had run")
+        # WP30: which paths this rule covers, said plainly, because a reader who sees a threshold in a catalog
+        # assumes it is applied wherever a language model decides anything -- and it is not.
+        paths = {
+            "decide": {"covered": True, "confidence": interpret_module.CONFIDENCE_REPORTED, "rule": rule,
+                       "why": ("m5phet.decide holds Laya's choice of an area's configuration to this threshold: the "
+                               "provider returns the option probabilities, so the rule runs on every choice. "
+                               "`covered` is about this path's capacity to be gated; whether a threshold is declared "
+                               "at all is `rule`, and with NOT_CONFIGURED nothing is gated anywhere")},
+            "interpret": {"covered": bool(reports),
+                          "confidence": interpreter_view["confidence"], "rule": rule,
+                          "why": ("the interpreter's choice among a provider's declared values is held to the rule "
+                                  "only where the configured plugin reports how sure it was; where it does not, a "
+                                  "question the words do not settle is refused as CONFIDENCE_NOT_REPORTED rather "
+                                  "than passed as if the rule had run")},
+            "route": {"covered": False, "confidence": orchestrate_module.ROUTE_CONFIDENCE_NOT_REPORTED,
+                      "reliability": self.route_view()["reliability"], "rule": rule,
+                      "why": ("orchestrate.route asks the model for a WHOLE envelope as free text; no shipped plugin "
+                              "reports a confidence for that -- not even openai_compatible, whose endpoint can "
+                              "return logprobs, because route calls _ask and _ask discards them. So the rule is not "
+                              "applied on this path at all. What does apply is check_proposal: an area nobody "
+                              "serves, a question type no provider declares, a governed value the engine does not "
+                              "have or a column the data lacks is refused by name and does not run, and how often "
+                              "the router is right is published as route.reliability")},
+        }
         return {"interpreter": interpreter_view,
+                "paths": paths,
                 "areas": {area: rule for area in configuration_module.AREAS}}
 
     # --- the question envelope: one shape for every area ----------------------------------------------------------------
@@ -283,8 +326,20 @@ class Engine:
             expected = task_digest(validate_task(task))
             if response.get("request_sha256") != expected or response.get("execution_authorized") is not False:
                 raise ValueError("Worker result is not bound to this envelope or declares execution authority")
+            # WP31: the worker answers; the measured quality of this area is the OPERATOR's record, and it is read
+            # from the capabilities already known here -- the worker's if it described itself, the locally installed
+            # provider's otherwise -- so a remote answer states it exactly as a local one does. Nothing is asked of
+            # the worker for this: a describe at answer time would put a second ssh in the path of every answer.
+            from m5phet import quality as quality_module
+            from m5phet.questions import area_quality, provider_for
+            response["quality"] = (
+                quality_module.for_area("classification", self.remote_caps, self.configuration, self.environ)
+                if self.remote_caps else
+                area_quality("classification", provider_for(self.registry, "classification"), self.configuration,
+                             self.environ))
         else:
-            response = run_task(task, self.registry, data=payload)
+            response = run_task(task, self.registry, data=payload, configuration=self.configuration,
+                                environ=self.environ)
         # WP04: which procedure renders the answers is the area's configuration, not this method's business. The
         # plugin's text is checked against the answers exactly as a model's narration is, in `narrate`.
         area = task.get("area") if isinstance(task, dict) else None

@@ -12,7 +12,7 @@ answers carry. That is why this rendering matters even when a model is configure
 to, and it is faithful by construction.
 """
 
-from . import clip, header as area_header, narratable, value_text
+from . import clip, header as area_header, narratable, quality_line, value_text
 
 #: fields that describe the answer rather than report it; the type and the status are already in the line's prefix
 NOT_REPORTED = ("type", "status", "execution_authorized", "sdk_answer")
@@ -40,6 +40,11 @@ def text(response):
     not part of what a person is shown, and a digest printed in a line is a string of figures the answers do not
     carry -- the guard says so, and it is right."""
     lines = [answer_line(name, answer) for name, answer in narratable(response.get("answers") or {}).items()]
+    # WP31: exactly one line about how well this area was MEASURED to answer, or that nothing is known. It is one
+    # line and not a paragraph because a person reading an answer needs the caveat beside it, not instead of it.
+    measured = quality_line(response)
+    if measured:
+        lines.append(measured)
     lines.append(f"{response.get('answered', 0)} answered, {response.get('refused', 0)} refused; nothing here is an "
                  f"instruction to act.")
     return "\n".join(lines)
@@ -77,6 +82,7 @@ class DefaultOutput:
                 "json": {"area": area, "header": self.header(area),
                          "answers": narratable(response.get("answers") or {}),
                          "answered": response.get("answered", 0), "refused": response.get("refused", 0),
+                         "quality": response.get("quality"),
                          "execution_authorized": False},
                 "language": language or self.language, "output_plugin": self.name}
 

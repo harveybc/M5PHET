@@ -28,6 +28,27 @@ from .questions import AREAS, TaskError, catalog as question_catalog, validate_t
 
 MAX_PROMPT = 4000
 
+#: the schema `tools/measure_route.py` writes, and the only document a route reliability may be published from
+ROUTE_RELIABILITY_SCHEMA = "m5phet_route_reliability.v1"
+
+#: nobody has measured this installation's router. The honest answer, and the default
+NOT_MEASURED = "NOT_MEASURED"
+#: the cited file is not a route reliability report this framework wrote
+ROUTE_REPORT_UNREADABLE = "ROUTE_REPORT_UNREADABLE"
+#: the report measured a DIFFERENT interpreter writing the envelopes. A rate measured on another model is not a fact
+#: about this one, exactly as it is not for the interpreter's own reliability
+ROUTE_MEASURED_ON_ANOTHER_INTERPRETER = "ROUTE_MEASURED_ON_ANOTHER_INTERPRETER"
+
+ROUTE_RELIABILITY_VARIABLE = "M5PHET_ROUTE_RELIABILITY_REPORT"
+
+#: what the catalog says about a confidence for THIS path. `route` asks the model for a whole envelope as free text
+#: and reads it back as JSON; there is no per-field value for a plugin to attach a probability to, and `route` never
+#: asks for one -- not even from `openai_compatible`, the one shipped plugin whose endpoint can report logprobs,
+#: because `route` calls `_ask` and `_ask` discards them. So with every shipped plugin the honest statement is that
+#: no confidence exists for this path, and the abstention rule -- whatever threshold an operator declares -- cannot
+#: be applied to it. It is published so nobody believes the gate is wider than it is.
+ROUTE_CONFIDENCE_NOT_REPORTED = "CONFIDENCE_NOT_REPORTED"
+
 
 # --- what the model is allowed to know about the data ------------------------------------------------------------------
 
@@ -206,7 +227,15 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=No
     if chosen:
         profile = dataset_module().profile_of(resolution["dataset"])
     report = {"profile": profile, "catalog": catalog, "interpreter": interpreter.identity(),
-              "dataset": chosen, "dataset_resolution": resolution}
+              "dataset": chosen, "dataset_resolution": resolution,
+              # WP30: what the person reviewing this proposal is NOT being given. The proposal is checked against the
+              # catalog and the data (that is `check_proposal`, and it refuses by name); what no shipped plugin can
+              # supply here is how sure the model was, so the abstention rule does not run on this path and says so.
+              "confidence": ROUTE_CONFIDENCE_NOT_REPORTED,
+              "gate": ("every proposal is validated against the catalog of areas, the declared question types, the "
+                       "provider-governed values and the attached data; a proposal that fails is refused by name and "
+                       "does not run. No confidence is reported for this path, so a declared abstention threshold is "
+                       "not applied to it.")}
     if not interpreter.available:
         return {**report, "status": "REFUSED", "proposal": None, "problems": [],
                 "why": ("no interpreter is configured, so a sentence cannot be routed; write the envelope directly "
@@ -261,6 +290,77 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=No
     return {**report, "status": "OK" if task else "INVALID_PROPOSAL", "proposal": proposal, "task": task,
             "problems": problems,
             "why": None if task else "the proposal names something the catalog or the data does not have; see problems"}
+
+
+# --- how often the router is right -------------------------------------------------------------------------------------
+
+def declared_route_reliability(configuration=None, environ=None, interpreter=None):
+    """How often the configured interpreter ROUTES a sentence correctly -- cited, or `NOT_MEASURED`.
+
+    `route` is the path where the model does not choose among declared values: it writes a whole envelope, and
+    `check_proposal` then refuses anything the catalog or the data does not have. That refusal bounds the damage; it
+    says nothing about how often the model is right, which until 2026-09-25 nobody had measured for this path.
+    `tools/measure_route.py` measures it on the sentences whose correct envelope this framework already knows, and
+    `interpreter.route_reliability_report` is where an installation says which run of it applies here.
+
+    Cited and refused exactly as `m5phet.interpret.declared_reliability` is, and for the same reasons:
+
+    * `NOT_MEASURED` when nothing is declared -- the default, and not a criticism of anyone;
+    * `ROUTE_REPORT_UNREADABLE` when the path is not a `m5phet_route_reliability.v1` document with a summary;
+    * `ROUTE_MEASURED_ON_ANOTHER_INTERPRETER` when the report scored a different plugin or model.
+    """
+    import hashlib
+    import os
+    from pathlib import Path
+    env = os.environ if environ is None else environ
+    settings = {}
+    if configuration is not None:
+        block = getattr(configuration, "interpreter", configuration)
+        settings = dict(block or {})
+    else:
+        from . import config as configuration_module
+        try:
+            settings = dict(configuration_module.load(environ=env).interpreter)
+        except configuration_module.ConfigError:
+            settings = {}
+    named = settings.get("route_reliability_report") or env.get(ROUTE_RELIABILITY_VARIABLE)
+    if not named:
+        return NOT_MEASURED
+    path = Path(os.path.expanduser(str(named)))
+    try:
+        raw = path.read_bytes()
+        report = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as error:
+        return {"refusal": ROUTE_REPORT_UNREADABLE,
+                "why": f"{path} cannot be read as a route reliability report: {error}"}
+    if not isinstance(report, dict) or report.get("schema") != ROUTE_RELIABILITY_SCHEMA:
+        return {"refusal": ROUTE_REPORT_UNREADABLE,
+                "why": f"{path} does not declare schema {ROUTE_RELIABILITY_SCHEMA!r}; a reliability is published "
+                       f"only from a report this framework wrote"}
+    summary = report.get("summary") or {}
+    identity = report.get("interpreter") or {}
+    if not summary or summary.get("reliability") is None:
+        return {"refusal": ROUTE_REPORT_UNREADABLE,
+                "why": f"{path} carries no summary with a reliability; nothing measured is in it"}
+    if interpreter is not None:
+        here = interpreter.identity()
+        if (identity.get("plugin"), identity.get("model")) != (here.get("plugin"), here.get("model")):
+            return {"refusal": ROUTE_MEASURED_ON_ANOTHER_INTERPRETER,
+                    "why": (f"{path} measured {identity.get('plugin')!r} / {identity.get('model')!r} writing the "
+                            f"envelopes and this installation runs {here.get('plugin')!r} / {here.get('model')!r}; a "
+                            f"rate measured on another model is not a fact about this one")}
+    return {"reliability": summary.get("reliability"),
+            "reliability_when_it_proposed": summary.get("reliability_when_it_proposed"),
+            "n": {"sentences": summary.get("sentences"), "runs": summary.get("runs"),
+                  "runs_per_sentence": report.get("runs_per_sentence")},
+            "verdicts": summary.get("verdicts"),
+            "invalid_proposal_problems": summary.get("invalid_proposal_problems"),
+            "protocol": report.get("protocol"),
+            "corpus": report.get("corpus"),
+            "measured_at": report.get("measured_at"),
+            "measured_interpreter": {"plugin": identity.get("plugin"), "model": identity.get("model")},
+            "confidence": ROUTE_CONFIDENCE_NOT_REPORTED,
+            "report_sha256": hashlib.sha256(raw).hexdigest()}
 
 
 # --- the narration -----------------------------------------------------------------------------------------------------

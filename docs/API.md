@@ -132,6 +132,26 @@ different plugin or model is refused (`RELIABILITY_MEASURED_ON_ANOTHER_INTERPRET
 this interpreter's identity; a report carrying only the product path is refused too, because the deterministic pass
 resolving a sentence is not evidence about the model.
 
+**`route`** carries the same two facts about the OTHER language-model path — the one where the model writes a whole
+envelope instead of choosing a declared value:
+
+```json
+{"route": {"reliability": {"reliability": 0.6111, "reliability_when_it_proposed": 0.6111,
+                           "n": {"sentences": 18, "runs": 90, "runs_per_sentence": 5},
+                           "verdicts": {"CORRECT": 55, "WRONG_TYPE": 20, "WRONG_VALUE": 8,
+                                        "INVALID_PROPOSAL": 7, "WRONG_AREA": 0, "REFUSED": 0},
+                           "invalid_proposal_problems": {"VALUE_NOT_DECLARED": 5, "COLUMN_NOT_IN_DATA": 2},
+                           "protocol": "...", "corpus": "...", "report_sha256": "..."},
+           "confidence": "CONFIDENCE_NOT_REPORTED",
+           "gate": "a proposal that fails check_proposal is refused by name and does not run; ..."}}
+```
+
+It is declared by `interpreter.route_reliability_report` (or `M5PHET_ROUTE_RELIABILITY_REPORT`), naming a
+`m5phet_route_reliability.v1` document written by `tools/measure_route.py`, and is `"NOT_MEASURED"` with nothing
+declared. A report that measured a different plugin or model is refused
+(`ROUTE_MEASURED_ON_ANOTHER_INTERPRETER`). `confidence` is `CONFIDENCE_NOT_REPORTED` with every shipped plugin: the
+router asks for a whole envelope as free text, so there is no per-value probability to gate on — see `abstention.paths`.
+
 It also answers **`abstention`** — the rule a language model's choices are held to on this installation, so a consumer
 can see it before it trusts an answer:
 
@@ -160,6 +180,18 @@ logprobs and is `CONFIDENCE_REPORTED`. With a rule declared and a plugin that re
 parameters only a model could settle is **refused** (`CONFIDENCE_NOT_REPORTED`) rather than resolved as though the
 gate had run.
 
+**`abstention.paths`** says which language-model paths the rule covers and which it does not, so nobody reads a
+declared threshold as wider than it is:
+
+Each entry also carries the `rule` itself, because `covered` is about the path's *capacity* to be gated and not about
+whether a threshold is declared: with `"NOT_CONFIGURED"` nothing is gated anywhere.
+
+| path | covered | why |
+|---|---|---|
+| `decide` | yes | the provider returns option probabilities, so the rule runs on every choice Laya makes |
+| `interpret` | only where the plugin reports a confidence | otherwise the question is refused as `CONFIDENCE_NOT_REPORTED` rather than passed |
+| `route` | **no** | `orchestrate.route` asks the model for a whole envelope as free text; no shipped plugin reports a confidence for that — not even `openai_compatible`, because `route` calls `_ask` and `_ask` discards the logprobs. What applies here is `check_proposal` (an area nobody serves, an undeclared question type, a governed value the engine does not have, a column the data lacks: each refused by name before anything runs) and the published `route.reliability` |
+
 ### `GET /api/tasks/catalog` — what can be asked, per area
 
 ```json
@@ -176,6 +208,9 @@ gate had run.
 one. `outputs` is the output header — read it and you know the shape of an answer before asking anything. Each area
 also carries `chooser`: the same abstention rule as `/api/catalog`'s `abstention`, in the place a router reads, or
 `"NOT_CONFIGURED"`.
+
+Each area also carries **`quality`** — what was measured about how well that area answers — in exactly the shape every
+answer carries (below).
 
 ```bash
 curl -s $BASE/api/tasks/catalog "${auth[@]}" | jq '.areas | map_values(.question_types | keys)'
@@ -282,6 +317,11 @@ not have — `problems` says what), or `REFUSED` (`why` says why: no interpreter
 served area). **Nothing runs and nothing is recorded here.** The interpreter is shown the question, the declared
 vocabulary and the *shape* of the data — column names, types, a row count — never a row.
 
+The report also carries `confidence` (`CONFIDENCE_NOT_REPORTED` with every shipped plugin) and `gate`, which say what
+the review window is and is not: the proposal is checked against the catalog and the data, and no confidence exists
+for this path, so a declared abstention threshold is not applied to it. How often the router is right is published as
+`route.reliability` in `/api/catalog`.
+
 ```bash
 curl -s $BASE/api/chats/$CID/tasks/propose "${auth[@]}" -H 'Content-Type: application/json' \
   -d "{\"prompt\":\"segmenta estas filas y describe el cluster alto\",\"file_ids\":[\"$FID\"]}" \
@@ -329,6 +369,36 @@ curl -s $BASE/api/chats/$CID/messages "${auth[@]}" -H 'Content-Type: application
 ---
 
 ## 4. The rules a program has to know
+
+### Every answer carries its area's measured quality
+
+`detail.response.quality` — and each area's entry in `/api/tasks/catalog` — states what was measured about how well
+that area answers, so a program never has to know that a report exists somewhere:
+
+```json
+{"quality": {"status": "MEASURED", "area": "forecasting", "kind": "forecast",
+             "values": {"mae": 0.526293524060822, "rmse": 0.8151394116711527, "skill_mae": 0.12185848183739156},
+             "baseline": {"name": "last_value", "mae": 0.5993265472312703, "same_rows_as_model": true},
+             "interval_coverage": {"empirical_coverage": 0.9259975570032574, "nominal_level": 0.95},
+             "skill": 0.12185848183739156, "scale": "kW (...)", "measured_on": "quantile-household-95-20260925",
+             "n": {"scored_rows": 9824}, "label_provenance": "REALISED_OUTCOME",
+             "protocol_digest": "...", "corpus_seal": "...", "report_sha256": "...", "flags": [], "source": "..."}}
+```
+
+`status` is one of three, and each means something different:
+
+| status | what it is | where it comes from |
+|---|---|---|
+| `MEASURED` | a number somebody measured, with its corpus, protocol digest, seal, counts and label provenance | classification: the provider's own record (`NEWS_SIGNAL_QUALITY`). forecasting / unsupervised: an `m5phet-evaluation-report/1` named by `areas.<area>.quality.report` (or `M5PHET_FORECASTING_QUALITY_REPORT` / `M5PHET_UNSUPERVISED_QUALITY_REPORT`) |
+| `REFUSED` | the quantity does not exist, or the declared record cannot be published | `causal_accuracy` and `policy_profitability` (the reasons are `m5phet_evaluation`'s own); `QUALITY_REPORT_UNREADABLE`, `QUALITY_MEASURED_ON_ANOTHER_FAMILY`, `QUALITY_MEASURED_ON_ANOTHER_STATE`, `QUALITY_RECORD_REFUSED` |
+| `NOT_MEASURED` | nothing is declared for this area. Said out loud, never left blank | the default |
+
+Nothing in M5PHET computes any of these numbers. A forecast report is published only when a configured bundle's
+manifest names its digest (`provenance.evaluation.report_sha256`), because an area may serve several fitted states and
+a measurement of one of them is not a claim about the others — which is why `measured_on` names the state that was
+scored. The `default` and `telegram` output procedures render **exactly one line** of it, and that line is held to the
+narration guard like every other figure: it passes because the answer carries the quality, not because quality is
+exempt.
 
 ### Review before run
 

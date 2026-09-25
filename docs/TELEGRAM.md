@@ -72,6 +72,12 @@ The skill is what enforces the contract: catalog first, envelope shown for revie
 one line per answer, refusals named, **no number that the engine did not return**, and the closing line
 `execution_authorized: false — this is not an instruction to act`.
 
+Since WP31 the `telegram` output procedure adds **one** line above that closing: what was measured about how well the
+area that answered actually answers — a macro-F1 and its calibration, a held-out error and its skill against a named
+naive reference (and the interval's coverage where an interval was returned), a refusal by name where the quantity
+does not exist, or `NOT_MEASURED`. It carries the corpus, the protocol digest and the seal, and it is held to the
+same guard as every other figure in the message.
+
 ---
 
 ## 3. Acceptance test (the owner runs it from Telegram)

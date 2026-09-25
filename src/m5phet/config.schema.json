@@ -87,6 +87,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4000
+        },
+        "route_reliability_report": {
+          "$comment": "Path to the m5phet_route_reliability.v1 report written by tools/measure_route.py for THIS interpreter. /api/catalog publishes its rate, counts and protocol as route.reliability; with nothing declared it says NOT_MEASURED, and a report measured on another plugin or model is refused rather than published beside this one's identity.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         }
       }
     },
@@ -197,6 +203,18 @@
                   "maxLength": 4000
                 }
               }
+            },
+            "quality": {
+              "$comment": "WP31 -- the m5phet-evaluation-report/1 document that MEASURED this area, whose numbers every answer of this area then carries. Nothing is computed from it here: the report's own protocol digest, corpus seal, counts and label provenance travel with every figure, and a report of another family -- or, for forecasting, one no configured bundle's manifest references -- is refused rather than published. Classification takes no report here: its measurement is the provider's own record. Causal and rl take none either: those quantities are refused by name.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "report": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              }
             }
           }
         },
@@ -236,6 +254,18 @@
                 },
                 "state_path": {
                   "type": "string",
+                  "maxLength": 4000
+                }
+              }
+            },
+            "quality": {
+              "$comment": "WP31 -- the m5phet-evaluation-report/1 document that MEASURED this area, whose numbers every answer of this area then carries. Nothing is computed from it here: the report's own protocol digest, corpus seal, counts and label provenance travel with every figure, and a report of another family -- or, for forecasting, one no configured bundle's manifest references -- is refused rather than published. Classification takes no report here: its measurement is the provider's own record. Causal and rl take none either: those quantities are refused by name.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "report": {
+                  "type": "string",
+                  "minLength": 1,
                   "maxLength": 4000
                 }
               }
@@ -395,6 +425,10 @@
           }
         }
       }
+    },
+    "$comment_quality": {
+      "type": "string",
+      "maxLength": 4000
     }
   }
 }

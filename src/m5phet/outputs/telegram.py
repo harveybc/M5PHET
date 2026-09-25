@@ -14,7 +14,7 @@ The header does real work here: `unit_fields` is what a short rendering shows. T
 header names the cluster counts and not the per-row assignments -- a list of ten thousand row ids is not a message.
 """
 
-from . import clip, header as area_header, narratable, one_line, value_text
+from . import clip, header as area_header, narratable, one_line, quality_line, value_text
 
 #: Telegram cuts a message at 4096 characters; the bound is stated at 4000 so the closing line is never the part that
 #: does not fit, and so a forwarded message keeps its ending.
@@ -67,7 +67,11 @@ class TelegramOutput:
         header = self.header(area)
         answers = narratable(response.get("answers") or {})
         body = "\n".join(answer_line(name, answer, header) for name, answer in answers.items())
-        tail = (f"{response.get('answered', 0)} answered, {response.get('refused', 0)} refused.\n{CLOSING}")
+        # WP31: one line, in the tail, where the transport cannot cut it. A chat message that states a forecast
+        # without stating that its error was measured -- or that it was not -- is the message this line exists for.
+        measured = quality_line(response)
+        tail = ((measured + "\n") if measured else "") + \
+               (f"{response.get('answered', 0)} answered, {response.get('refused', 0)} refused.\n{CLOSING}")
         room = self.limit - len(tail) - 1
         text = (clip(body, room, mark="…") if len(body) > room else body)
         return {"text": (text + "\n" + tail) if text else tail,
@@ -75,6 +79,7 @@ class TelegramOutput:
                           for name, answer in answers.items()],
                 "json": {"area": area, "header": header, "answers": answers,
                          "answered": response.get("answered", 0), "refused": response.get("refused", 0),
+                         "quality": response.get("quality"),
                          "execution_authorized": False},
                 "language": language or self.language, "output_plugin": self.name}
 

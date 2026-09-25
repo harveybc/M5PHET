@@ -200,6 +200,10 @@ def evaluate(spec, message):
             # the answers verbatim, so `tools/verify_outputs.py` can render THESE -- the ones the engines really
             # returned -- instead of a shape someone typed into a test
             "answers": answers, "answered": response.get("answered"), "refused": response.get("refused"),
+            # WP31: what the run stated about how well this area was measured to answer, stored so that
+            # `tools/verify_outputs.py` renders THAT -- the block the engines' own answer carried -- and holds its
+            # line to the same guard as every other figure
+            "quality": response.get("quality"),
             "execution_authorized": detail.get("execution_authorized")}
 
 

@@ -100,7 +100,9 @@ metric, but a model returning `null` there is declining rather than misreading.
 * it says nothing about sentences nobody wrote. The corpus is the framework's own examples, which are the sentences
   the framework was built to answer;
 * it says nothing about the router (`orchestrate.route`), where the same model writes a whole envelope rather than
-  choosing a declared value. That path is unmeasured.
+  choosing a declared value. That path was unmeasured when this was written; it was measured the same day —
+  `docs/evidence/ROUTE_RELIABILITY_2026_09_25/` — and the two rates are about two different jobs and are not
+  comparable as one number.
 
 ## Where the number lives
 

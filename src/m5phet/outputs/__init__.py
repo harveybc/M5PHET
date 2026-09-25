@@ -180,14 +180,30 @@ def narratable(answers):
 
 
 def response_view(response):
-    """Everything a rendering may state: the answers as read, their names, and the counts the envelope itself carries.
+    """Everything a rendering may state: the answers as read, their names, the counts the envelope itself carries,
+    and what was MEASURED about how well this area answers.
 
     The counts are here because a deterministic rendering says "1 answered, 1 refused" and that is a fact of the
-    response, not an invention. The names are here because a question may be called `q1`. Nothing else is added: the
-    guard stays a guard."""
+    response, not an invention. The names are here because a question may be called `q1`. The quality block (WP31) is
+    here for exactly the same reason and for no other: a macro-F1 or a held-out MAE is a figure, and a rendering may
+    state it because the ANSWER carries it -- not because quality numbers are exempt from the guard. A response that
+    carries no quality admits no quality figure, and a line inventing one is discarded like any other invention."""
     answers = narratable(response.get("answers") or {})
-    return {"answers": answers, "names": sorted(answers),
+    view = {"answers": answers, "names": sorted(answers),
             "answered": response.get("answered", 0), "refused": response.get("refused", 0)}
+    if response.get("quality") is not None:
+        view["quality"] = response["quality"]
+    return view
+
+
+def quality_line(response):
+    """The one line an output procedure renders about this area's measured quality, or None when none travels.
+
+    None is not the same as "nothing was measured": a response that carries `quality: NOT_MEASURED` renders a line
+    saying so, which is the whole point of WP31. None means this response carries no quality block at all -- an
+    answer produced by a path that does not build one -- and there the rendering is exactly what it always was."""
+    from ..quality import line
+    return line(response.get("quality"), response)
 
 
 # --- rendering helpers shared by the procedures --------------------------------------------------------------------------
