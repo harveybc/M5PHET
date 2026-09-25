@@ -106,7 +106,7 @@ or distributed node. Example apps start locally with organized provenance and
 metric records; optional embedded DuckDB provides analytical views without a
 server. **data-gov + data-lake + data-warehouse** and **DOIN** are independent
 opt-in integrations. Our already-governed campaigns keep their declared profile;
-a governed run cannot silently downgrade itself.
+The five adapters and the workbench are implemented on this branch; see `docs/WORK_PLAN_2026_09_24.md` §1 and §3 for what runs and what is still missing.
 Each provider declares supported parameters and task-specific evaluation; full
 metrics remain traceable alongside DOIN's scalar objective. See the
 [integration and optimization design](docs/INTEGRATION_AND_OPTIMIZATION.md).
