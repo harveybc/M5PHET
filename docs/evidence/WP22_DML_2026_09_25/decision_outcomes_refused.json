@@ -1,0 +1,45 @@
+{
+  "stage": "laya_spec",
+  "table": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/tables_out/step7__log_return.json",
+  "row": {
+    "stage": "laya_spec",
+    "area": "causal",
+    "status": "NO_NEW_MEASUREMENT",
+    "comparability": "NO_NEW_MEASUREMENT",
+    "rank": null,
+    "metric": "causal_accuracy (refused)",
+    "reason": "causal_accuracy is refused by this package: a causal estimate has no held-out truth: the counterfactual outcome of a row is never observed, so there is no row against which the estimate can be scored right or wrong. What can be reported is the estimate, its interval, the assumptions under which it is identified, and its sensitivity to those assumptions. The report carries what this area can report; none of it is a quality claim."
+  },
+  "outcomes": {
+    "estimator": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    },
+    "model_y": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    },
+    "model_t": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    },
+    "window_hours": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    },
+    "horizons": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    },
+    "modifier": {
+      "status": "REFUSED",
+      "refusal": "NOT_COMPARABLE",
+      "why": "the closure-table row for stage 'laya_spec' is 'NO_NEW_MEASUREMENT', not 'COMPARABLE'; a decision is labelled by a measured row that was found commensurable with the stages it is ranked against, and by nothing else"
+    }
+  }
+}
