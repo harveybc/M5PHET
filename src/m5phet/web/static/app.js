@@ -143,7 +143,8 @@ function datasetLine(dataset){
       :(dataset.source_of_choice==='EXPLICIT_ID'?' · nombrado por su identificador':' · fijado por sus propias palabras');
     const gov=dataset.governed?' · gobernado: la ejecución se rechaza (GOVERNED_ACCESS_NOT_CONFIGURED) hasta que el acceso data-gov esté configurado':'';
     const sca=dataset.scale==='FITTED_EXPERIMENT_PANEL'?' · panel ya escalado por su propio experimento: la ejecución se rechaza (ROWS_SCALE_NOT_DECLARED) hasta que exista el adaptador de ventana':'';
-    return 'Datos que se usarán: '+dataset.id+' ('+dataset.source+', '+rows+' filas)'+who+gov+sca;
+    const rec=(dataset.rows_receipt&&dataset.rows_receipt.rows_origin==='inverse_standardized_from_manifest_scaler')?' · filas devueltas a unidades originales con el escalador que declara su manifiesto (sha '+String(dataset.rows_receipt.scaler_sha256).slice(0,12)+'…)':'';
+    return 'Datos que se usarán: '+dataset.id+' ('+dataset.source+', '+rows+' filas)'+who+gov+sca+rec;
   }
   return 'Ningún dato adjunto. Si el motor de esta área necesita datos, la ejecución se rechaza: abra un ejemplo, adjunte un archivo con el botón + o nombre un conjunto del data lake.';
 }
