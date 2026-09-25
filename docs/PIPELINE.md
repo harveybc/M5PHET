@@ -115,15 +115,23 @@ candidate still names a decision.
 ### The per-branch encoder
 
 `fused_branches` implements its **own** inline encoders; feature-extractor's `feature_extractor.encoders` is a
-different namespace. `inline_encoders()` reads the core module's `ENCODERS` mapping with `ast` (no import), and
-`map_encoders()` carries a group's extractor into the spec as a branch encoder **only when the key is one of them**:
+different namespace, written by different people. Whether one repository's `ann` — per-channel Dense branches over a
+window — IS the core's `dense` family is a judgement about two implementations, and no program may make it. So it is
+**declared by a person, in the repository that has to execute it**: `predictor_plugins.fused_branches` carries
+`EXTRACTOR_FAMILIES`, one entry per feature-extractor key with the reason as a comment, beside the `ENCODERS` it maps
+onto. `extractor_families()` reads that table exactly as `inline_encoders()` reads `ENCODERS` — parsed with `ast`,
+never imported — and `map_encoders()` uses it:
 
-- `MAPPED` — the extractor key IS an inline encoder of the core (`cnn`, `dense`, `lstm`, `rnn`, `tcn` today, after
-  WP24 added the GRU `rnn` encoder for feature-extractor's `rnn` family);
-- `NOT_MAPPED` — anything else, **naming the extractor**. No mapping is invented, and near-synonyms do not count:
-  feature-extractor's `default`/`ann` (per-channel Dense branches) and the core's `dense` (a flattened window through
-  a dense stack) are different keys built by different repositories, so a choice of `ann` stays `NOT_MAPPED` until
-  somebody declares the mapping. A fit job reading this spec is told exactly that.
+| Branch outcome | When | What the record carries |
+|---|---|---|
+| `MAPPED` | the table sends the chosen extractor to a family the core implements | `encoder`, and `mapped_by: "EXTRACTOR_FAMILIES declared in predictor_plugins.fused_branches"` |
+| `NOT_MAPPED` | the table declares `None` for that key | that this is a declaration, not a gap to be filled |
+| `NOT_MAPPED` | the table does not carry the key | the key, and the keys it does carry |
+| `NOT_MAPPED` | the table names a family the core does not implement | both names |
+
+With no table at all (an older core), the only mapping left is identity — the extractor key IS an inline encoder —
+and the record says that is what happened. Nothing is ever mapped by resemblance, and `encoder_mapping` carries the
+whole table it used, so a reader of the spec can check the judgement instead of taking it.
 
 ## The states
 
@@ -217,16 +225,18 @@ Both distributions are much flatter than the first pass (top mass 0.18 against 0
 Dense-branch encoder. The labels changed, so the question changed; that is what the numbers say and nothing more.
 
 **Step 5 — the core.** `fused_branches`, `chosen_by: ONLY_CANDIDATE`, `decision: null`. Its encoder mapping is
-`NOT_MAPPED` on **both** branches: `default` and `ann` are not among the core's inline encoders
-`["cnn", "dense", "lstm", "rnn", "tcn"]`. WP24's new `rnn` encoder would have mapped the first pass's choices
-exactly; the re-asked choices moved elsewhere, and nothing is translated to make them fit.
+`MAPPED` on both branches, by the core's own declaration: `g1`'s `default` → `dense` and `g2`'s `ann` → `dense`, each
+`mapped_by: "EXTRACTOR_FAMILIES declared in predictor_plugins.fused_branches"` ("flattened window through a dense
+stack"). Before that table existed both branches were `NOT_MAPPED`, twice over — first `rnn`/`lstm` against a core
+with no `rnn` encoder, then `default`/`ann` against a core that had no way to know they are its `dense` family. The
+mapping came from a person writing it down, which is the only place it could have come from.
 
 **Step 6 — the spec.** `m5phet.pipeline.v1` with representation `short_memory`
 (`representation_id e74ec65c0372…`), 7 preprocessing decisions, 1 grouping decision, 2 extractor decisions, a core
 that was the only candidate; it validates against the live catalogs and against the records on disk.
 
 None of this was fitted, scored or compared. WP18 step 7 — `baseline_hand` / `laya_chosen` / `searched` on the same
-sealed holdout, with the owner's closure table — has **not** run, and it runs on the 5090 only with **the owner's
-admission**. What still stands between this spec and a fit is the encoder mapping: neither branch's chosen extractor
-is an encoder the core implements, so either the core declares those keys, or a person declares the mapping, or
-step 4 is asked again over a registry whose keys and the core's agree.
+sealed holdout, with the owner's closure table — has **not** run. It runs on the 5090 only with **the owner's
+admission**, and that is where WP18 steps 2–6 stop. The spec is now complete enough to be fitted: a representation, a
+preprocessor per feature, a cut, an extractor per group, a core, and every branch mapped to an encoder that core
+implements. Whether any of it is any good is the closure table's answer, and the closure table does not exist yet.

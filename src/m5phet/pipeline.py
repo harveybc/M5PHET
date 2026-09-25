@@ -612,6 +612,46 @@ def core_state_payload(groups_cut, extractor_plan=None):
             "branch_count": len(groups_cut["groups"])}
 
 
+def _core_module(core_key, catalog, *, environ=None, start=None):
+    """`(module_name, source_path)` of a core entry point, or `(None, None)`. Never imports anything."""
+    record = next((option for option in (catalog.get("options", []) if isinstance(catalog, dict) else [])
+                   if option["key"] == core_key), None)
+    if record is None:
+        return None, None
+    root = repo_root(record["registry"], environ=environ, start=start)
+    if root is None:
+        return None, None
+    module_name = record["target"].partition(":")[0]
+    relative = Path(*module_name.split("."))
+    for candidate in (root / relative.with_suffix(".py"), root / relative / "__init__.py"):
+        if candidate.is_file():
+            return module_name, candidate
+    return module_name, None
+
+
+def _module_mapping(path, name):
+    """One module-level `name = {...}` literal, read with `ast`. `None` when it is absent or not a literal."""
+    if path is None:
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else (
+            [node.target] if isinstance(node, ast.AnnAssign) else [])
+        if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+            value = node.value
+            if isinstance(value, ast.Dict):
+                try:
+                    return {ast.literal_eval(key): ast.literal_eval(item)
+                            for key, item in zip(value.keys, value.values)}
+                except ValueError:
+                    return None
+            return None
+    return None
+
+
 def inline_encoders(core_key, catalog, *, environ=None, start=None):
     """The encoders a fusing core implements ITSELF, read from its module's `ENCODERS` mapping without importing it.
 
@@ -621,65 +661,84 @@ def inline_encoders(core_key, catalog, *, environ=None, start=None):
 
     Returns `{name: label}`, or `None` when the core's module or its `ENCODERS` mapping cannot be read.
     """
-    record = next((option for option in (catalog.get("options", []) if isinstance(catalog, dict) else [])
-                   if option["key"] == core_key), None)
-    if record is None:
-        return None
-    root = repo_root(record["registry"], environ=environ, start=start)
-    if root is None:
-        return None
-    module_name = record["target"].partition(":")[0]
-    relative = Path(*module_name.split("."))
-    for candidate in (root / relative.with_suffix(".py"), root / relative / "__init__.py"):
-        if not candidate.is_file():
-            continue
-        try:
-            tree = ast.parse(candidate.read_text(encoding="utf-8", errors="replace"))
-        except (OSError, SyntaxError):
-            return None
-        for node in tree.body:
-            targets = node.targets if isinstance(node, ast.Assign) else (
-                [node.target] if isinstance(node, ast.AnnAssign) else [])
-            if any(isinstance(target, ast.Name) and target.id == "ENCODERS" for target in targets):
-                value = node.value
-                if isinstance(value, ast.Dict):
-                    try:
-                        return {ast.literal_eval(key): ast.literal_eval(item)
-                                for key, item in zip(value.keys, value.values)}
-                    except ValueError:
-                        return None
-        return None
-    return None
+    _module, path = _core_module(core_key, catalog, environ=environ, start=start)
+    return _module_mapping(path, "ENCODERS")
+
+
+def extractor_families(core_key, catalog, *, environ=None, start=None):
+    """The core's own `EXTRACTOR_FAMILIES` table: which inline family each feature-extractor key IS.
+
+    This is the one thing in WP18 that a program may not work out for itself. Whether feature-extractor's `ann` --
+    per-channel Dense branches over a window -- IS the core's `dense` family is a judgement about two implementations
+    in two repositories, and the answer has to come from a person. It comes from this table, written in the core's
+    own module beside the encoders it maps onto, with the reason for each entry as a comment. `None` against a key
+    means the person declared that the core has no family for it, which is an answer too.
+
+    Read exactly as `inline_encoders` is: parsed with `ast`, never imported. Returns `{extractor_key: family|None}`,
+    or `None` when the core declares no such table.
+    """
+    _module, path = _core_module(core_key, catalog, environ=environ, start=start)
+    return _module_mapping(path, "EXTRACTOR_FAMILIES")
 
 
 def map_encoders(core_key, extractor_plan, catalog, *, environ=None, start=None):
-    """Which group branches the chosen core can actually encode with the extractor that was chosen for them.
+    """Which group branches the chosen core can encode, and by whose declaration.
 
-    A branch is `MAPPED` only when the extractor key IS one of the core's own inline encoders -- the same name, not a
-    name that looks similar. Anything else is `NOT_MAPPED` and NAMES the extractor: feature-extractor's `rnn` is not
-    an inline encoder of `fused_branches`, and translating it into one would be inventing a pipeline nobody chose.
+    The core's `EXTRACTOR_FAMILIES` table decides, because only a person may say that one repository's encoder IS
+    another's family. A branch is `MAPPED` when the table sends its chosen extractor to a family the core actually
+    implements, and the record says so (`mapped_by`). Everything else is `NOT_MAPPED` and says WHICH case it is: the
+    table declares no family for that key, the table does not carry the key at all, or the family it names is not an
+    implemented encoder. Nothing is ever mapped by resemblance.
+
+    With no table (an older core), the only mapping left is identity -- the extractor key IS an inline encoder -- and
+    that is recorded as such.
     """
+    module_name, _path = _core_module(core_key, catalog, environ=environ, start=start)
     encoders = inline_encoders(core_key, catalog, environ=environ, start=start)
+    families = extractor_families(core_key, catalog, environ=environ, start=start)
+    declared_in = f"EXTRACTOR_FAMILIES declared in {module_name}"
     branches, chosen = {}, extractor_plan.get("groups", {})
     for group_id, entry in chosen.items():
         extractor = entry.get("chosen") if entry.get("status") == "OK" else None
         if extractor is None:
-            branches[group_id] = {"extractor": None, "encoder": None, "status": NOT_MAPPED,
-                                  "why": "no extractor was chosen for this group"}
+            branch = {"extractor": None, "encoder": None, "status": NOT_MAPPED,
+                      "why": "no extractor was chosen for this group"}
         elif encoders is None:
-            branches[group_id] = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
-                                  "why": f"the inline encoders of {core_key!r} could not be read from its module"}
-        elif extractor in encoders:
-            branches[group_id] = {"extractor": extractor, "encoder": extractor, "status": MAPPED,
-                                  "why": f"{extractor!r} is an inline encoder of {core_key!r}: {encoders[extractor]}"}
+            branch = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                      "why": f"the inline encoders of {core_key!r} could not be read from its module"}
+        elif families is None:
+            branch = (
+                {"extractor": extractor, "encoder": extractor, "status": MAPPED,
+                 "mapped_by": f"the extractor key is itself an inline encoder of {core_key!r}",
+                 "why": f"{extractor!r} is an inline encoder of {core_key!r}: {encoders[extractor]}"}
+                if extractor in encoders else
+                {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                 "why": f"{core_key!r} declares no EXTRACTOR_FAMILIES table, and the chosen extractor {extractor!r} "
+                        f"is not one of its inline encoders {sorted(encoders)}; no mapping is invented for it"})
+        elif extractor not in families:
+            branch = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                      "why": f"the EXTRACTOR_FAMILIES table of {core_key!r} does not carry {extractor!r}; it declares "
+                             f"{sorted(families)}, and no family is inferred for a key nobody declared"}
+        elif families[extractor] is None:
+            branch = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                      "why": f"the EXTRACTOR_FAMILIES table of {core_key!r} declares no inline family for "
+                             f"{extractor!r}; that is a declaration, not a gap to be filled"}
+        elif families[extractor] not in encoders:
+            branch = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                      "why": f"the EXTRACTOR_FAMILIES table sends {extractor!r} to {families[extractor]!r}, which is "
+                             f"not one of the inline encoders {sorted(encoders)} of {core_key!r}"}
         else:
-            branches[group_id] = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
-                                  "why": f"the chosen extractor {extractor!r} is not one of the inline encoders "
-                                         f"{sorted(encoders)} of {core_key!r}; no mapping is invented for it"}
+            family = families[extractor]
+            branch = {"extractor": extractor, "encoder": family, "status": MAPPED, "mapped_by": declared_in,
+                      "why": f"{extractor!r} is declared to be the {family!r} family of {core_key!r}: "
+                             f"{encoders[family]}"}
+        branches[group_id] = branch
     return {"status": MAPPED if branches and all(branch["status"] == MAPPED for branch in branches.values())
                       else NOT_MAPPED,
             "core": core_key,
             "inline_encoders": sorted(encoders) if encoders is not None else None,
+            "extractor_families": dict(families) if families is not None else None,
+            "extractor_families_source": module_name if families is not None else None,
             "branches": branches}
 
 
