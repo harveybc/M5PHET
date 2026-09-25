@@ -117,7 +117,7 @@ def choose_spec(harness, catalog):
     Today that is the policy example's bars (the regimes example ships JSON rows), and any installation simply walks
     through the first table example its own catalog publishes. The negative-path envelopes are left out: they exist
     to be refused, and a walkthrough should show what an answer looks like."""
-    specs = [s for s in harness.envelopes(catalog["examples"])
+    specs = [s for s in harness.envelopes(catalog["examples"], catalog.get("providers") or ())
              if (s["example"].get("config") or {}).get("input") == "csv" and s["example"].get("data")
              and not s.get("data_transform")]
     if not specs:
@@ -270,7 +270,7 @@ def verify(client, harness, catalog, out=None):
     """The harness's own envelopes, run over the API with the bearer token instead of the owner's cookie."""
     harness.call = client.call                      # same signature; the harness drives the token from here on
     report = {"schema": "m5phet_envelope_verification.v1", "credential": "bearer_token", "envelopes": []}
-    for spec in harness.envelopes(catalog["examples"]):
+    for spec in harness.envelopes(catalog["examples"], catalog.get("providers") or ()):
         message = harness.run_envelope(client.base, spec, catalog["defaults"])
         report["envelopes"].append(harness.evaluate(spec, message))
     for entry in report["envelopes"]:

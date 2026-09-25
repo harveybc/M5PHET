@@ -293,3 +293,54 @@ def test_two_reports_for_one_stage_and_one_area_are_refused_rather_than_silently
              write(tmp_path, "baseline_again", forecast_report(STAGE_B), stage="baseline_representation")]
     with pytest.raises(compare_stages.StageComparisonError, match="twice"):
         compare_stages.compare([compare_stages.load_stage(p) for p in files])
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# a stage that was attempted and refused: in the table, with its reason, never with a number (WP06 stages 3-4)
+# --------------------------------------------------------------------------------------------------------------------
+
+REFUSAL = ("the stage's window 2892 exceeds the sealing window 197; the sealed population would not hold its history "
+           "(7129 origins instead of 9824, seal 97155a063e25 instead of 33820b552ddf)")
+
+
+def test_an_attempted_stage_with_no_report_is_in_the_table_with_its_refusal(tmp_path):
+    table = compare_stages.compare(
+        [compare_stages.load_stage(write(tmp_path, "designed", forecast_report(STAGE_B))),
+         compare_stages.load_stage(write(tmp_path, "baseline", forecast_report(STAGE_A)))],
+        not_measured=[{"stage": "candidate_seasonal_lag_2892", "area": "forecast", "reason": REFUSAL}])
+
+    rows = {row["stage"]: row for row in table["areas"][0]["rows"]}
+    assert sorted(rows) == ["baseline", "candidate_seasonal_lag_2892", "designed"]
+    refused = rows["candidate_seasonal_lag_2892"]
+    assert refused["status"] == compare_stages.NO_NEW_MEASUREMENT
+    assert refused["reason"] == REFUSAL
+    assert refused["model_error"] is None and refused["rank"] is None
+    assert refused["comparability"] == compare_stages.NO_NEW_MEASUREMENT
+    # the stages that WERE measured are ranked as before: an unmeasured row takes no position
+    assert rows["designed"]["rank"] == 1 and rows["baseline"]["rank"] == 2
+    assert table["not_measured"] == [{"stage": "candidate_seasonal_lag_2892", "area": "forecast", "reason": REFUSAL}]
+    # and the markdown says so instead of leaving a cell that reads like a zero
+    markdown = compare_stages.render_markdown(table)
+    assert "NO_NEW_MEASUREMENT" in markdown and "2892" in markdown
+
+
+def test_a_stage_cannot_both_carry_a_report_and_be_declared_unmeasured(tmp_path):
+    stages = [compare_stages.load_stage(write(tmp_path, "designed", forecast_report(STAGE_B)))]
+    with pytest.raises(compare_stages.StageComparisonError, match="cannot both have a measurement"):
+        compare_stages.compare(stages, not_measured=[{"stage": "designed", "area": "forecast", "reason": REFUSAL}])
+
+
+def test_an_unmeasured_stage_of_an_unknown_area_is_refused(tmp_path):
+    stages = [compare_stages.load_stage(write(tmp_path, "designed", forecast_report(STAGE_B)))]
+    with pytest.raises(compare_stages.StageComparisonError, match="is not one of"):
+        compare_stages.compare(stages, not_measured=[{"stage": "x", "area": "weather", "reason": REFUSAL}])
+
+
+def test_the_cli_takes_a_not_measured_stage(tmp_path):
+    out = tmp_path / "table.json"
+    code = compare_stages.main(["--report", f"designed={write(tmp_path, 'designed', forecast_report(STAGE_B))}",
+                                "--not-measured", f"candidate_seasonal_lag_2892=forecast:{REFUSAL}",
+                                "--out", str(out), "--markdown", str(tmp_path / "table.md")])
+    assert code == 0
+    table = json.loads(out.read_text())
+    assert [entry["stage"] for entry in table["not_measured"]] == ["candidate_seasonal_lag_2892"]

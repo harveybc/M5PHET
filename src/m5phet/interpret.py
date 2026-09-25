@@ -243,6 +243,10 @@ def interpret(prompt, slots, *, interpreter=None):
                         f"{detail['allowed']}; answering the nearest one would answer a different question")}
 
     resolved, ambiguous, unresolved = deterministic(prompt, slots)
+    # A slot a provider declares OPTIONAL (`required: False`) is a value the engine can settle on its own -- which
+    # fitted bundle answers, when the question already says enough. It is still offered to the interpreter below, so
+    # words CAN choose it; what it must never do is turn a question that names everything required into a refusal.
+    optional = {slot["name"] for slot in slots if slot.get("required", True) is False}
     report["parameters"] = dict(resolved)
     report["sources"] = {name: "QUESTION_TEXT" for name in resolved}
     if ambiguous:
@@ -255,9 +259,12 @@ def interpret(prompt, slots, *, interpreter=None):
     interpreter = interpreter if interpreter is not None else build()
     report["interpreter"] = interpreter.identity()
     if not interpreter.available:
+        required_missing = sorted(set(unresolved) - optional)
+        if not required_missing:
+            return {**report, "status": STATUS_OK}
         return {**report, "status": STATUS_MISSING,
-                "why": (f"the question does not name a supported {', '.join(sorted(unresolved))}, and no interpreter is "
-                        f"configured. This model has {_vocabulary(slots, unresolved)}")}
+                "why": (f"the question does not name a supported {', '.join(required_missing)}, and no interpreter is "
+                        f"configured. This model has {_vocabulary(slots, required_missing)}")}
     pending = [slot for slot in slots if slot["name"] in unresolved]
     try:
         proposed = interpreter.propose(prompt, pending)

@@ -39,9 +39,44 @@ def call(base, method, path, body=None, raw=None, filename=None, timeout=300):
     return json.loads(text) if text.strip() else None
 
 
+#: the area whose answer depends on which engines are configured, and the only expectation this harness computes
+FORECAST_PROVIDER = "predictor_forecast"
+
+
+def interval_expectation(providers, target, level):
+    """What an `interval` question about `target` at `level` MUST come back as, in the configuration that is running.
+
+    Every other expectation in this file is a constant, and this one cannot be: whether an interval is answerable is a
+    property of the bundles the operator installed, and the product's rule is explicit about all three cases. Writing
+    `REFUSED:NOT_ESTIMABLE` here for ever would have meant that installing the quantile bundle the work plan asks for
+    made the harness fail, and that reading the failure as the product's fault. So the rule is asserted instead of the
+    configuration:
+
+    * no configured bundle that serves this series has a quantile head -> the answer is `NOT_ESTIMABLE`: there is no
+      predictive distribution to bound;
+    * exactly one has, and it fitted a symmetric pair covering this level -> the answer is the interval, `OK`;
+    * exactly one has, and it did not fit that pair -> `CONFIDENCE_LEVEL_NOT_FITTED`: a level is answered because it
+      was fitted, never because it was asked for;
+    * several have, and nothing in the question tells them apart -> `STATE_REQUIRED`, naming them.
+
+    The declaration is read from the catalog the running instance publishes (`capabilities.bundles`), never from a
+    file on disk: the harness asserts what the product SAYS it can do against what it then does.
+    """
+    bundles = [b for provider in providers if provider.get("name") == FORECAST_PROVIDER
+               for b in ((provider.get("capabilities") or {}).get("bundles") or [])
+               if target in (b.get("targets") or ())]
+    with_quantiles = [b for b in bundles if "quantile" in (b.get("heads") or ())]
+    if not with_quantiles:
+        return "REFUSED:NOT_ESTIMABLE"
+    if len(with_quantiles) > 1:
+        return "REFUSED:STATE_REQUIRED"
+    fitted = [round(float(value), 9) for value in (with_quantiles[0].get("fitted_confidence_levels") or ())]
+    return "OK" if round(float(level), 9) in fitted else "REFUSED:CONFIDENCE_LEVEL_NOT_FITTED"
+
+
 #: for each area: which catalog example supplies the data, the envelope in the owner's shape, and what each question
 #: must come back as. `expect` is the status; a REFUSED expectation also names the refusal code.
-def envelopes(examples):
+def envelopes(examples, providers=()):
     def data_of(fragment):
         return next(e for e in examples if fragment.lower() in e["title"].lower())
 
@@ -51,7 +86,9 @@ def envelopes(examples):
                   "questions": {"prediccion": {"type": "point_forecast", "horizon": 60},
                                 "rango": {"type": "interval", "horizon": 60, "confidence_level": 0.95},
                                 "riesgo": {"type": "anomaly_risk", "threshold": "< 0.3"}}},
-         "expect": {"prediccion": "OK", "rango": "REFUSED:NOT_ESTIMABLE", "riesgo": "REFUSED:NOT_ESTIMABLE"}},
+         "expect": {"prediccion": "OK",
+                    "rango": interval_expectation(providers, "Global_active_power", 0.95),
+                    "riesgo": "REFUSED:NOT_ESTIMABLE"}},
         # the causal provider is inference-only over a study fitted beforehand: attaching rows would mean "fit", which it
         # refuses. The envelope names the graph; it attaches nothing.
         {"area": "causal", "example": {**data_of("ATE"), "data": None},
@@ -201,7 +238,7 @@ def main(argv=None):
     catalog = call(args.base, "GET", "/api/catalog")
     areas = call(args.base, "GET", "/api/tasks/catalog")["areas"]
     report = {"schema": "m5phet_envelope_verification.v1", "areas": areas, "envelopes": []}
-    for spec in envelopes(catalog["examples"]):
+    for spec in envelopes(catalog["examples"], catalog.get("providers") or ()):
         report["envelopes"].append(evaluate(spec, run_envelope(args.base, spec, catalog["defaults"])))
     for entry in report["envelopes"]:
         show(entry)

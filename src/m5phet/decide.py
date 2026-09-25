@@ -21,8 +21,25 @@ It never records a choice that a model did not make. An answer whose `backend` i
 `non_model_fixture`, is refused as `NON_MODEL_FIXTURE` and nothing is written. A decision made on a fixture would be
 a hypothesis with a model's authority and none of its evidence.
 
+It never lets a choice be recorded at a confidence the checkpoint was measured to be wrong at. WP09 measured this
+checkpoint on 450 independently labelled rows: below 0.8 its argmax is at chance, in the 0.8-0.9 bin it is right 71 %
+of the time, above 0.9 it is right in every row measured. `ask(..., min_confidence=, abstention_source=)` turns that
+measurement into a rule -- an answer below the threshold is `LOW_CONFIDENCE_ABSTAINED`, recorded with `chosen: null`
+-- and the threshold itself must be cited from the report that measured it, checked against that report's own bins.
+A threshold nobody measured refuses every question as `UNCITED_THRESHOLD`, because a gate chosen after seeing which
+value lets a study through is tuning on the outcome, which is the one thing this module exists to prevent.
+
 And what it does not prove: nothing here says a choice is a good one. A decision is a hypothesis. The fit that follows
 it and the closure table that scores it are the judge, and they live in other packages (WP18-WP21).
+
+One thing it does do since WP23's structural finding (2026-09-25): it records a PERSON's choice too, through
+`human_choice`, in the same store and under the same checks — the option set the executing repository declared, the
+state that was described, and the ground in `why` — but with `chosen_by: HUMAN`, no backend, no checkpoint and no
+probabilities. The reason is not symmetry. A closure table ranks pipelines, and the first table ranked a hand-written
+stage first; that stage carried no decision record, so no option was the label the others could be scored against, and
+writing Laya's chosen option against the hand row would have claimed Laya chose what a person used. A human record
+fixes that by saying what the winning stage actually used, and it is never scored: `evaluation/decision_calibration.py`
+counts it, may take its label, and excludes it from every rate.
 """
 
 import copy
@@ -54,6 +71,35 @@ MAX_LIST_ITEMS = 128
 #: the backend that may produce a decision. Anything else is a fixture or another model, and is refused by name.
 LAYA_BACKEND = "laya"
 
+# --- who chose (WP23) ---------------------------------------------------------------------------------------------------
+# A closure table ranks pipelines, not choosers, and WP23's rule is that every stage entering the table must carry
+# decision records for the same (kind, question) set. A stage a person configured therefore needs a record too, or the
+# rank-1 row carries no label and the calibration report can only ever say NO_BEST_RANKED_OPTION. That record must be
+# distinguishable from Laya's at a glance and by validation, because the two say completely different things: Laya's
+# carries a head's uncalibrated probabilities that WP23 calibrates, a person's carries none and is calibrated by nothing.
+#: the chooser of a record written from a Laya answer; the value assumed for a record that names no chooser
+CHOSEN_BY_LAYA = "LAYA"
+#: the chooser of a record a person wrote by hand: no backend, no checkpoint, no probabilities, and a stated ground
+CHOSEN_BY_HUMAN = "HUMAN"
+CHOOSERS = (CHOSEN_BY_LAYA, CHOSEN_BY_HUMAN)
+
+#: a human record carries no probability at all rather than a flat or invented one: a person did not produce a
+#: distribution, and writing 1.0 for the chosen option would put a certainty in the corpus that nobody claimed
+HUMAN_PROBABILITIES = {}
+#: `why` is empty, or a human record was written without the ground of the choice
+WHY_REQUIRED = "WHY_REQUIRED"
+#: a field only one kind of chooser may carry was found on the other kind
+CHOOSER_FIELDS = "CHOOSER_FIELDS"
+
+# --- WP20: the abstention threshold, and the measurement it must be cited from ------------------------------------------
+#: the schema of the evaluation report a confidence threshold may be cited from. `evaluation/report.py` writes it.
+QUALITY_REPORT_SCHEMA = "m5phet-evaluation-report/1"
+
+#: the metric set inside that report which measures whether a probability means anything, and the object in it that
+#: holds the measured bins. A threshold is a claim about those bins and is checked against them.
+CALIBRATION_METRIC_SET = "calibration"
+RELIABILITY = "reliability"
+
 # --- refusal codes a caller may match on -------------------------------------------------------------------------------
 #: the answer came from a declared fixture or from a backend that is not Laya; no decision exists
 NON_MODEL_FIXTURE = "NON_MODEL_FIXTURE"
@@ -69,6 +115,17 @@ NOT_A_DECISION = "NOT_A_DECISION"
 OPTIONS_MISMATCH = "OPTIONS_MISMATCH"
 #: `decision_state` was handed rows instead of a description
 ROWS_IN_STATE = "ROWS_IN_STATE"
+#: the answer's top probability is below the declared threshold; no choice was made and none was recorded as one
+LOW_CONFIDENCE_ABSTAINED = "LOW_CONFIDENCE_ABSTAINED"
+#: a threshold was passed with no measurement cited for it. Nobody may pass a number they made up
+UNCITED_THRESHOLD = "UNCITED_THRESHOLD"
+#: the cited file is not an evaluation report that measured this checkpoint's reliability
+ABSTENTION_SOURCE_UNREADABLE = "ABSTENTION_SOURCE_UNREADABLE"
+#: the cited report measures nothing at this threshold: it is not one of the bin edges the report resolved, or no row
+#: was measured at or above it. A threshold the measurement cannot see is as made up as one with no citation at all
+THRESHOLD_NOT_MEASURED = "THRESHOLD_NOT_MEASURED"
+#: an abstention is not a choice, so it never becomes a training label
+ABSTENTION_HAS_NO_OUTCOME = "ABSTENTION_HAS_NO_OUTCOME"
 
 # --- WP23: the outcome, and the refusals that keep it honest ------------------------------------------------------------
 #: the schema of the record that links one decision to one closure-table row
@@ -92,6 +149,116 @@ TABLE_ROW_FIELDS = ("stage", "status", "comparability", "rank")
 
 class DecisionError(ValueError):
     """A state cannot be rendered, or a record cannot be written or read back. Raised; never returned as a decision."""
+
+
+# --- the abstention threshold (WP20) -----------------------------------------------------------------------------------
+
+def abstention_threshold(min_confidence, abstention_source):
+    """Resolve a declared confidence threshold against the measurement it is cited from.
+
+    Returns `(citation, None)`, or `(None, (refusal_code, why))`. Nothing here asks anything; this runs before a
+    single question is sent, so a threshold nobody measured costs no model call.
+
+    **The whole point of this function is that the number cannot be invented.** WP09 measured the zero-shot checkpoint
+    on 450 independently labelled rows and found it at chance below 0.8, 71 % correct in the 0.8-0.9 bin and 100 %
+    correct above 0.9. A threshold is a claim about exactly those bins, so it is checked against them:
+
+    * `UNCITED_THRESHOLD` — a threshold with no `abstention_source`. A number with no measurement behind it is an
+      opinion about the model dressed as a gate, and tuning it until a study validates is tuning on the outcome;
+    * `ABSTENTION_SOURCE_UNREADABLE` — the cited path is not a `m5phet-evaluation-report/1` document carrying a
+      `calibration` metric set with its `reliability` bins;
+    * `THRESHOLD_NOT_MEASURED` — the threshold is not one of the bin edges the cited report resolved, or the report
+      measured no row at or above it. A threshold between two bin edges is a number the measurement cannot see.
+
+    The citation carries the report's own digest, its stage, its protocol digest and corpus seal, the bins at or above
+    the threshold, and how many of those rows were correct — so a record says where its threshold came from and a
+    reader can recompute it from the cited file.
+    """
+    if min_confidence is None:
+        return None, None
+    if isinstance(min_confidence, bool) or not isinstance(min_confidence, (int, float)):
+        return None, (UNCITED_THRESHOLD, f"a confidence threshold is a number between 0 and 1; "
+                                         f"{min_confidence!r} is not one")
+    threshold = float(min_confidence)
+    if not math.isfinite(threshold) or not 0.0 < threshold <= 1.0:
+        return None, (UNCITED_THRESHOLD, f"a confidence threshold lies in (0, 1]; {threshold!r} does not")
+    if abstention_source is None:
+        return None, (UNCITED_THRESHOLD,
+                      f"the threshold {threshold} cites no measurement. A decision gate is a claim about how often "
+                      f"this checkpoint is right at a confidence, so it is passed with the report that measured it "
+                      f"(`abstention_source`); a number nobody measured is not a rule, it is a preference")
+
+    path = Path(os.path.expanduser(str(abstention_source)))
+    try:
+        raw = path.read_bytes()
+        report = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as error:
+        return None, (ABSTENTION_SOURCE_UNREADABLE, f"{path} cannot be read as an evaluation report: {error}")
+    version = report.get("version") if isinstance(report, dict) else None
+    if version != QUALITY_REPORT_SCHEMA:
+        return None, (ABSTENTION_SOURCE_UNREADABLE,
+                      f"{path} declares version {version!r}, not {QUALITY_REPORT_SCHEMA!r}; a threshold is cited from "
+                      f"a report this framework wrote")
+    sets = report.get("metric_sets")
+    measured = None
+    if isinstance(sets, list):
+        for entry in sets:
+            if isinstance(entry, dict) and entry.get("name") == CALIBRATION_METRIC_SET:
+                measured = ((entry.get("values") or {}).get(RELIABILITY)
+                            if isinstance(entry.get("values"), dict) else None)
+    bins = measured.get("bins") if isinstance(measured, dict) else None
+    if not isinstance(bins, list) or not bins:
+        return None, (ABSTENTION_SOURCE_UNREADABLE,
+                      f"{path} carries no {CALIBRATION_METRIC_SET!r} metric set with {RELIABILITY!r} bins, so it "
+                      f"measured no relation between this checkpoint's confidence and how often it is right")
+
+    edges, above = [], []
+    for entry in bins:
+        if not isinstance(entry, dict) or not isinstance(entry.get("bin"), (list, tuple)) or len(entry["bin"]) != 2:
+            return None, (ABSTENTION_SOURCE_UNREADABLE, f"{path} carries a reliability bin that is not a [low, high] "
+                                                        f"pair with a count: {entry!r}")
+        low, high = float(entry["bin"][0]), float(entry["bin"][1])
+        edges.append(low)
+        if low >= threshold - 1e-12:
+            above.append({"bin": [round(low, 6), round(high, 6)], "count": int(entry.get("count") or 0),
+                          "accuracy": entry.get("accuracy")})
+    if not any(abs(edge - threshold) <= 1e-12 for edge in edges):
+        return None, (THRESHOLD_NOT_MEASURED,
+                      f"{path} resolved the bin edges {sorted(round(edge, 6) for edge in edges)} and the threshold "
+                      f"{threshold} is not one of them; a threshold inside a bin splits rows the report never "
+                      f"separated, so the report says nothing about it")
+    rows = sum(entry["count"] for entry in above)
+    if rows <= 0:
+        return None, (THRESHOLD_NOT_MEASURED,
+                      f"{path} measured no row at or above {threshold}; a threshold above everything the report saw "
+                      f"is a gate whose behaviour was never observed")
+    correct = sum(entry["count"] * float(entry["accuracy"] or 0.0) for entry in above)
+    return {"min_confidence": threshold,
+            "path": str(path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "stage": report.get("stage"),
+            "protocol_digest": report.get("protocol_digest"),
+            "corpus_seal": report.get("corpus_seal"),
+            "measured_rows_at_or_above": rows,
+            "measured_correct_at_or_above": round(correct, 6),
+            "measured_accuracy_at_or_above": round(correct / rows, 6),
+            "bins_at_or_above": above}, None
+
+
+def _abstains(probabilities, citation):
+    """`(top_option, top_probability)` when the answer's argmax is below the cited threshold, else `None`.
+
+    The top probability is the maximum over the declared options, which is the quantity WP09's reliability bins were
+    built from: the report binned each row by the confidence of the option the checkpoint put first. A tie at the top
+    has no single argmax, so it is below any threshold this report can justify and abstains under the first key in
+    option order."""
+    if citation is None:
+        return None
+    top = max(probabilities.values())
+    holders = sorted(key for key, value in probabilities.items() if value == top)
+    if len(holders) == 1 and top >= citation["min_confidence"]:
+        return None
+    return holders[0], top
 
 
 # --- the state text ----------------------------------------------------------------------------------------------------
@@ -168,7 +335,8 @@ def _scalar(value, decimals):
 
 # --- asking ------------------------------------------------------------------------------------------------------------
 
-def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_dir=None):
+def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_dir=None, min_confidence=None,
+        abstention_source=None):
     """Ask Laya to choose among DECLARED options for one state, and return one entry per question.
 
     `engine_or_registry` is either an `m5phet.web.engine.Engine` -- preferred, because a classification envelope then
@@ -184,15 +352,31 @@ def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_d
     replay a text state at a historical clock (`HISTORICAL_REPLAY_NEEDS_EVENT`), because a state text carries no
     clocks of its own. A decision is made now, about a description; it is not a replay of a news item.
 
+    `min_confidence` is the declared abstention threshold (WP20). With one, an answer whose top probability is below
+    it is NOT a choice: the entry is `LOW_CONFIDENCE_ABSTAINED` and the abstention is recorded as a decision record
+    with `chosen: null`, so a question the checkpoint could not answer leaves a trace instead of a guess. It is passed
+    with `abstention_source`, the path to the report that MEASURED this checkpoint at this confidence; a threshold
+    with no citation refuses every question as `UNCITED_THRESHOLD` and nothing is asked. See `abstention_threshold`.
+
     Returns `{name: entry}`. An entry is either `{"status": "OK", "decision": <record>, "record_path": str|None}` or a
     typed refusal (`{"status": "REFUSED", "refusal": ..., "why": ...}`). A refusal the provider itself raised --
-    `TOKEN_BUDGET_EXCEEDED` among them -- is passed through verbatim, so its name survives this layer.
+    `TOKEN_BUDGET_EXCEEDED` among them -- is passed through verbatim, so its name survives this layer. An abstention
+    is a refusal that also carries `decision` and `record_path`, because an abstention is recorded and is not a choice.
     """
     if not isinstance(kind, str) or not kind.strip():
         raise DecisionError("a decision kind must be a non-empty string")
     if not isinstance(questions, dict) or not questions:
         raise DecisionError("`questions` must be a non-empty mapping of name -> {options, instructions}")
+    if min_confidence is None and abstention_source is not None:
+        raise DecisionError("an `abstention_source` with no `min_confidence` gates nothing; pass the threshold it "
+                            "was cited for, or neither")
     stamped = as_of if as_of is not None else datetime.now(timezone.utc).isoformat()
+    citation, unresolved = abstention_threshold(min_confidence, abstention_source)
+
+    if unresolved is not None:
+        # nothing is asked: a gate nobody measured would decide which answers count, and that decision would be the
+        # author's, made after seeing which threshold lets the study through
+        return {name: refusal(unresolved[0], unresolved[1], "choice") for name in questions}
 
     out, askable, declared = {}, {}, {}
     state_ok = isinstance(state_text, str) and state_text.strip()
@@ -227,7 +411,7 @@ def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_d
             for name in askable:
                 out[name] = _entry(answers.get(name), name=name, kind=kind, options=declared[name],
                                    instructions=askable[name]["instructions"], state_text=state_text,
-                                   checkpoint=checkpoint, as_of=stamped, record_dir=record_dir)
+                                   checkpoint=checkpoint, as_of=stamped, record_dir=record_dir, citation=citation)
     return {name: out[name] for name in questions}                      # the caller's order, always
 
 
@@ -274,7 +458,7 @@ def _check_question(question):
     return None
 
 
-def _entry(answer, *, name, kind, options, instructions, state_text, checkpoint, as_of, record_dir):
+def _entry(answer, *, name, kind, options, instructions, state_text, checkpoint, as_of, record_dir, citation=None):
     """One answer becomes a decision, or a refusal. Every path that is not a real, in-set Laya choice refuses."""
     if not isinstance(answer, dict):
         return refusal(PROVIDER_ERROR, "the provider returned no answer for this question", "choice")
@@ -315,6 +499,28 @@ def _entry(answer, *, name, kind, options, instructions, state_text, checkpoint,
                 "backend": backend,
                 "as_of": as_of,
                 "execution_authorized": False}
+
+    abstained = _abstains(probabilities, citation)
+    if abstained is not None:
+        # below the declared threshold this checkpoint is at chance, and a choice made at chance is a guess wearing a
+        # model's authority. The answer is kept in full -- every probability, and the label the head put first -- and
+        # `chosen` is null, because nothing was chosen.
+        top_option, top = abstained
+        decision["chosen"] = None
+        decision["abstention"] = {"refusal": LOW_CONFIDENCE_ABSTAINED, "top_option": top_option,
+                                  "top_probability": top, "answer_label": chosen,
+                                  "threshold": copy.deepcopy(citation)}
+        why = (f"the answer's top probability was {top} on option {top_option!r}, below the declared threshold "
+               f"{citation['min_confidence']}. That threshold comes from {citation['path']} (sha256 "
+               f"{citation['sha256']}, stage {citation['stage']!r}), which measured "
+               f"{citation['measured_correct_at_or_above']} of {citation['measured_rows_at_or_above']} rows correct "
+               f"at or above it; below it the same report puts this checkpoint at chance. No choice was recorded for "
+               f"{name!r}.")
+        entry = refusal(LOW_CONFIDENCE_ABSTAINED, why, "choice")
+        entry["decision"] = decision
+        entry["record_path"] = str(record(decision, record_dir)) if record_dir is not None else None
+        return entry
+
     entry = {"status": "OK", "decision": decision, "record_path": None}
     if record_dir is not None:
         entry["record_path"] = str(record(decision, record_dir))
@@ -332,32 +538,97 @@ def decision_sha256(decision):
     return hashlib.sha256(canonical_bytes(decision)).hexdigest()
 
 
+def chooser_of(decision):
+    """`LAYA` or `HUMAN`. A record that names no chooser is Laya's: every record written before WP23 is one."""
+    if not isinstance(decision, dict):
+        raise DecisionError("a decision record is a mapping")
+    chosen_by = decision.get("chosen_by", CHOSEN_BY_LAYA)
+    if chosen_by not in CHOOSERS:
+        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {chosen_by!r} is neither, and a record whose "
+                            f"chooser is unknown cannot be read as evidence about either of them")
+    return chosen_by
+
+
 def validate_decision(decision):
-    """Raise unless this is a complete decision record made by Laya and claiming no authority."""
+    """Raise unless this is a complete decision record, claiming no authority, and saying who made the choice.
+
+    Three shapes are records, and nothing else is. A **Laya choice**: `chosen_by` absent or `LAYA`, backend `laya`, an
+    option key in `chosen`, the head's own uncalibrated probabilities. An **abstention** (WP20): the same, with
+    `chosen: null` and an `abstention` block naming the threshold and the measurement it was cited from -- a question
+    that was asked and not answered, which is a fact about the checkpoint and never a choice. A **person's choice**
+    (WP23): `chosen_by: HUMAN`, no backend and no checkpoint because a person is neither, `probabilities: {}` because
+    there is no head to read them off, and a `why` in the person's own words, so a stage a person configured can enter
+    a closure table carrying records like any other.
+
+    The shapes are validated apart on purpose, and neither can borrow a field from the other: a record that looked like
+    the wrong kind of evidence would be read as the wrong kind of evidence later.
+    """
     if not isinstance(decision, dict):
         raise DecisionError("a decision record is a mapping")
     if decision.get("schema") != DECISION_SCHEMA:
         raise DecisionError(f"schema {decision.get('schema')!r} is not {DECISION_SCHEMA!r}")
+    chosen_by = chooser_of(decision)
     expected = {"schema", "kind", "state_sha256", "question", "options", "chosen", "probabilities",
                 "probability_decimals", "checkpoint", "backend", "as_of", "execution_authorized"}
+    if chosen_by == CHOSEN_BY_HUMAN:
+        expected |= {"chosen_by", "why"}
+    else:
+        if "chosen_by" in decision:
+            expected |= {"chosen_by"}
+        if "abstention" in decision:
+            expected |= {"abstention"}
     if set(decision) != expected:
-        raise DecisionError(f"a {DECISION_SCHEMA} record carries exactly {sorted(expected)}; this one carries "
-                            f"{sorted(decision)}")
-    if decision["backend"] != LAYA_BACKEND:
-        raise DecisionError(f"{NON_MODEL_FIXTURE}: backend {decision['backend']!r} is not {LAYA_BACKEND!r}; a "
-                            f"decision is never recorded from anything else")
+        raise DecisionError(f"a {DECISION_SCHEMA} record chosen by {chosen_by} carries exactly {sorted(expected)}; "
+                            f"this one carries {sorted(decision)}")
     if decision["execution_authorized"] is not False:
         raise DecisionError("a decision claims no execution authority; `execution_authorized` must be false")
-    for field in ("kind", "question", "chosen", "state_sha256"):
+    for field in ("kind", "question", "state_sha256"):
         if not isinstance(decision[field], str) or not decision[field].strip():
             raise DecisionError(f"`{field}` must be a non-empty string")
     options = decision["options"]
     if not isinstance(options, list) or len(options) < 2:
         raise DecisionError("a decision carries the option set it was chosen from, at least two entries")
     keys = [pair[0] for pair in options]
-    if decision["chosen"] not in keys:
-        raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {decision['chosen']!r} is not one of {keys}")
+
+    abstention = decision.get("abstention")
+    if abstention is None:
+        if not isinstance(decision["chosen"], str) or not decision["chosen"].strip():
+            raise DecisionError("`chosen` must be a non-empty string; only an abstention carries no choice")
+        if decision["chosen"] not in keys:
+            raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {decision['chosen']!r} is not one of {keys}")
+    else:
+        if chosen_by != CHOSEN_BY_LAYA:
+            raise DecisionError(f"{LOW_CONFIDENCE_ABSTAINED} is a fact about a model's confidence; a {chosen_by} "
+                                f"choice has no probability to fall below a threshold")
+        if decision["chosen"] is not None:
+            raise DecisionError(f"{LOW_CONFIDENCE_ABSTAINED}: an abstention carries `chosen: null`; a record that "
+                                f"abstained and also chose {decision['chosen']!r} would be both at once")
+        if not isinstance(abstention, dict) or abstention.get("refusal") != LOW_CONFIDENCE_ABSTAINED:
+            raise DecisionError(f"`abstention` names the refusal {LOW_CONFIDENCE_ABSTAINED!r} it was made under")
+        threshold = abstention.get("threshold")
+        if not isinstance(threshold, dict) or not threshold.get("path") or not threshold.get("sha256"):
+            raise DecisionError(f"{UNCITED_THRESHOLD}: an abstention carries the measurement its threshold came "
+                                f"from -- the cited report's path and digest -- or it is a number nobody measured")
+        if abstention.get("top_option") not in keys:
+            raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: the abstention's top option "
+                                f"{abstention.get('top_option')!r} is not one of {keys}")
+
     probabilities = decision["probabilities"]
+    if chosen_by == CHOSEN_BY_HUMAN:
+        if probabilities != HUMAN_PROBABILITIES:
+            raise DecisionError(f"{CHOOSER_FIELDS}: a record chosen by {CHOSEN_BY_HUMAN} carries no probabilities; a "
+                                f"person produced no distribution, and {probabilities!r} would be a claim nobody made")
+        for field in ("backend", "checkpoint", "probability_decimals"):
+            if decision[field] is not None:
+                raise DecisionError(f"{CHOOSER_FIELDS}: `{field}` is {decision[field]!r} on a record chosen by "
+                                    f"{CHOSEN_BY_HUMAN}; a person is not a backend and ran no checkpoint")
+        if not isinstance(decision["why"], str) or not decision["why"].strip():
+            raise DecisionError(f"{WHY_REQUIRED}: a human choice carries the ground it was made on; a bare key in a "
+                                f"corpus is an opinion nobody can review")
+        return decision
+    if decision["backend"] != LAYA_BACKEND:
+        raise DecisionError(f"{NON_MODEL_FIXTURE}: backend {decision['backend']!r} is not {LAYA_BACKEND!r}; a "
+                            f"decision is never recorded from anything else")
     if not isinstance(probabilities, dict) or not probabilities:
         raise DecisionError("a decision carries the uncalibrated probabilities the answer carried")
     if set(probabilities) - set(keys):
@@ -365,6 +636,61 @@ def validate_decision(decision):
     if any(type(p) not in (int, float) or not math.isfinite(p) for p in probabilities.values()):
         raise DecisionError("a probability is a finite number")
     return decision
+
+
+def human_choice(*, kind, question, options, chosen, state_text, why, as_of=None, record_dir=None):
+    """Record a choice a PERSON made, in the same shape and the same store as Laya's, and with the same checks.
+
+    WP23's clause, in one function: a stage that a person configured enters the closure table like any other, and the
+    table's rank-1 row is a label only if the stage that produced it says which option it used. So a person's choice is
+    written down — with the option set it was really chosen from (a key outside it is refused here exactly as it is for
+    Laya), the state text that described what was being chosen about, and `why`.
+
+    What it is NOT: evidence about Laya, and never a probability. `evaluation/decision_calibration.py` reads these
+    records for the label they carry and excludes them from every rate it computes, because scoring a person's choice
+    against the table would measure the person, not the chooser this framework is calibrating.
+
+    Returns `{"status": "OK", "decision": <record>, "record_path": str|None}`, or a typed refusal in the shape `ask`
+    uses, so a caller can handle both the same way.
+    """
+    if not isinstance(kind, str) or not kind.strip():
+        raise DecisionError("a decision kind must be a non-empty string")
+    if not isinstance(question, str) or not question.strip():
+        raise DecisionError("a decision question must be a non-empty string")
+    if not isinstance(why, str) or not why.strip():
+        return refusal(WHY_REQUIRED, "a human choice carries the ground it was made on; say why this option and not "
+                                     "the others", "choice")
+    problem = _check_question({"options": options, "instructions": why})
+    if problem is not None:
+        return refusal(problem[0], problem[1], "choice")
+    if not isinstance(state_text, str) or not state_text.strip():
+        return refusal(STATE_REQUIRED, "a decision needs a non-empty state text describing what is being chosen "
+                                       "about; nothing was recorded", "choice")
+    pairs = [[str(key), str(label)] for key, label in options]
+    keys = [key for key, _label in pairs]
+    if chosen not in keys:
+        return refusal(CHOICE_OUTSIDE_OPTIONS, f"the choice {chosen!r} is not one of the declared options {keys}; a "
+                                               f"person may not add an option to a set the executing repository "
+                                               f"declared", "choice")
+    decision = {"schema": DECISION_SCHEMA,
+                "kind": kind,
+                "state_sha256": state_sha256(state_text),
+                "question": question,
+                "options": pairs,
+                "chosen": str(chosen),
+                "probabilities": dict(HUMAN_PROBABILITIES),
+                "probability_decimals": None,
+                "checkpoint": None,
+                "backend": None,
+                "chosen_by": CHOSEN_BY_HUMAN,
+                "why": why,
+                "as_of": as_of if as_of is not None else datetime.now(timezone.utc).isoformat(),
+                "execution_authorized": False}
+    validate_decision(decision)
+    entry = {"status": "OK", "decision": decision, "record_path": None}
+    if record_dir is not None:
+        entry["record_path"] = str(record(decision, record_dir))
+    return entry
 
 
 def record(decision, directory):
@@ -445,6 +771,12 @@ def outcome(record_path, table_row, *, out_dir):
     decision, code, why = _load_decision(record_path)
     if decision is None:
         return refusal(code, why)
+    if decision.get("abstention") is not None:
+        return refusal(ABSTENTION_HAS_NO_OUTCOME,
+                       f"the record at {record_path} is an abstention: the checkpoint's top probability was below "
+                       f"the declared threshold and nothing was chosen. A row of the table cannot rank a choice that "
+                       f"was not made, and calling the stage's configuration Laya's choice would put a person's "
+                       f"fallback under the model's name")
 
     comparability = table_row.get("comparability")
     if comparability != COMPARABLE:
@@ -462,6 +794,9 @@ def outcome(record_path, table_row, *, out_dir):
               "kind": decision["kind"],
               "question": decision["question"],
               "chosen": decision["chosen"],
+              # who chose, carried into the outcome so the calibration report never has to re-open the decision to
+              # find out whether this link is evidence about the chooser or only the label of a stage a person built
+              "chosen_by": chooser_of(decision),
               "options": [list(pair) for pair in decision["options"]],
               # verbatim from the decision: the argmax and the probability it claimed are what WP23 calibrates, and a
               # report that had to re-open the decision record to find them could be run against a different one
@@ -528,10 +863,13 @@ def validate_outcome(linked):
         raise DecisionError(f"schema {linked.get('schema')!r} is not {OUTCOME_SCHEMA!r}")
     required = {"schema", "decision_sha256", "kind", "question", "chosen", "options", "probabilities",
                 "table_row_sha256", "stage", "rank", "comparability"}
-    extra = set(linked) - required - {"best_ranked_option"}
+    optional = {"best_ranked_option", "chosen_by"}
+    extra = set(linked) - required - optional
     if extra or required - set(linked):
         raise DecisionError(f"a {OUTCOME_SCHEMA} record carries {sorted(required)} and optionally "
-                            f"`best_ranked_option`; this one carries {sorted(linked)}")
+                            f"{sorted(optional)}; this one carries {sorted(linked)}")
+    if linked.get("chosen_by", CHOSEN_BY_LAYA) not in CHOOSERS:
+        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {linked['chosen_by']!r} is neither")
     for field in ("decision_sha256", "kind", "question", "chosen", "table_row_sha256", "stage", "comparability"):
         if not isinstance(linked[field], str) or not linked[field].strip():
             raise DecisionError(f"`{field}` must be a non-empty string")
@@ -546,7 +884,11 @@ def validate_outcome(linked):
     if linked["chosen"] not in keys:
         raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {linked['chosen']!r} is not one of {keys}")
     probabilities = linked["probabilities"]
-    if not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
+    if linked.get("chosen_by") == CHOSEN_BY_HUMAN:
+        if probabilities != HUMAN_PROBABILITIES:
+            raise DecisionError(f"{CHOOSER_FIELDS}: an outcome of a record chosen by {CHOSEN_BY_HUMAN} carries no "
+                                f"probabilities, because the record it links carries none")
+    elif not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
         raise DecisionError("an outcome carries the decision's uncalibrated probabilities over its declared options")
     best = linked.get("best_ranked_option")
     if best is not None and (linked["rank"] != 1 or best != linked["chosen"]):
