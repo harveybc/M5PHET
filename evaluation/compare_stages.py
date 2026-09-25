@@ -236,7 +236,7 @@ def _skill(stage: Stage, reading: ClosureReading, index: int, metric_key: str, m
     return 1 - model_error / naive_error, "computed: 1 - model_error / naive_error"
 
 
-def _row_for(stage: Stage | None, reading: ClosureReading, stage_name: str) -> dict:
+def _row_for(stage: Stage | None, reading: ClosureReading, stage_name: str, *, reason: str | None = None) -> dict:
     """One stage's line in one area's table. Every field is filled; nothing here can come out blank."""
     row = {
         "stage": stage_name, "area": reading.family, "status": NO_NEW_MEASUREMENT, "reason": None, "refusal": None,
@@ -248,7 +248,7 @@ def _row_for(stage: Stage | None, reading: ClosureReading, stage_name: str) -> d
         "comparability": NO_NEW_MEASUREMENT, "rank": None, "conditions": None,
     }
     if stage is None:
-        row["reason"] = f"no report for area {reading.family!r} in stage {stage_name!r}"
+        row["reason"] = reason or f"no report for area {reading.family!r} in stage {stage_name!r}"
         return row
 
     row["source"] = stage.source
@@ -335,9 +335,30 @@ def _verdict(row: dict, reference: dict) -> tuple:
     return COMPARABLE, bound
 
 
-def compare(stages) -> dict:
-    """One table per area, every stage present in every table, verdicts and ranks against one reference stage."""
+def compare(stages, *, not_measured=()) -> dict:
+    """One table per area, every stage present in every table, verdicts and ranks against one reference stage.
+
+    `not_measured` enters stages that were ATTEMPTED and produced no report, as `{"stage", "area", "reason"}`. A stage
+    that was tried and refused is not the same thing as a stage nobody ran, and leaving it out of the table makes the
+    two indistinguishable: the reader sees four candidates in the design artifact and two rows, and cannot tell whether
+    the others lost, were skipped, or were quietly dropped. Such a row carries NO_NEW_MEASUREMENT, the refusal's own
+    words, and no number — it is never ranked and never compared, because there is nothing to compare.
+    """
     stages = list(stages)
+    declared = []
+    for entry in not_measured:
+        if not isinstance(entry, dict) or not entry.get("stage") or not entry.get("reason"):
+            raise StageComparisonError(f"a not-measured stage is {{'stage', 'area', 'reason'}}; {entry!r} is not")
+        area = entry.get("area")
+        if area not in READINGS:
+            raise StageComparisonError(f"not-measured stage {entry['stage']!r}: area {area!r} is not one of "
+                                       f"{sorted(READINGS)}")
+        clash = next((stage for stage in stages if stage.stage == entry["stage"] and stage.area == area), None)
+        if clash is not None:
+            raise StageComparisonError(
+                f"stage {entry['stage']!r} is declared not measured in area {area!r} and also carries the report "
+                f"{clash.source}: a stage cannot both have a measurement and lack one")
+        declared.append({"stage": str(entry["stage"]), "area": area, "reason": str(entry["reason"])})
     if not stages:
         raise StageComparisonError("compare: at least one evaluation report is required")
     seen = {}
@@ -349,12 +370,13 @@ def compare(stages) -> dict:
                 "for one stage and one area cannot be reduced to one line without choosing between them")
         seen[key] = stage.source
 
-    names = sorted({stage.stage for stage in stages})
+    names = sorted({stage.stage for stage in stages} | {entry["stage"] for entry in declared})
     areas = []
-    for family in sorted({stage.area for stage in stages}):
+    for family in sorted({stage.area for stage in stages} | {entry["area"] for entry in declared}):
         reading = READINGS[family]
         by_stage = {stage.stage: stage for stage in stages if stage.area == family}
-        rows = [_row_for(by_stage.get(name), reading, name) for name in names]
+        reasons = {entry["stage"]: entry["reason"] for entry in declared if entry["area"] == family}
+        rows = [_row_for(by_stage.get(name), reading, name, reason=reasons.get(name)) for name in names]
 
         reference = next((row for row in rows if row["status"] == MEASURED), None)
         bound_by_seal = set()
@@ -398,6 +420,7 @@ def compare(stages) -> dict:
                            "corpus_seal": stage.corpus_seal,
                            "report_generated_at": stage.payload.get("generated_at")} for stage in stages),
                          key=lambda item: (item["area"], item["stage"], item["report_file"])),
+        "not_measured": sorted(declared, key=lambda entry: (entry["area"], entry["stage"])),
         "areas": areas,
     }
 
@@ -520,6 +543,9 @@ def main(argv=None) -> int:
         description="One closure table per area across doctoral stages, built from evaluation reports.")
     parser.add_argument("--report", action="append", required=True, metavar="[STAGE=]PATH",
                         help="an evaluation report; repeat once per stage and area")
+    parser.add_argument("--not-measured", action="append", default=[], metavar="STAGE=AREA:REASON",
+                        help="a stage that was attempted and produced no report; it enters the table as "
+                             "NO_NEW_MEASUREMENT with this reason, unranked and uncompared")
     parser.add_argument("--out", metavar="PATH", help="write the table as JSON")
     parser.add_argument("--markdown", metavar="PATH", help="write the table as Markdown (stdout when omitted)")
     args = parser.parse_args(argv)
@@ -528,7 +554,14 @@ def main(argv=None) -> int:
     for text in args.report:
         stage, path = _split_report_arg(text)
         stages.append(load_stage(path, stage=stage))
-    table = compare(stages)
+    declared = []
+    for text in args.not_measured:
+        name, _, rest = text.partition("=")
+        area, _, reason = rest.partition(":")
+        if not name.strip() or not area.strip() or not reason.strip():
+            parser.error(f"--not-measured takes STAGE=AREA:REASON; {text!r} is not that")
+        declared.append({"stage": name.strip(), "area": area.strip(), "reason": reason.strip()})
+    table = compare(stages, not_measured=declared)
     markdown = render_markdown(table)
 
     if args.out:
