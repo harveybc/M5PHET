@@ -75,7 +75,11 @@ def registries(tmp_path, monkeypatch):
     _module(predictor, "predictor_plugins.predictor_plugin_ann",
             '"""A dense multi-horizon predictor."""\nclass Plugin:\n    """A dense core over one window."""\n')
     _module(predictor, "predictor_plugins.predictor_plugin_fused",
-            'ENCODERS = {"cnn": "a conv stack", "lstm": "stacked LSTM"}\n'
+            'ENCODERS = {"cnn": "a conv stack", "lstm": "stacked LSTM", "dense": "a dense stack"}\n'
+            'EXTRACTOR_FAMILIES = {"ann": "dense",          # per-channel Dense branches -> dense\n'
+            '                      "lstm": "lstm",          # the recurrent family\n'
+            '                      "cnn": "attention_conv", # a family this core does not implement\n'
+            '                      "transformer": None}     # no inline attention encoder here\n'
             'class Plugin:\n    """A core that fuses one branch per group."""\n')
     _module(predictor, "preprocessor_plugins.default_preprocessor",
             '"""Sliding windows and normalization."""\nclass PreprocessorPlugin:\n    pass\n')
@@ -487,30 +491,74 @@ def test_a_sole_candidate_claim_is_refused_when_the_declared_list_holds_several(
 def test_the_cores_inline_encoders_are_read_from_its_module_not_assumed(registries, tmp_path):
     catalog = pipeline.catalog_cores(capability_path=capability_table(
         tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
-    assert pipeline.inline_encoders("fused", catalog) == {"cnn": "a conv stack", "lstm": "stacked LSTM"}
+    assert pipeline.inline_encoders("fused", catalog) == {"cnn": "a conv stack", "lstm": "stacked LSTM",
+                                                          "dense": "a dense stack"}
     # `ann`'s module declares no ENCODERS mapping, so nothing is known about it -- and nothing is guessed
     assert pipeline.inline_encoders("ann", catalog) is None
 
 
-def test_a_branch_is_mapped_only_when_its_extractor_is_one_of_the_cores_own_encoders(registries, tmp_path):
+def test_the_extractor_family_table_is_read_from_the_cores_module_the_same_way(registries, tmp_path):
+    """Only a person may say that one repository's encoder IS another's family; this reads that declaration."""
     catalog = pipeline.catalog_cores(capability_path=capability_table(
         tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
-    plan = {"groups": {"g1": {"status": "OK", "chosen": "lstm"}, "g2": {"status": "OK", "chosen": "vae_small"}}}
-    mapping = pipeline.map_encoders("fused", plan, catalog)
-
-    assert mapping["status"] == pipeline.NOT_MAPPED and mapping["inline_encoders"] == ["cnn", "lstm"]
-    assert mapping["branches"]["g1"] == {"extractor": "lstm", "encoder": "lstm", "status": pipeline.MAPPED,
-                                         "why": mapping["branches"]["g1"]["why"]}
-    assert mapping["branches"]["g2"]["status"] == pipeline.NOT_MAPPED
-    assert mapping["branches"]["g2"]["encoder"] is None
-    assert "vae_small" in mapping["branches"]["g2"]["why"]        # the extractor is NAMED, never translated
+    assert pipeline.extractor_families("fused", catalog) == {"ann": "dense", "lstm": "lstm",
+                                                             "cnn": "attention_conv", "transformer": None}
+    assert pipeline.extractor_families("ann", catalog) is None
 
 
-def test_every_branch_mapped_makes_the_mapping_mapped(registries, tmp_path):
-    catalog = pipeline.catalog_cores(capability_path=capability_table(
+def _cores(tmp_path):
+    return pipeline.catalog_cores(capability_path=capability_table(
         tmp_path, {"fused": {"verdict": pipeline.MULTI_BRANCH, "why": "probe"}}))
-    plan = {"groups": {"g1": {"status": "OK", "chosen": "cnn"}, "g2": {"status": "OK", "chosen": "lstm"}}}
-    assert pipeline.map_encoders("fused", plan, catalog)["status"] == pipeline.MAPPED
+
+
+def _mapping(tmp_path, chosen):
+    plan = {"groups": {group: {"status": "OK", "chosen": key} for group, key in chosen.items()}}
+    return pipeline.map_encoders("fused", plan, _cores(tmp_path))
+
+
+def test_a_branch_is_mapped_by_the_declared_family_and_says_who_declared_it(registries, tmp_path):
+    mapping = _mapping(tmp_path, {"g1": "ann", "g2": "lstm"})
+    assert mapping["status"] == pipeline.MAPPED
+    assert mapping["branches"]["g1"]["encoder"] == "dense"          # ann IS the dense family, by declaration
+    assert mapping["branches"]["g1"]["mapped_by"] == ("EXTRACTOR_FAMILIES declared in "
+                                                      "predictor_plugins.predictor_plugin_fused")
+    assert mapping["branches"]["g2"]["encoder"] == "lstm"
+    assert mapping["extractor_families"]["ann"] == "dense"
+    assert mapping["extractor_families_source"] == "predictor_plugins.predictor_plugin_fused"
+
+
+def test_a_family_declared_as_none_stays_unmapped_because_that_is_an_answer(registries, tmp_path):
+    mapping = _mapping(tmp_path, {"g1": "transformer"})
+    branch = mapping["branches"]["g1"]
+    assert mapping["status"] == pipeline.NOT_MAPPED and branch["status"] == pipeline.NOT_MAPPED
+    assert branch["encoder"] is None and "declares no inline family" in branch["why"]
+    assert "transformer" in branch["why"]
+
+
+def test_an_extractor_the_table_does_not_carry_stays_unmapped_and_is_named(registries, tmp_path):
+    mapping = _mapping(tmp_path, {"g1": "vae_small"})
+    branch = mapping["branches"]["g1"]
+    assert branch["status"] == pipeline.NOT_MAPPED and branch["encoder"] is None
+    assert "does not carry 'vae_small'" in branch["why"]
+
+
+def test_a_declared_family_the_core_does_not_implement_stays_unmapped(registries, tmp_path):
+    """The table may name a family that is not (yet) an encoder; that is not a mapping either."""
+    branch = _mapping(tmp_path, {"g1": "cnn"})["branches"]["g1"]
+    assert branch["status"] == pipeline.NOT_MAPPED and branch["encoder"] is None
+    assert "attention_conv" in branch["why"]
+
+
+def test_without_a_family_table_only_an_identical_key_maps(registries, tmp_path):
+    """An older core declares no table; then the only honest mapping left is the identical name."""
+    _module(registries["predictor"], "predictor_plugins.predictor_plugin_fused",
+            'ENCODERS = {"cnn": "a conv stack", "lstm": "stacked LSTM"}\n'
+            'class Plugin:\n    """A core with no family table."""\n')
+    identical = _mapping(tmp_path, {"g1": "lstm"})["branches"]["g1"]
+    assert identical["status"] == pipeline.MAPPED and identical["encoder"] == "lstm"
+    assert identical["mapped_by"] == "the extractor key is itself an inline encoder of 'fused'"
+    other = _mapping(tmp_path, {"g1": "ann"})["branches"]["g1"]
+    assert other["status"] == pipeline.NOT_MAPPED and "declares no EXTRACTOR_FAMILIES table" in other["why"]
 
 
 # --- replaying recorded decisions --------------------------------------------------------------------------------------
