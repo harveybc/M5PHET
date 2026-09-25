@@ -132,11 +132,20 @@ async function watch(){
 let taskMode=false;
 $('task-mode').onclick=()=>{taskMode=!taskMode;$('task-mode').classList.toggle('active',taskMode);$('task-mode').setAttribute('aria-pressed',String(taskMode));if(!taskMode)hideEnvelope();};
 function hideEnvelope(){$('envelope-panel').hidden=true;$('envelope').value='';$('envelope-problems').replaceChildren();$('envelope-status').textContent='';}
-function datasetLine(){
-  /* Where the data comes from: only the files attached to THIS question. Nothing else is ever read. */
+function datasetLine(dataset){
+  /* Where the data comes from: the files attached to THIS question, or -- when nothing is attached and the frase
+     nombra un conjunto del data lake -- the dataset the catalog resolved, with who chose it. Nothing else is read. */
   const names=current.files.filter(f=>selected.includes(f.id)).map(f=>f.name);
-  return names.length?('Datos que se usarán: '+names.join(', ')+' (adjuntos a esta pregunta)')
-    :'Ningún dato adjunto. Si el motor de esta área necesita datos, la ejecución se rechaza: abra un ejemplo o adjunte un archivo con el botón +.';
+  if(names.length)return 'Datos que se usarán: '+names.join(', ')+' (adjuntos a esta pregunta)';
+  if(dataset&&dataset.id){
+    const rows=(dataset.rows===null||dataset.rows===undefined)?'?':dataset.rows;
+    const who=dataset.source_of_choice==='INTERPRETER'?' · elegido por el modelo intérprete entre los candidatos del catálogo'
+      :(dataset.source_of_choice==='EXPLICIT_ID'?' · nombrado por su identificador':' · fijado por sus propias palabras');
+    const gov=dataset.governed?' · gobernado: la ejecución se rechaza (GOVERNED_ACCESS_NOT_CONFIGURED) hasta que el acceso data-gov esté configurado':'';
+    const sca=dataset.scale==='FITTED_EXPERIMENT_PANEL'?' · panel ya escalado por su propio experimento: la ejecución se rechaza (ROWS_SCALE_NOT_DECLARED) hasta que exista el adaptador de ventana':'';
+    return 'Datos que se usarán: '+dataset.id+' ('+dataset.source+', '+rows+' filas)'+who+gov+sca;
+  }
+  return 'Ningún dato adjunto. Si el motor de esta área necesita datos, la ejecución se rechaza: abra un ejemplo, adjunte un archivo con el botón + o nombre un conjunto del data lake.';
 }
 function showEnvelope(proposal){
   $('envelope-panel').hidden=false;
@@ -145,7 +154,7 @@ function showEnvelope(proposal){
   const list=$('envelope-problems');list.replaceChildren();
   for(const p of (proposal.problems||[]))list.append(el('li',p));
   if(proposal.why&&proposal.status!=='OK')list.append(el('li',proposal.why));
-  list.append(el('li',datasetLine(),'interp'));
+  list.append(el('li',datasetLine(proposal.dataset),'interp'));
   $('envelope-run').disabled=false;
 }
 async function proposeEnvelope(prompt){

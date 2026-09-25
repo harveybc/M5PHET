@@ -203,6 +203,12 @@ class Configuration:
     def surfaces(self):
         return dict(self.data.get("surfaces") or {})
 
+    @property
+    def datasets(self):
+        """WP15: `datasets.catalog` is where the dataset catalog is read from. Optional: with no binding the default
+        path is used, and with no catalog there no sentence can name a dataset, which is how it worked before."""
+        return dict(self.data.get("datasets") or {})
+
     # --- what the providers read
     def environment(self):
         """The variables this configuration binds. Everything it does not bind stays as the env file left it."""

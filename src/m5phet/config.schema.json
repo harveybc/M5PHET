@@ -2,25 +2,66 @@
   "$comment": "m5phet.config.v1 -- the operator's declaration of which plugin serves each area, with which core settings, which interpreter and which surfaces. Validated by m5phet.config with no third-party dependency: the supported keywords are type, const, enum, properties, required, additionalProperties, minimum, maximum, minLength and maxLength. Every key is closed on purpose: an unknown key is a mistake the operator must see, not a setting to ignore. Values may be written as $NAME or ${NAME} and are read from the environment; a literal hostname, IP or user@host is refused, because a host belongs in the environment and never in a repository.",
   "title": "m5phet.config.v1",
   "type": "object",
-  "required": ["schema"],
+  "required": [
+    "schema"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": {"const": "m5phet.config.v1"},
-    "$comment": {"type": "string", "maxLength": 4000},
-    "$comment_output": {"type": "string", "maxLength": 4000},
+    "schema": {
+      "const": "m5phet.config.v1"
+    },
+    "$comment": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "$comment_output": {
+      "type": "string",
+      "maxLength": 4000
+    },
     "interpreter": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "$comment": {"type": "string", "maxLength": 4000},
-        "plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-        "command": {"type": "string", "maxLength": 4000},
-        "model": {"type": "string", "maxLength": 400},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "base_url": {"type": "string", "maxLength": 2000},
-        "api_key_env": {"type": "string", "maxLength": 200},
-        "consent": {"enum": ["cloud_ok"]},
-        "max_tokens": {"type": "integer", "minimum": 1, "maximum": 32768}
+        "$comment": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "plugin": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "command": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "base_url": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "api_key_env": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "consent": {
+          "enum": [
+            "cloud_ok"
+          ]
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32768
+        }
       }
     },
     "areas": {
@@ -31,24 +72,62 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "provider": {"type": "string", "minLength": 1, "maxLength": 200},
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
             "output": {
               "type": "object",
               "additionalProperties": false,
-              "properties": {"plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-                             "language": {"enum": ["en", "es"]}}
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "language": {
+                  "enum": [
+                    "en",
+                    "es"
+                  ]
+                }
+              }
             },
             "core": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "worker": {"type": "string", "maxLength": 400},
-                "command": {"type": "string", "maxLength": 4000},
-                "backend": {"enum": ["laya", "fixture"]},
-                "checkpoint": {"type": "string", "maxLength": 4000},
-                "manifest": {"type": "string", "maxLength": 4000},
-                "device": {"type": "string", "maxLength": 100},
-                "gpu_uuid": {"type": "string", "maxLength": 200}
+                "worker": {
+                  "type": "string",
+                  "maxLength": 400
+                },
+                "command": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "backend": {
+                  "enum": [
+                    "laya",
+                    "fixture"
+                  ]
+                },
+                "checkpoint": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "manifest": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "device": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "gpu_uuid": {
+                  "type": "string",
+                  "maxLength": 200
+                }
               }
             }
           }
@@ -57,19 +136,40 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "provider": {"type": "string", "minLength": 1, "maxLength": 200},
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
             "output": {
               "type": "object",
               "additionalProperties": false,
-              "properties": {"plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-                             "language": {"enum": ["en", "es"]}}
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "language": {
+                  "enum": [
+                    "en",
+                    "es"
+                  ]
+                }
+              }
             },
             "core": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "bundle_dir": {"type": "string", "maxLength": 4000},
-                "python": {"type": "string", "maxLength": 4000}
+                "bundle_dir": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "python": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
               }
             }
           }
@@ -78,19 +178,40 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "provider": {"type": "string", "minLength": 1, "maxLength": 200},
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
             "output": {
               "type": "object",
               "additionalProperties": false,
-              "properties": {"plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-                             "language": {"enum": ["en", "es"]}}
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "language": {
+                  "enum": [
+                    "en",
+                    "es"
+                  ]
+                }
+              }
             },
             "core": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "reference_dir": {"type": "string", "maxLength": 4000},
-                "state_path": {"type": "string", "maxLength": 4000}
+                "reference_dir": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "state_path": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
               }
             }
           }
@@ -99,21 +220,48 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "provider": {"type": "string", "minLength": 1, "maxLength": 200},
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
             "output": {
               "type": "object",
               "additionalProperties": false,
-              "properties": {"plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-                             "language": {"enum": ["en", "es"]}}
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "language": {
+                  "enum": [
+                    "en",
+                    "es"
+                  ]
+                }
+              }
             },
             "core": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "bundle": {"type": "string", "maxLength": 4000},
-                "python": {"type": "string", "maxLength": 4000},
-                "gym_fx": {"type": "string", "maxLength": 4000},
-                "sample": {"type": "string", "maxLength": 4000}
+                "bundle": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "python": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "gym_fx": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "sample": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
               }
             }
           }
@@ -122,22 +270,59 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "provider": {"type": "string", "minLength": 1, "maxLength": 200},
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
             "output": {
               "type": "object",
               "additionalProperties": false,
-              "properties": {"plugin": {"type": "string", "minLength": 1, "maxLength": 200},
-                             "language": {"enum": ["en", "es"]}}
+              "properties": {
+                "plugin": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "language": {
+                  "enum": [
+                    "en",
+                    "es"
+                  ]
+                }
+              }
             },
             "core": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "studies_dir": {"type": "string", "maxLength": 4000},
-                "state_refs": {"type": "string", "maxLength": 4000}
+                "studies_dir": {
+                  "type": "string",
+                  "maxLength": 4000
+                },
+                "state_refs": {
+                  "type": "string",
+                  "maxLength": 4000
+                }
               }
             }
           }
+        }
+      }
+    },
+    "datasets": {
+      "$comment": "WP15 -- where the dataset catalog built by `python -m m5phet.datasets index` is read from. Optional; the default is ~/.local/state/m5phet/dataset_catalog.json. The catalog holds descriptions of the data lake's resources, never rows.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "$comment": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "catalog": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         }
       }
     },
@@ -148,19 +333,40 @@
         "web": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {"port": {"type": "integer", "minimum": 1, "maximum": 65535},
-                         "state_dir": {"type": "string", "maxLength": 4000}}
+          "properties": {
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "state_dir": {
+              "type": "string",
+              "maxLength": 4000
+            }
+          }
         },
         "api": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {"token_file": {"type": "string", "maxLength": 4000}}
+          "properties": {
+            "token_file": {
+              "type": "string",
+              "maxLength": 4000
+            }
+          }
         },
-        "mcp": {"type": "boolean"},
+        "mcp": {
+          "type": "boolean"
+        },
         "telegram": {
           "type": "object",
           "additionalProperties": false,
-          "properties": {"via": {"type": "string", "maxLength": 200}}
+          "properties": {
+            "via": {
+              "type": "string",
+              "maxLength": 200
+            }
+          }
         }
       }
     }

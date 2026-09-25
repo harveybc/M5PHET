@@ -164,8 +164,35 @@ def check_proposal(proposal, catalog, profile):
     return (task if not problems else None), problems
 
 
-def route(prompt, data, registry, *, interpreter=None):
-    """Turn a sentence into a validated envelope, or say exactly why it could not be."""
+def dataset_module():
+    """`m5phet.datasets`, imported here and not at the top: the catalog describes attachments through
+    `dataset_profile`, so the two modules would import each other."""
+    from . import datasets as module
+    return module
+
+
+def resolve_dataset(prompt, data, catalog, interpreter):
+    """(resolution, what the proposal carries) for a sentence that names a dataset, or (None, None).
+
+    Nothing is resolved when a file is attached -- the attachment is the data -- and nothing is resolved when the
+    catalog is empty, which is the state of every installation that has not built one; such an installation answers
+    exactly as it did before WP15."""
+    if data is not None or not (catalog or {}).get("datasets"):
+        return None, None
+    module = dataset_module()
+    resolution = module.resolve(prompt, catalog, interpreter)
+    if resolution["status"] != module.OK:
+        return (resolution if resolution["status"] != module.NOT_ASKED else None), None
+    return resolution, module.proposal_view(resolution)
+
+
+def route(prompt, data, registry, *, interpreter=None, datasets=None):
+    """Turn a sentence into a validated envelope, or say exactly why it could not be.
+
+    `datasets` is the dataset catalog (WP15). It is consulted ONLY when nothing is attached: an attached file is the
+    data the person chose, and no catalog may quietly replace it. When the sentence names a dataset the catalog
+    holds, the resolved description -- columns and a row count, never a row -- becomes the profile every check below
+    reads, so an engine that needs data is satisfied by a named dataset exactly as it is by an attachment."""
     if not isinstance(prompt, str) or not prompt.strip():
         return {"status": "REFUSED", "why": "the question is empty", "proposal": None, "problems": []}
     if len(prompt) > MAX_PROMPT:
@@ -174,7 +201,11 @@ def route(prompt, data, registry, *, interpreter=None):
     catalog = question_catalog(registry)
     profile = dataset_profile(data)
     interpreter = interpreter if interpreter is not None else build_interpreter()
-    report = {"profile": profile, "catalog": catalog, "interpreter": interpreter.identity()}
+    resolution, chosen = resolve_dataset(prompt, data, datasets, interpreter)
+    if chosen:
+        profile = dataset_module().profile_of(resolution["dataset"])
+    report = {"profile": profile, "catalog": catalog, "interpreter": interpreter.identity(),
+              "dataset": chosen, "dataset_resolution": resolution}
     if not interpreter.available:
         return {**report, "status": "REFUSED", "proposal": None, "problems": [],
                 "why": ("no interpreter is configured, so a sentence cannot be routed; write the envelope directly "
@@ -217,6 +248,15 @@ def route(prompt, data, registry, *, interpreter=None):
         return {**report, "status": "REFUSED", "proposal": proposal, "problems": [],
                 "why": f"the interpreter found no served area for this request: {proposal.get('why')}"}
     task, problems = check_proposal(proposal, catalog, profile)
+    if resolution and resolution["status"] in (dataset_module().AMBIGUOUS, dataset_module().NOT_FOUND):
+        # the person named a dataset and it is not one the catalog holds, or not one of them: that is refused by
+        # name here, not silently answered from whatever else was to hand
+        problems = list(problems) + [resolution["why"]]
+        task = None
+    if task is not None and chosen:
+        # what runs records which dataset it read, so the envelope beside the answers is replayable and the person
+        # reviewing it sees the choice rather than having to trust it
+        task["state"].setdefault("dataset", chosen["id"])
     return {**report, "status": "OK" if task else "INVALID_PROPOSAL", "proposal": proposal, "task": task,
             "problems": problems,
             "why": None if task else "the proposal names something the catalog or the data does not have; see problems"}
