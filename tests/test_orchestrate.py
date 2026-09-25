@@ -272,3 +272,19 @@ def test_the_guard_says_why_it_discarded():
     assert any("54%" in p or "percent" in p for p in problems)
     assert any("ganancia" in p for p in problems)
     assert narration_problems("La previsión es 0.5412 kW; el intervalo no se pudo calcular.", KW) == []
+
+
+def test_the_narrator_never_sees_the_backends_verbatim_object_nor_the_digests():
+    """On 2026-09-24 a narration said "confianza 0.3403": the SDK's raw `confidence` field, kept verbatim in
+    `sdk_answer` for parity and deliberately not surfaced, had been read by the narrator and passed the guard."""
+    from m5phet.orchestrate import narratable
+    answers = {"c": {"type": "choice", "status": "OK", "label": "hawkish",
+                     "uncalibrated_probabilities": {"hawkish": 0.0914, "neutral": 0.7511},
+                     "sdk_answer": {"label": "hawkish", "confidence": 0.3403},
+                     "provenance": {"questions_sha256": "9f3a1c"}}}
+    assert narratable(answers) == {"c": {"type": "choice", "status": "OK", "label": "hawkish",
+                                         "uncalibrated_probabilities": {"hawkish": 0.0914, "neutral": 0.7511}}}
+    fixed = Fixed("hawkish con confianza 0.3403")
+    out = narrate("q", {"answers": answers, "answered": 1, "refused": 0}, interpreter=fixed)
+    assert out["source"] == "DETERMINISTIC" and "0.3403" in out["why"]
+    assert "sdk_answer" not in fixed.asked[0] and "9f3a1c" not in fixed.asked[0]
