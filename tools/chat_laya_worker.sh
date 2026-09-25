@@ -14,6 +14,9 @@ if [[ -z "$GPU_UUID" || "$GPU_UUID" == *$'\n'* ]]; then
 fi
 export NEWS_SIGNAL_GPU_UUID="$GPU_UUID" CUDA_VISIBLE_DEVICES="$GPU_UUID" NEWS_SIGNAL_DEVICE=cuda:0
 mkdir -p "$HOME/.local/state/m5phet"
+# WP09: the measured quality record the catalog reports (set before exec, or it never runs).
+export NEWS_SIGNAL_QUALITY="$HOME/work/m5phet-chat-worker/quality.json"
+
 exec 9>"$HOME/.local/state/m5phet/chat-gpu.lock"
 # One call at a time on the GPU. A second caller waits its turn for up to 60 s instead of being refused on arrival:
 # two workbench instances verifying at once used to make one of them fail its whole classification lane.
@@ -22,3 +25,4 @@ if ! flock -w 60 9; then
     exit 2
 fi
 exec timeout 175 "$M5PHET_LAYA_ROOT/venv/bin/python" "$(dirname "$0")/worker.py"
+
