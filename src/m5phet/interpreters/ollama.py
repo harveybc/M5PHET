@@ -51,6 +51,7 @@ class OllamaInterpreter(Interpreter):
 
     def identity(self):
         return {"plugin": self.plugin, "command": None, "model": self.model or None, "available": self.available,
+                "reports_confidence": self.reports_confidence,
                 "endpoint": "local ollama server", "device": "CPU (num_gpu: 0)",
                 "reading": "the model chooses among declared values; it cannot introduce one"}
 
