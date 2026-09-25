@@ -85,7 +85,7 @@ AREA_HEADERS = {
     },
     "causal": {
         "output_kind": "causal_effect",
-        "question_types": ["ate", "cate", "impulse_response", "sensitivity", "counterfactual_path"],
+        "question_types": ["ate", "cate", "counterfactual_path", "impulse_response", "sensitivity"],
         "unit_fields": ["estimand", "effect_size", "unit", "confidence_interval", "confidence_level", "assumptions", "table"],
         "statuses": ["OK", "REFUSED"],
         "refusal_codes": sorted(set(ENVELOPE_REFUSALS) | {NOT_ESTIMABLE}),
