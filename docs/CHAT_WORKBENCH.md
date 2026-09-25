@@ -184,3 +184,61 @@ steps`, `predict household power one hour ahead` and `cuánta potencia habrá en
 próxima hora?` all reach the engine and return its recorded 0.5412255525588989;
 `what will consumption look like shortly?` is completed by the interpreter and
 returns the same; `at 90 steps` and `forecast Voltage` are refused.
+
+## The JSON configuration (`m5phet.config.v1`)
+
+The environment is a valid configuration and stays one: without any file,
+`~/.config/m5phet/chat.env` and `tools/start_chat.sh` declare where every engine
+and every fitted state lives, exactly as before. What the environment cannot show
+in one reviewable place is **which plugin serves which area, with which settings**.
+That is what `~/.config/m5phet/m5phet.json` says. Copy the template and edit:
+
+```bash
+cp tools/m5phet.json.example ~/.config/m5phet/m5phet.json
+M5PHET_CONFIG=/path/to/another.json tools/start_chat.sh   # a verification instance's own file
+```
+
+Precedence: **the JSON wins where it binds, the environment keeps everything it
+does not.** `/api/catalog` reports which of the two is in force:
+
+```bash
+curl -s 127.0.0.1:8766/api/catalog | jq '.config_source, .config.areas'
+```
+
+`config_source` is `m5phet.json` when a file was read and `env` when there was
+none. The `config` block shows the provider and output plugin bound per area and
+the surfaces; the `core` settings are deliberately not published, so no path and
+no host reaches the browser.
+
+Each area binds its provider, its core settings and its output procedure:
+
+| Area | `core` key | The variable the provider reads |
+|---|---|---|
+| `classification` | `worker`, `command`, `backend`, `checkpoint`, `manifest`, `device`, `gpu_uuid` | `M5PHET_CHAT_LAYA_WORKER`, `M5PHET_CHAT_LAYA_COMMAND`, `NEWS_SIGNAL_*` |
+| `forecasting` | `bundle_dir`, `python` | `M5PHET_FORECAST_BUNDLE`, `M5PHET_FORECAST_PYTHON` |
+| `unsupervised` | `reference_dir`, `state_path` | `FEATURE_ENG_REGIMES_DEMO_DIR`, `FEATURE_ENG_REGIMES_STATE_PATH` |
+| `rl` | `bundle`, `python`, `gym_fx`, `sample` | `M5PHET_POLICY_BUNDLE`, `M5PHET_POLICY_PYTHON`, `M5PHET_GYM_FX`, `M5PHET_POLICY_SAMPLE` |
+| `causal` | `studies_dir`, `state_refs` | `CAUSAL_INFERENCE_STATE_DIR`, `CAUSAL_INFERENCE_STATE_REFS` |
+
+The mapping is explicit on purpose: each engine owns its own variables and this
+package imports none of them, so the table above is the contract between the key
+an operator writes and the variable a provider reads. `interpreter` binds
+`M5PHET_INTERPRETER_COMMAND`, `_MODEL` and `_TIMEOUT`; `surfaces` declares the web
+port, the API token file, whether MCP is offered and how Telegram is reached.
+
+Three things the loader **refuses** instead of repairing, each naming the exact
+path in the file (`src/m5phet/config.schema.json` is the validated schema):
+
+* an **unknown key** — a configuration that ignores a misspelling gives you a
+  machine running settings you believe you changed;
+* an **unset `$NAME`** — refused *by name*, so you learn which variable to set
+  instead of watching a provider refuse later for an unrelated-looking reason;
+* a **host literal** — an IPv4 address, `user@host`, or a `.local` / `.lan` name.
+  A host is never written into a file that gets committed or shared: write
+  `"$M5PHET_CHAT_LAYA_WORKER"` and keep the value in your own environment. The
+  check is on what the **file** says; expansion may of course yield a host.
+
+`~` and `$NAME` / `${NAME}` are expanded on load. The example file carries no host
+and no secret, and the workbench answers the same 7 examples, 12 sentences, 2
+refusals and 11 envelope questions whether it is configured by the JSON or by the
+environment.

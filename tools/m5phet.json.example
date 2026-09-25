@@ -1,0 +1,55 @@
+{
+  "$comment": "Copy to ~/.config/m5phet/m5phet.json and edit. It binds, per area, the provider and the core settings its engine needs, plus the interpreter and the surfaces. It replaces nothing: without this file the operator's chat.env is the configuration. Where this file binds a value it wins; everything it does not bind stays as the environment left it. A host is NEVER written here: write $M5PHET_CHAT_LAYA_WORKER and keep the value in your own environment. Unknown keys, unset $VARIABLES and host literals are refused, not ignored.",
+  "schema": "m5phet.config.v1",
+  "interpreter": {
+    "plugin": "command",
+    "command": "hermes --ignore-user-config -m deepseek-v4-flash --provider opencode-go",
+    "model": "deepseek-v4-flash (OpenCode Go)",
+    "timeout_seconds": 90
+  },
+  "areas": {
+    "classification": {
+      "provider": "laya_news",
+      "core": {
+        "worker": "$M5PHET_CHAT_LAYA_WORKER",
+        "command": "bash $HOME/work/m5phet-chat-worker/chat_laya_worker.sh",
+        "backend": "fixture"
+      },
+      "output": {"plugin": "default", "language": "es"}
+    },
+    "forecasting": {
+      "provider": "predictor_forecast",
+      "core": {
+        "bundle_dir": "~/.local/state/m5phet/forecast-household-dev-20260924",
+        "python": "~/.local/share/m5phet/forecast-native-venv/bin/python"
+      },
+      "output": {"plugin": "default", "language": "es"}
+    },
+    "unsupervised": {
+      "provider": "feature-eng-hierarchical-regimes",
+      "core": {"reference_dir": "~/.local/state/m5phet/examples/regimes"},
+      "output": {"plugin": "default", "language": "es"}
+    },
+    "rl": {
+      "provider": "trading_policy",
+      "core": {
+        "bundle": "~/.local/state/m5phet/policy-eth4h-dev-20260924",
+        "python": "~/anaconda3/envs/trading-stack/bin/python",
+        "gym_fx": "~/Documents/GitHub/gym-fx",
+        "sample": "~/.local/state/m5phet/policy-eth4h-dev-20260924/example_bars.csv"
+      },
+      "output": {"plugin": "default", "language": "es"}
+    },
+    "causal": {
+      "provider": "causal_inference",
+      "core": {"studies_dir": "~/.local/share/causal-inference-m5phet/studies"},
+      "output": {"plugin": "default", "language": "es"}
+    }
+  },
+  "surfaces": {
+    "web": {"port": 8765},
+    "api": {"token_file": "~/.config/m5phet/api.token"},
+    "mcp": true,
+    "telegram": {"via": "hermes"}
+  }
+}
