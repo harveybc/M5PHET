@@ -224,3 +224,31 @@ def test_a_supported_value_is_unaffected_by_the_guard():
 def test_an_unsupported_name_inside_a_longer_word_does_not_trigger_the_guard():
     report = interpret("forecast household power for VoltageCity", WITH_KNOWN_UNSUPPORTED, interpreter=Helpful())
     assert report["status"] == STATUS_OK
+
+
+def test_a_slot_the_provider_declares_optional_does_not_make_a_question_unanswerable():
+    """WP07: with several fitted bundles for one series, `bundle` is declared and optional.
+
+    The engine is resolved from what the question asks for -- an interval comes from the bundle with a quantile head --
+    so a sentence that names a target and a horizon and no fitted state is complete. Before this, a provider that
+    declared the slot refused every such sentence, with no interpreter to fill it in."""
+    slots = [{"name": "target", "allowed": ["power"], "aliases": {"power": ["potencia"]}},
+             {"name": "bundle", "allowed": ["point-engine", "quantile-engine"], "required": False,
+              "aliases": {"point-engine": ["point"], "quantile-engine": ["quantile"]}}]
+
+    class Unavailable:
+        available = False
+
+        def identity(self):
+            return {"interpreter": "none"}
+
+    answer = interpret("pronostica la potencia", slots, interpreter=Unavailable())
+    assert answer["status"] == STATUS_OK
+    assert answer["parameters"] == {"target": "power"}
+
+    # the words still choose it when they name it, and a REQUIRED slot is still missing when nothing names it
+    named = interpret("pronostica la potencia con el quantile", slots, interpreter=Unavailable())
+    assert named["status"] == STATUS_OK and named["parameters"]["bundle"] == "quantile-engine"
+    required = interpret("pronostica algo", slots, interpreter=Unavailable())
+    assert required["status"] == STATUS_MISSING and "target" in required["why"]
+    assert "bundle" not in required["why"]
