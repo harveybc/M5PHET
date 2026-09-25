@@ -23,6 +23,15 @@ a hypothesis with a model's authority and none of its evidence.
 
 And what it does not prove: nothing here says a choice is a good one. A decision is a hypothesis. The fit that follows
 it and the closure table that scores it are the judge, and they live in other packages (WP18-WP21).
+
+One thing it does do since WP23's structural finding (2026-09-25): it records a PERSON's choice too, through
+`human_choice`, in the same store and under the same checks — the option set the executing repository declared, the
+state that was described, and the ground in `why` — but with `chosen_by: HUMAN`, no backend, no checkpoint and no
+probabilities. The reason is not symmetry. A closure table ranks pipelines, and the first table ranked a hand-written
+stage first; that stage carried no decision record, so no option was the label the others could be scored against, and
+writing Laya's chosen option against the hand row would have claimed Laya chose what a person used. A human record
+fixes that by saying what the winning stage actually used, and it is never scored: `evaluation/decision_calibration.py`
+counts it, may take its label, and excludes it from every rate.
 """
 
 import copy
@@ -53,6 +62,26 @@ MAX_LIST_ITEMS = 128
 
 #: the backend that may produce a decision. Anything else is a fixture or another model, and is refused by name.
 LAYA_BACKEND = "laya"
+
+# --- who chose (WP23) ---------------------------------------------------------------------------------------------------
+# A closure table ranks pipelines, not choosers, and WP23's rule is that every stage entering the table must carry
+# decision records for the same (kind, question) set. A stage a person configured therefore needs a record too, or the
+# rank-1 row carries no label and the calibration report can only ever say NO_BEST_RANKED_OPTION. That record must be
+# distinguishable from Laya's at a glance and by validation, because the two say completely different things: Laya's
+# carries a head's uncalibrated probabilities that WP23 calibrates, a person's carries none and is calibrated by nothing.
+#: the chooser of a record written from a Laya answer; the value assumed for a record that names no chooser
+CHOSEN_BY_LAYA = "LAYA"
+#: the chooser of a record a person wrote by hand: no backend, no checkpoint, no probabilities, and a stated ground
+CHOSEN_BY_HUMAN = "HUMAN"
+CHOOSERS = (CHOSEN_BY_LAYA, CHOSEN_BY_HUMAN)
+
+#: a human record carries no probability at all rather than a flat or invented one: a person did not produce a
+#: distribution, and writing 1.0 for the chosen option would put a certainty in the corpus that nobody claimed
+HUMAN_PROBABILITIES = {}
+#: `why` is empty, or a human record was written without the ground of the choice
+WHY_REQUIRED = "WHY_REQUIRED"
+#: a field only one kind of chooser may carry was found on the other kind
+CHOOSER_FIELDS = "CHOOSER_FIELDS"
 
 # --- refusal codes a caller may match on -------------------------------------------------------------------------------
 #: the answer came from a declared fixture or from a backend that is not Laya; no decision exists
@@ -332,20 +361,40 @@ def decision_sha256(decision):
     return hashlib.sha256(canonical_bytes(decision)).hexdigest()
 
 
+def chooser_of(decision):
+    """`LAYA` or `HUMAN`. A record that names no chooser is Laya's: every record written before WP23 is one."""
+    if not isinstance(decision, dict):
+        raise DecisionError("a decision record is a mapping")
+    chosen_by = decision.get("chosen_by", CHOSEN_BY_LAYA)
+    if chosen_by not in CHOOSERS:
+        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {chosen_by!r} is neither, and a record whose "
+                            f"chooser is unknown cannot be read as evidence about either of them")
+    return chosen_by
+
+
 def validate_decision(decision):
-    """Raise unless this is a complete decision record made by Laya and claiming no authority."""
+    """Raise unless this is a complete decision record, made by Laya or by a person, claiming no authority.
+
+    The two shapes are validated apart on purpose. A Laya record carries a backend, a checkpoint and the head's
+    uncalibrated probabilities, and is refused without them. A human record carries none of those three — a person
+    produced no distribution, and a flat one written in its place would put a claim in the corpus that nobody made —
+    and carries instead the ground of the choice in `why`. Neither shape can borrow a field from the other, so no
+    record can look like the wrong kind of evidence later.
+    """
     if not isinstance(decision, dict):
         raise DecisionError("a decision record is a mapping")
     if decision.get("schema") != DECISION_SCHEMA:
         raise DecisionError(f"schema {decision.get('schema')!r} is not {DECISION_SCHEMA!r}")
+    chosen_by = chooser_of(decision)
     expected = {"schema", "kind", "state_sha256", "question", "options", "chosen", "probabilities",
                 "probability_decimals", "checkpoint", "backend", "as_of", "execution_authorized"}
+    if chosen_by == CHOSEN_BY_HUMAN:
+        expected |= {"chosen_by", "why"}
+    elif "chosen_by" in decision:
+        expected |= {"chosen_by"}
     if set(decision) != expected:
-        raise DecisionError(f"a {DECISION_SCHEMA} record carries exactly {sorted(expected)}; this one carries "
-                            f"{sorted(decision)}")
-    if decision["backend"] != LAYA_BACKEND:
-        raise DecisionError(f"{NON_MODEL_FIXTURE}: backend {decision['backend']!r} is not {LAYA_BACKEND!r}; a "
-                            f"decision is never recorded from anything else")
+        raise DecisionError(f"a {DECISION_SCHEMA} record chosen by {chosen_by} carries exactly {sorted(expected)}; "
+                            f"this one carries {sorted(decision)}")
     if decision["execution_authorized"] is not False:
         raise DecisionError("a decision claims no execution authority; `execution_authorized` must be false")
     for field in ("kind", "question", "chosen", "state_sha256"):
@@ -358,6 +407,21 @@ def validate_decision(decision):
     if decision["chosen"] not in keys:
         raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {decision['chosen']!r} is not one of {keys}")
     probabilities = decision["probabilities"]
+    if chosen_by == CHOSEN_BY_HUMAN:
+        if probabilities != HUMAN_PROBABILITIES:
+            raise DecisionError(f"{CHOOSER_FIELDS}: a record chosen by {CHOSEN_BY_HUMAN} carries no probabilities; a "
+                                f"person produced no distribution, and {probabilities!r} would be a claim nobody made")
+        for field in ("backend", "checkpoint", "probability_decimals"):
+            if decision[field] is not None:
+                raise DecisionError(f"{CHOOSER_FIELDS}: `{field}` is {decision[field]!r} on a record chosen by "
+                                    f"{CHOSEN_BY_HUMAN}; a person is not a backend and ran no checkpoint")
+        if not isinstance(decision["why"], str) or not decision["why"].strip():
+            raise DecisionError(f"{WHY_REQUIRED}: a human choice carries the ground it was made on; a bare key in a "
+                                f"corpus is an opinion nobody can review")
+        return decision
+    if decision["backend"] != LAYA_BACKEND:
+        raise DecisionError(f"{NON_MODEL_FIXTURE}: backend {decision['backend']!r} is not {LAYA_BACKEND!r}; a "
+                            f"decision is never recorded from anything else")
     if not isinstance(probabilities, dict) or not probabilities:
         raise DecisionError("a decision carries the uncalibrated probabilities the answer carried")
     if set(probabilities) - set(keys):
@@ -365,6 +429,61 @@ def validate_decision(decision):
     if any(type(p) not in (int, float) or not math.isfinite(p) for p in probabilities.values()):
         raise DecisionError("a probability is a finite number")
     return decision
+
+
+def human_choice(*, kind, question, options, chosen, state_text, why, as_of=None, record_dir=None):
+    """Record a choice a PERSON made, in the same shape and the same store as Laya's, and with the same checks.
+
+    WP23's clause, in one function: a stage that a person configured enters the closure table like any other, and the
+    table's rank-1 row is a label only if the stage that produced it says which option it used. So a person's choice is
+    written down — with the option set it was really chosen from (a key outside it is refused here exactly as it is for
+    Laya), the state text that described what was being chosen about, and `why`.
+
+    What it is NOT: evidence about Laya, and never a probability. `evaluation/decision_calibration.py` reads these
+    records for the label they carry and excludes them from every rate it computes, because scoring a person's choice
+    against the table would measure the person, not the chooser this framework is calibrating.
+
+    Returns `{"status": "OK", "decision": <record>, "record_path": str|None}`, or a typed refusal in the shape `ask`
+    uses, so a caller can handle both the same way.
+    """
+    if not isinstance(kind, str) or not kind.strip():
+        raise DecisionError("a decision kind must be a non-empty string")
+    if not isinstance(question, str) or not question.strip():
+        raise DecisionError("a decision question must be a non-empty string")
+    if not isinstance(why, str) or not why.strip():
+        return refusal(WHY_REQUIRED, "a human choice carries the ground it was made on; say why this option and not "
+                                     "the others", "choice")
+    problem = _check_question({"options": options, "instructions": why})
+    if problem is not None:
+        return refusal(problem[0], problem[1], "choice")
+    if not isinstance(state_text, str) or not state_text.strip():
+        return refusal(STATE_REQUIRED, "a decision needs a non-empty state text describing what is being chosen "
+                                       "about; nothing was recorded", "choice")
+    pairs = [[str(key), str(label)] for key, label in options]
+    keys = [key for key, _label in pairs]
+    if chosen not in keys:
+        return refusal(CHOICE_OUTSIDE_OPTIONS, f"the choice {chosen!r} is not one of the declared options {keys}; a "
+                                               f"person may not add an option to a set the executing repository "
+                                               f"declared", "choice")
+    decision = {"schema": DECISION_SCHEMA,
+                "kind": kind,
+                "state_sha256": state_sha256(state_text),
+                "question": question,
+                "options": pairs,
+                "chosen": str(chosen),
+                "probabilities": dict(HUMAN_PROBABILITIES),
+                "probability_decimals": None,
+                "checkpoint": None,
+                "backend": None,
+                "chosen_by": CHOSEN_BY_HUMAN,
+                "why": why,
+                "as_of": as_of if as_of is not None else datetime.now(timezone.utc).isoformat(),
+                "execution_authorized": False}
+    validate_decision(decision)
+    entry = {"status": "OK", "decision": decision, "record_path": None}
+    if record_dir is not None:
+        entry["record_path"] = str(record(decision, record_dir))
+    return entry
 
 
 def record(decision, directory):
@@ -462,6 +581,9 @@ def outcome(record_path, table_row, *, out_dir):
               "kind": decision["kind"],
               "question": decision["question"],
               "chosen": decision["chosen"],
+              # who chose, carried into the outcome so the calibration report never has to re-open the decision to
+              # find out whether this link is evidence about the chooser or only the label of a stage a person built
+              "chosen_by": chooser_of(decision),
               "options": [list(pair) for pair in decision["options"]],
               # verbatim from the decision: the argmax and the probability it claimed are what WP23 calibrates, and a
               # report that had to re-open the decision record to find them could be run against a different one
@@ -528,10 +650,13 @@ def validate_outcome(linked):
         raise DecisionError(f"schema {linked.get('schema')!r} is not {OUTCOME_SCHEMA!r}")
     required = {"schema", "decision_sha256", "kind", "question", "chosen", "options", "probabilities",
                 "table_row_sha256", "stage", "rank", "comparability"}
-    extra = set(linked) - required - {"best_ranked_option"}
+    optional = {"best_ranked_option", "chosen_by"}
+    extra = set(linked) - required - optional
     if extra or required - set(linked):
         raise DecisionError(f"a {OUTCOME_SCHEMA} record carries {sorted(required)} and optionally "
-                            f"`best_ranked_option`; this one carries {sorted(linked)}")
+                            f"{sorted(optional)}; this one carries {sorted(linked)}")
+    if linked.get("chosen_by", CHOSEN_BY_LAYA) not in CHOOSERS:
+        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {linked['chosen_by']!r} is neither")
     for field in ("decision_sha256", "kind", "question", "chosen", "table_row_sha256", "stage", "comparability"):
         if not isinstance(linked[field], str) or not linked[field].strip():
             raise DecisionError(f"`{field}` must be a non-empty string")
@@ -546,7 +671,11 @@ def validate_outcome(linked):
     if linked["chosen"] not in keys:
         raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {linked['chosen']!r} is not one of {keys}")
     probabilities = linked["probabilities"]
-    if not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
+    if linked.get("chosen_by") == CHOSEN_BY_HUMAN:
+        if probabilities != HUMAN_PROBABILITIES:
+            raise DecisionError(f"{CHOOSER_FIELDS}: an outcome of a record chosen by {CHOSEN_BY_HUMAN} carries no "
+                                f"probabilities, because the record it links carries none")
+    elif not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
         raise DecisionError("an outcome carries the decision's uncalibrated probabilities over its declared options")
     best = linked.get("best_ranked_option")
     if best is not None and (linked["rank"] != 1 or best != linked["chosen"]):

@@ -70,6 +70,19 @@ AMBIGUOUS_BEST_RANKED_OPTION = "AMBIGUOUS_BEST_RANKED_OPTION"
 AMBIGUOUS_ARGMAX = "ambiguous_argmax"
 #: an outcome whose argmax probability is not in [0, 1]; it belongs to no reliability bin
 PROBABILITY_OUT_OF_RANGE = "probability_out_of_range"
+#: an outcome of a record a PERSON wrote. It carries the option a stage used — a label — and no probability, so it is
+#: counted, it may settle the best-ranked option, and it is never scored: an agreement rate that included it would be
+#: measuring the person who configured the stage, not the chooser this report exists to calibrate.
+HUMAN_NOT_SCORED = "human_choice_not_scored"
+
+#: `m5phet.decide.CHOSEN_BY_LAYA` / `CHOSEN_BY_HUMAN`; a record naming no chooser is Laya's, as every record written
+#: before WP23 is. A test binds these to that module's constants so the two cannot drift apart.
+CHOSEN_BY_LAYA = "LAYA"
+CHOSEN_BY_HUMAN = "HUMAN"
+
+#: WP23's two cases for a stage that entered the closure table, said of one (kind, question) at a time
+USABLE_FOR_CALIBRATION = "USABLE_FOR_CALIBRATION"
+COMPARABLE_BUT_NO_DECISION_RECORD = "COMPARABLE_BUT_NO_DECISION_RECORD"
 
 ECE_DEFINITION = (
     "expected calibration error = sum over non-empty bins of (n_bin / n_scored) * |agreement_bin - "
@@ -182,10 +195,60 @@ def bin_label(index):
     return f"[{lower:.2f}, {upper:.2f}{closing}"
 
 
-def _group_report(kind, question, outcomes):
-    """One (kind, question): its count, what is missing, and — only when nothing is missing — its numbers."""
+def read_table(path):
+    """The stages a closure table measured, with their ranks — the other half of WP23's rule.
+
+    This report reads outcomes, and an outcome only exists for a stage that *has* a decision record. A stage that
+    entered the table and carries none is therefore invisible here unless the table itself is read, and that stage is
+    exactly the one WP23 asks about: it is `COMPARABLE` in the table and unusable for calibration. Nothing is scored
+    from this file; it contributes names, ranks and verdicts.
+    """
+    path = Path(str(path)).expanduser()
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise CalibrationError(f"{path.name}: cannot be read as a closure table ({exc})") from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("areas"), list):
+        raise CalibrationError(f"{path.name}: a closure table as evaluation/compare_stages.py emits it carries `areas`")
+    stages = []
+    for area in payload["areas"]:
+        for row in area.get("rows") or ():
+            stages.append({"stage": str(row.get("stage")), "area": str(area.get("area")),
+                           "status": row.get("status"), "comparability": row.get("comparability"),
+                           "rank": row.get("rank")})
+    stages.sort(key=lambda item: (item["area"], item["stage"]))
+    return {"file": path.name, "version": payload.get("version"), "stages": stages,
+            "ranked_first": [item for item in stages if item["rank"] == 1]}
+
+
+def _coverage(stages_with_records, table):
+    """Per stage of the table: whether this (kind, question) can be calibrated from it, or only measured by it."""
+    if not table:
+        return []
+    known = set(stages_with_records)
+    return [{"stage": item["stage"], "area": item["area"], "rank": item["rank"],
+             "comparability": item["comparability"],
+             "verdict": USABLE_FOR_CALIBRATION if item["stage"] in known else COMPARABLE_BUT_NO_DECISION_RECORD}
+            for item in table["stages"]]
+
+
+def chooser_of(entry):
+    """`LAYA` or `HUMAN` for one outcome. An outcome naming no chooser links a record that named none: Laya's."""
+    return entry.get("chosen_by", CHOSEN_BY_LAYA)
+
+
+def _group_report(kind, question, outcomes, *, table=None):
+    """One (kind, question): its counts, what is missing, and — only when nothing is missing — its numbers.
+
+    Human-chosen outcomes are counted apart throughout. They are labels, not evidence: they may settle the
+    best-ranked option (WP23's clause — a stage a person configured must say which option it used, or the rank-1 row
+    labels nothing), and they are excluded from the agreement rate, the reliability bins and the minimum, because
+    `MINIMUM_LINKED` exists to stop a rate being printed over too few *scored* outcomes.
+    """
     n_linked = len(outcomes)
-    missing = max(0, MINIMUM_LINKED - n_linked)
+    scorable = [entry for entry in outcomes if chooser_of(entry) != CHOSEN_BY_HUMAN]
+    human = [entry for entry in outcomes if chooser_of(entry) == CHOSEN_BY_HUMAN]
+    missing = max(0, MINIMUM_LINKED - len(scorable))
     reasons = []
 
     option_sets = sorted({json.dumps(entry["options"], sort_keys=False) for entry in outcomes})
@@ -196,28 +259,38 @@ def _group_report(kind, question, outcomes):
 
     declared_best = sorted({entry["best_ranked_option"] for entry in outcomes if entry.get("best_ranked_option")})
     best = declared_best[0] if len(declared_best) == 1 else None
+    stages = sorted({entry["stage"] for entry in outcomes})
+    coverage = _coverage(stages, table)
     if not declared_best:
+        first = [entry["stage"] for entry in (table or {}).get("ranked_first", ())]
+        named = ("; the table's first-ranked stage is "
+                 + ", ".join(f"{stage!r}, which carries no decision record for this question "
+                             f"({COMPARABLE_BUT_NO_DECISION_RECORD})" for stage in first)) if first else ""
         reasons.append(f"{NO_BEST_RANKED_OPTION}: no linked outcome came from a stage the table ranked first, so no "
-                       "option is the label the others are scored against")
+                       f"option is the label the others are scored against{named}")
     elif len(declared_best) > 1:
         reasons.append(f"{AMBIGUOUS_BEST_RANKED_OPTION}: {declared_best} were each ranked first; no single option was")
 
     if missing:
-        reasons.append(f"{n_linked} linked outcome(s), {MINIMUM_LINKED} required — {missing} missing")
+        reasons.append(f"{len(scorable)} scorable linked outcome(s) of {n_linked}, {MINIMUM_LINKED} required — "
+                       f"{missing} missing")
 
-    group = {"kind": kind, "question": question, "n_linked": n_linked, "missing": missing,
+    group = {"kind": kind, "question": question, "n_linked": n_linked, "n_scorable_linked": len(scorable),
+             "n_human_linked": len(human), "missing": missing,
              "status": MEASURED if not reasons else NO_NEW_MEASUREMENT,
              "reason": None if not reasons else f"{NO_NEW_MEASUREMENT}: " + "; ".join(reasons),
              "options": options, "best_ranked_option": best, "n_scored": 0,
-             "excluded": {AMBIGUOUS_ARGMAX: 0, PROBABILITY_OUT_OF_RANGE: 0},
+             "excluded": {AMBIGUOUS_ARGMAX: 0, PROBABILITY_OUT_OF_RANGE: 0, HUMAN_NOT_SCORED: len(human)},
              "agreements": None, "agreement_rate": None, "bins": [], "expected_calibration_error": None,
-             "stages": sorted({entry["stage"] for entry in outcomes})}
+             "stages": stages,
+             "human_stages": sorted({entry["stage"] for entry in human}),
+             "stage_coverage": coverage}
     if reasons:
         return group
 
     buckets = {}
     scored = agreements = 0
-    for entry in outcomes:
+    for entry in scorable:
         chosen, probability = argmax(entry["probabilities"])
         if chosen is None:
             group["excluded"][AMBIGUOUS_ARGMAX] += 1
@@ -237,8 +310,8 @@ def _group_report(kind, question, outcomes):
     group["n_scored"] = scored
     if scored == 0:
         group["status"] = NO_NEW_MEASUREMENT
-        group["reason"] = (f"{NO_NEW_MEASUREMENT}: none of the {n_linked} linked outcomes carries a single argmax "
-                           "with a probability in [0, 1], so there is nothing to score")
+        group["reason"] = (f"{NO_NEW_MEASUREMENT}: none of the {len(scorable)} scorable linked outcomes carries a "
+                           "single argmax with a probability in [0, 1], so there is nothing to score")
         return group
 
     group["agreements"] = agreements
@@ -256,7 +329,7 @@ def _group_report(kind, question, outcomes):
     return group
 
 
-def calibrate(outcomes, *, inventory=None, unreadable=()) -> dict:
+def calibrate(outcomes, *, inventory=None, unreadable=(), table=None) -> dict:
     """The whole report: one entry per (kind, question), sorted, plus the inventory when one was asked for."""
     grouped = {}
     for entry in outcomes:
@@ -273,10 +346,13 @@ def calibrate(outcomes, *, inventory=None, unreadable=()) -> dict:
         "expected_calibration_error_definition": ECE_DEFINITION,
         "linked_outcomes": len(outcomes),
         "unreadable": list(unreadable),
-        "groups": [_group_report(kind, question, grouped[(kind, question)]) for kind, question in sorted(grouped)],
+        "groups": [_group_report(kind, question, grouped[(kind, question)], table=table)
+                   for kind, question in sorted(grouped)],
     }
     if inventory is not None:
         report["inventory"] = inventory
+    if table is not None:
+        report["table"] = table
     return report
 
 
@@ -346,21 +422,31 @@ def render_markdown(report: dict) -> str:
     for group in report["groups"]:
         lines.append(f"## `{group['kind']}` · question `{group['question']}`")
         lines.append("")
-        lines.append(f"- linked outcomes: **{group['n_linked']}** (minimum {report['minimum_linked']}, "
-                     f"{group['missing']} missing)")
+        lines.append(f"- linked outcomes: **{group['n_linked']}** — {group['n_scorable_linked']} scorable, "
+                     f"{group['n_human_linked']} chosen by a person and never scored (minimum "
+                     f"{report['minimum_linked']} scorable, {group['missing']} missing)")
         lines.append(f"- best-ranked option: {('`' + group['best_ranked_option'] + '`') if group['best_ranked_option'] else NO_NEW_MEASUREMENT}")
         lines.append(f"- status: **{group['status']}**")
         if group["reason"]:
             lines.append(f"- reason: {_cell(group['reason'])}")
         lines.append("")
+        if group["stage_coverage"]:
+            lines.append("")
+            lines.append("| stage | rank | comparability | this question |")
+            lines.append("|---|---|---|---|")
+            for item in group["stage_coverage"]:
+                lines.append(f"| {_cell(item['stage'])} | {_cell(item['rank'])} | {_cell(item['comparability'])} | "
+                             f"{_cell(item['verdict'])} |")
+        lines.append("")
         if group["status"] != MEASURED:
             lines.append("No agreement rate, no reliability bins and no calibration error are reported for this "
-                         "group: the count above is the whole of what is known.")
+                         "group: the counts above are the whole of what is known.")
             lines.append("")
             continue
         lines.append(f"- scored outcomes: {group['n_scored']} "
                      f"(excluded: {group['excluded'][AMBIGUOUS_ARGMAX]} with no single argmax, "
-                     f"{group['excluded'][PROBABILITY_OUT_OF_RANGE]} with a probability outside [0, 1])")
+                     f"{group['excluded'][PROBABILITY_OUT_OF_RANGE]} with a probability outside [0, 1], "
+                     f"{group['excluded'][HUMAN_NOT_SCORED]} chosen by a person)")
         lines.append(f"- agreement with the best-ranked option: **{group['agreements']}/{group['n_scored']}** = "
                      f"{_cell(group['agreement_rate'])}")
         lines.append(f"- expected calibration error: **{_cell(group['expected_calibration_error'])}**")
@@ -410,6 +496,9 @@ def main(argv=None) -> int:
                         help="a directory of m5phet.decision_outcome.v1 records; repeat for several")
     parser.add_argument("--inventory", nargs="+", metavar="DIR",
                         help="directories of m5phet.decision.v1 records to count per kind and question")
+    parser.add_argument("--table", metavar="PATH",
+                        help="a closure table as evaluation/compare_stages.py emits it; its stages and ranks are read "
+                             "so the report can name the stages that entered the table with no decision record")
     parser.add_argument("--out", metavar="PATH", help="write the report as JSON")
     parser.add_argument("--markdown", metavar="PATH", help="write the report as Markdown (stdout when omitted)")
     args = parser.parse_args(argv)
@@ -419,7 +508,8 @@ def main(argv=None) -> int:
 
     outcomes, unreadable = load_outcomes(args.outcomes) if args.outcomes else ([], [])
     book = inventory(args.inventory, outcomes=outcomes) if args.inventory else None
-    report = calibrate(outcomes, inventory=book, unreadable=unreadable)
+    table = read_table(args.table) if args.table else None
+    report = calibrate(outcomes, inventory=book, unreadable=unreadable, table=table)
     markdown = render_markdown(report)
 
     if args.out:
