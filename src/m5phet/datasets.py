@@ -475,9 +475,20 @@ def _refused(subject, reason, where=""):
         "by that reason; the same bytes are NOT read from an ungoverned copy.")
 
 
+def _transport(subject, error, where=""):
+    """A governance server that does not answer is a governed run that does not happen, said by name.
+
+    The failure mode this closes: an OSError climbing out of the client would surface as a raw transport error and
+    a reader could not tell it from a bug. It is a refusal, and it is the same refusal as any other `no`."""
+    return _refused(subject, f"data-gov did not answer ({type(error).__name__})", where)
+
+
 def data_gov_listing(client):
     """`[(lake_id, resource_id, lake)]` -- everything the bound identity may see. Its own failure is its own reason."""
-    status, payload = client.lakes()
+    try:
+        status, payload = client.lakes()
+    except OSError as error:
+        raise _transport("the lake listing", error) from None
     if status != 200:
         raise _refused("the lake listing", _reason(status, payload))
     listing = []
@@ -485,7 +496,10 @@ def data_gov_listing(client):
         lake_id = lake.get("lake_id")
         if not lake_id:
             continue
-        status, resources = client.resources(lake_id)
+        try:
+            status, resources = client.resources(lake_id)
+        except OSError as error:
+            raise _transport(f"the inventory of {lake_id!r}", error) from None
         if status != 200:
             continue                                                    # a lake this identity may not inventory
         for resource in (resources or {}).get("resources") or []:
@@ -534,7 +548,10 @@ def governed_rows(found, environ=None):
     lake, resource = governed_binding(found, client)
     requested_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     cache = Path(os.path.expanduser(str(env.get(CACHE_VARIABLE) or GOVERNED_CACHE)))
-    status, info = client.download(lake, resource, str(cache))
+    try:
+        status, info = client.download(lake, resource, str(cache))
+    except OSError as error:
+        raise _transport(found["id"], error, where=f" ({lake}/{resource})") from None
     if status != 200:
         raise _refused(found["id"], _reason(status, info), where=f" ({lake}/{resource})")
     delivered = Path(str(info.get("path") or ""))
@@ -593,10 +610,8 @@ def _fold_in_data_gov(entries, environ=None):
     try:
         client = governed_client(configuration, environ)
         listing = data_gov_listing(client)
-    except GovernedAccess as refusal:
-        return data_gov_source(False, why=str(refusal))
-    except OSError as error:                                            # the server is simply not up
-        return data_gov_source(False, why=f"not listed: data-gov did not answer ({type(error).__name__})")
+    except GovernedAccess as refusal:                                   # including a server that is simply not up
+        return data_gov_source(False, why=f"not listed: {refusal}")
     by_id = {item["id"]: item for item in entries}
     bound, lakes = 0, set()
     for lake_id, resource_id, lake in listing:

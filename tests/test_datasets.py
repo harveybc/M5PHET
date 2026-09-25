@@ -693,3 +693,16 @@ def test_a_delivery_that_is_a_table_is_read_as_a_table_not_as_the_experiment_s_a
                      "Global_active_power": "1.5"},
                     {"Global_reactive_power": "0.2", "Voltage": "241.0", "Global_intensity": "4.1",
                      "Global_active_power": "1.6"}], "the delivered table is read as stored, never re-scaled"
+
+
+def test_a_data_gov_that_does_not_answer_is_refused_by_name_not_by_traceback(tmp_path):
+    """A stopped governance server must read like every other `no`, not like a bug in the interface."""
+    found = governed_entry(tmp_path)
+    (tmp_path / "key").write_text("a-test-api-key\n", encoding="utf-8")
+    environ = {"DATA_GOV_BASE_URL": "http://127.0.0.1:1", "DATA_GOV_USER": "an-owner",
+               "DATA_GOV_API_KEY_FILE": str(tmp_path / "key"), "M5PHET_DATA_GOV_CACHE": str(tmp_path / "cache")}
+    with pytest.raises(datasets.GovernedRefused) as raised:
+        datasets.load_rows_with_receipt(found, environ)
+    message = str(raised.value)
+    assert datasets.GOVERNED_DENIED in message and "did not answer" in message
+    assert "a-test-api-key" not in message
