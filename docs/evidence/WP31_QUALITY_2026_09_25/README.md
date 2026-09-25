@@ -77,6 +77,18 @@ quality (causal): causal_accuracy — a causal estimate has no held-out truth: t
   never observed, so there is no row against which the estimate can be scored right or wrong. ...
 ```
 
+## One acceptance result that is not about this work, recorded because it was observed
+
+On the final acceptance run, `tools/verify_envelopes.py` answered **14 of 15** against the shared bundle directory,
+and the one that differed is not caused by anything here. At 13:06 the same day a concurrent session installed a
+third forecast bundle (`searched-w21-household-outer`, WP26/WP27) into
+`~/.local/state/m5phet/forecast-bundles-20260924`. Two **point** bundles then serve `Global_active_power`, nothing in
+the envelope tells them apart, and the forecasting `point_forecast` question came back
+`REFUSED: STATE_REQUIRED` naming all three bundles — which is the product behaving correctly: it refuses rather than
+choosing a bundle for the person. Re-run against the exact bundle set this work was measured on (the same three
+directories, minus the new one) the same harness answers **15 of 15**. Making the new bundle nameable is WP27's
+own done-when, not this package's.
+
 ## What this does NOT say
 
 * it is not a new measurement. Nothing was scored for WP31; every number here was measured by WP09, WP06/WP07 or
