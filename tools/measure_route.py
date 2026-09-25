@@ -44,6 +44,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from verify_families import call, login                                 # noqa: E402  the same client, read once
@@ -297,6 +298,8 @@ def one_run(base, cid, file_ids, prompt, timeout):
             "seconds": round(time.monotonic() - started, 2)}
 
 
+#: N is part of the protocol and not a detail: a rate over three routings of a sentence and a rate over five are two
+#: different measurements, and the report states N per sentence, in the summary and beside every sentence.
 PROTOCOL = ("each sentence of tools/measure_route.py CASES is routed N times through "
             "POST /api/chats/{id}/tasks/propose, which builds the envelope and runs nothing. A run is CORRECT when "
             "the proposal validates against check_proposal AND its area, the set of its question types and every "
@@ -304,11 +307,60 @@ PROTOCOL = ("each sentence of tools/measure_route.py CASES is routed N times thr
             "sentences belong to (tools/verify_families.py PROSE and tools/verify_envelopes.py's envelopes) and from "
             "the engines' declared vocabularies -- never from a model's answer.")
 
-CORPUS = ("tools/verify_families.py PROSE and tools/verify_envelopes.py prompts (18 sentences; expectations in "
-          "tools/measure_route.py CASES)")
+#: counted from CASES and never written by hand. The first run of this harness (2026-09-25) published "18 sentences"
+#: from a hand-written string while its own summary counted 19; a corpus size that can disagree with the corpus is a
+#: fact about the report nobody should have to notice, so it is computed.
+CORPUS = (f"tools/verify_families.py PROSE and tools/verify_envelopes.py prompts ({len(CASES)} sentences; "
+          f"expectations in tools/measure_route.py CASES)")
 
 
-def measure(base, runs, timeout):
+def fingerprint(case, base, runs):
+    """What a stored sentence result is only valid for: this case, this instance, this many runs.
+
+    A checkpoint written for a different expectation, a different workbench or a different N is not a partial result
+    of THIS measurement, and resuming from it would publish a rate over a mixture of protocols."""
+    import hashlib
+    payload = json.dumps({"case": case, "base": base, "runs": runs, "protocol": PROTOCOL},
+                         sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def checkpoint_path(directory, case):
+    import hashlib
+    name = hashlib.sha256(f"{case['provider']}|{case['prompt']}".encode()).hexdigest()[:16]
+    return Path(directory) / f"sentence_{name}.json"
+
+
+def load_checkpoint(directory, case, base, runs):
+    """A sentence already measured under exactly this protocol, or None. Nothing partial is ever resumed."""
+    if not directory:
+        return None
+    path = checkpoint_path(directory, case)
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    if stored.get("fingerprint") != fingerprint(case, base, runs):
+        return None
+    entry = stored.get("sentence")
+    return entry if isinstance(entry, dict) and entry.get("runs") == runs else None
+
+
+def save_checkpoint(directory, case, base, runs, entry):
+    """One sentence's N runs, written the moment they are complete.
+
+    A measurement that only exists in memory until the last sentence is a measurement one kill loses entirely; this
+    one is written per sentence, so a restart re-does at most the sentence that was in flight."""
+    if not directory:
+        return
+    path = checkpoint_path(directory, case)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"schema": REPORT_SCHEMA + ".checkpoint",
+                                "fingerprint": fingerprint(case, base, runs), "sentence": entry},
+                               indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+
+
+def measure(base, runs, timeout, checkpoint=None):
     catalog = call(base, "GET", "/api/catalog")
     report = {"schema": REPORT_SCHEMA, "base": base, "runs_per_sentence": runs,
               "measured_at": datetime.now(timezone.utc).isoformat(),
@@ -326,6 +378,10 @@ def measure(base, runs, timeout):
                                         "why": f"no shipped example of {case['provider']} whose title contains "
                                                f"{case['fragment']!r}"})
             continue
+        resumed = load_checkpoint(checkpoint, case, base, runs)
+        if resumed is not None:
+            report["sentences"].append(dict(resumed, resumed_from_checkpoint=True))
+            continue
         cid, file_ids = prepare(base, chosen[0], case["prompt"])
         results, verdicts = [], []
         for _ in range(runs):
@@ -337,7 +393,7 @@ def measure(base, runs, timeout):
         distinct = sorted({json.dumps({"area": r["detail"].get("area"), "types": r["detail"].get("types"),
                                        "values": r["detail"].get("values")}, sort_keys=True, ensure_ascii=False)
                            for r in results})
-        report["sentences"].append({
+        entry = {
             "provider": case["provider"], "prompt": case["prompt"], "example": chosen[0]["title"],
             "kind": "ROUTED", "area": case["area"], "types": sorted(case["types"]),
             "values": case.get("values") or {}, "why_expected": case.get("why"),
@@ -345,7 +401,9 @@ def measure(base, runs, timeout):
             "verdicts": {name: verdicts.count(name) for name in sorted(set(verdicts))},
             "distinct_resolutions": distinct, "stable": len(distinct) == 1,
             "seconds_mean": round(sum(r["seconds"] or 0 for r in results) / len(results), 2),
-            "results": results})
+            "results": results}
+        save_checkpoint(checkpoint, case, base, runs, entry)
+        report["sentences"].append(entry)
 
     routed = [s for s in report["sentences"] if s["kind"] == "ROUTED"]
     total = sum(s["runs"] for s in routed)
@@ -366,6 +424,9 @@ def measure(base, runs, timeout):
         "sentences_always_correct": sum(1 for s in routed if s["correct"] == s["runs"] and s["runs"]),
         "sentences_never_correct": sum(1 for s in routed if s["correct"] == 0 and s["runs"]),
         "sentences_stable": sum(1 for s in routed if s["stable"]),
+        # a resumed sentence was measured under the same protocol, the same instance and the same N, or it was not
+        # resumed at all; the count is published so a reader knows the run was not one uninterrupted sitting
+        "sentences_resumed_from_checkpoint": sum(1 for s in routed if s.get("resumed_from_checkpoint")),
     }
     return report
 
@@ -377,13 +438,16 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--out")
     parser.add_argument("--token", default=os.environ.get("M5PHET_CHAT_TOKEN"))
+    parser.add_argument("--checkpoint", help="directory to write each sentence's runs to as they complete, and to "
+                                             "resume from. A stored sentence is reused only when the case, the "
+                                             "instance, N and the protocol are identical")
     args = parser.parse_args(argv)
     if args.runs < 1:
         parser.error("--runs must be at least 1")
     if args.token:
         login(args.base, args.token)
     try:
-        report = measure(args.base, args.runs, args.timeout)
+        report = measure(args.base, args.runs, args.timeout, checkpoint=args.checkpoint)
     except (urllib.error.URLError, OSError) as error:
         print(f"the workbench is not answering at {args.base}: {error}")
         return 2
@@ -400,6 +464,10 @@ def main(argv=None):
         verdicts = " ".join(f"{name}:{count}" for name, count in sorted(row["verdicts"].items()))
         print(f"{row['area']:<15} {row['correct']}/{row['runs']:<6}  {verdicts:<40} {row['seconds_mean']:>7} "
               f"{row['prompt'][:40]}")
+    resumed = report["summary"].get("sentences_resumed_from_checkpoint") or 0
+    if resumed:
+        print(f"({resumed} sentence(s) read from the checkpoint directory, measured earlier under the same protocol, "
+              f"the same instance and the same N)")
     print(json.dumps(report["summary"], ensure_ascii=False))
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:

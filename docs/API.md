@@ -147,8 +147,9 @@ envelope instead of choosing a declared value:
 ```
 
 It is declared by `interpreter.route_reliability_report` (or `M5PHET_ROUTE_RELIABILITY_REPORT`), naming a
-`m5phet_route_reliability.v1` document written by `tools/measure_route.py`, and is `"NOT_MEASURED"` with nothing
-declared. A report that measured a different plugin or model is refused
+`m5phet_route_reliability.v1` document written by `tools/measure_route.py --runs N` (N is part of the protocol and is
+published in `n.runs_per_sentence`; `--checkpoint DIR` makes a long run resumable, and a resumed sentence is reused
+only under an identical case, instance, N and protocol), and is `"NOT_MEASURED"` with nothing declared. A report that measured a different plugin or model is refused
 (`ROUTE_MEASURED_ON_ANOTHER_INTERPRETER`). `confidence` is `CONFIDENCE_NOT_REPORTED` with every shipped plugin: the
 router asks for a whole envelope as free text, so there is no per-value probability to gate on — see `abstention.paths`.
 

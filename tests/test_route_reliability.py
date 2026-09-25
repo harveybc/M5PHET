@@ -114,6 +114,27 @@ def test_every_declared_case_names_an_area_types_and_a_reason_for_what_it_scores
             assert field in measure_route.FIELD_SPELLINGS, f"{field} has no declared spelling in an envelope"
 
 
+# --- the measurement survives being killed ---------------------------------------------------------------------------
+
+def test_a_sentence_is_resumed_only_under_the_same_case_instance_and_n(tmp_path):
+    entry = {"provider": "predictor_forecast", "prompt": CASE["prompt"], "kind": "ROUTED", "runs": 5, "correct": 4,
+             "verdicts": {CORRECT: 4, WRONG_VALUE: 1}, "results": [], "stable": False}
+    measure_route.save_checkpoint(tmp_path, CASE, "http://127.0.0.1:8784", 5, entry)
+    assert measure_route.load_checkpoint(tmp_path, CASE, "http://127.0.0.1:8784", 5)["correct"] == 4
+    assert measure_route.load_checkpoint(tmp_path, CASE, "http://127.0.0.1:8784", 3) is None, \
+        "N is part of the protocol: five routings and three routings are two measurements"
+    assert measure_route.load_checkpoint(tmp_path, CASE, "http://127.0.0.1:8799", 5) is None, \
+        "a result measured against another instance is not a partial result of this one"
+    other = dict(CASE, values={"target": "direction_long"})
+    assert measure_route.load_checkpoint(tmp_path, other, "http://127.0.0.1:8784", 5) is None, \
+        "a result scored against another expectation is not a partial result of this one"
+
+
+def test_a_checkpoint_directory_with_nothing_in_it_resumes_nothing(tmp_path):
+    assert measure_route.load_checkpoint(tmp_path, CASE, "http://127.0.0.1:8784", 5) is None
+    assert measure_route.load_checkpoint(None, CASE, "http://127.0.0.1:8784", 5) is None
+
+
 # --- what the catalog publishes ----------------------------------------------------------------------------------------
 
 class Silent(Interpreter):
