@@ -54,7 +54,11 @@ DECLARED = {
                     "interval": {"required": ["horizon", "confidence_level"], "optional": ["target"]},
                     "anomaly_risk": {"required": ["threshold"], "optional": ["horizon", "target"]}},
     "causal": {"ate": {"required": [], "optional": []},
-               "cate": {"required": [], "optional": ["subgroup", "condition"]}},
+               "cate": {"required": [], "optional": ["subgroup", "condition"]},
+               # WP22 step 5: the event-study types the causal provider declares beside ate/cate
+               "impulse_response": {"required": ["event", "outcome"], "optional": ["horizons"]},
+               "sensitivity": {"required": ["events", "outcome", "window"], "optional": []},
+               "counterfactual_path": {"required": ["window", "zero_out"], "optional": []}},
     "rl": {"next_action": {"required": [], "optional": []},
            "value_estimation": {"required": [], "optional": []}},
     "unsupervised": {"clustering": {"required": [], "optional": ["method", "expected_clusters", "level"]},

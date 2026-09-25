@@ -85,8 +85,8 @@ AREA_HEADERS = {
     },
     "causal": {
         "output_kind": "causal_effect",
-        "question_types": ["ate", "cate"],
-        "unit_fields": ["estimand", "effect_size", "unit", "confidence_interval", "confidence_level", "assumptions"],
+        "question_types": ["ate", "cate", "impulse_response", "sensitivity", "counterfactual_path"],
+        "unit_fields": ["estimand", "effect_size", "unit", "confidence_interval", "confidence_level", "assumptions", "table"],
         "statuses": ["OK", "REFUSED"],
         "refusal_codes": sorted(set(ENVELOPE_REFUSALS) | {NOT_ESTIMABLE}),
         "reading": "an estimand, an effect with its unit and interval, and the assumptions it rests on; never a "
