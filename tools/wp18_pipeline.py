@@ -49,7 +49,16 @@ def main(argv=None):
     parser.add_argument("--replay", action="store_true",
                         help="rebuild from the decision records already in --records instead of asking anything; a "
                              "state with no record is refused by name, and nothing new is asked")
+    parser.add_argument("--reask", action="append", default=[],
+                        choices=["preprocessing", "grouping", "extractors", "core"],
+                        help="with --replay: ask THIS step again against the model and replay the others. Use it "
+                             "when a registry changed under one step's records, so that step's choice is made over "
+                             "the option list that exists now; repeat the flag for several steps.")
     args = parser.parse_args(argv)
+    if args.reask and not args.replay:
+        print("REFUSED REASK_NEEDS_REPLAY: --reask says which steps to ask again INSTEAD of replaying them, so it "
+              "only means something with --replay", file=sys.stderr)
+        return 2
 
     sheet, groups, design = _load(args.metrics), _load(args.groups), _load(args.candidates)
     candidates = design["candidates"]
@@ -61,10 +70,13 @@ def main(argv=None):
         return 2
 
     records = Path(args.records).expanduser()
-    replay = pipeline.load_records(records) if args.replay else None
-    engine = None if args.replay else Engine()
-    if replay is not None:
-        print(f"[replay] {len(replay)} recorded decision(s) in {records}; nothing will be asked")
+    index = pipeline.load_records(records) if args.replay else None
+    reask = set(args.reask)
+    replay = {step: (None if step in reask else index) for step in ("preprocessing", "grouping", "extractors", "core")}
+    engine = None if (args.replay and not reask) else Engine()
+    if index is not None:
+        print(f"[replay] {len(index)} recorded decision(s) in {records}; "
+              + (f"asking again: {sorted(reask)}" if reask else "nothing will be asked"))
     preprocessors, extractors = pipeline.catalog_preprocessors(), pipeline.catalog_extractors()
     cores = pipeline.catalog_cores()
     for catalog in (preprocessors, extractors, cores):
@@ -72,12 +84,13 @@ def main(argv=None):
               + (f"; problems: {catalog['problems']}" if catalog["problems"] else ""))
 
     print("\n[step 2] one decision per feature -- preprocessing")
-    plan = pipeline.choose_preprocessing(engine, sheet, preprocessors, record_dir=records, replay=replay)
+    plan = pipeline.choose_preprocessing(engine, sheet, preprocessors, record_dir=records,
+                                         replay=replay["preprocessing"])
     for feature, entry in plan.get("features", {}).items():
         print(f"  {feature:<22} {_probabilities(entry, 22)}")
 
     print("\n[step 3b] one decision among the declared cuts")
-    grouping = pipeline.confirm_grouping(engine, groups, record_dir=records, replay=replay)
+    grouping = pipeline.confirm_grouping(engine, groups, record_dir=records, replay=replay["grouping"])
     print(f"  cut {_probabilities(grouping, 4)}")
 
     cut = grouping.get("cut")
@@ -86,13 +99,15 @@ def main(argv=None):
             "refusal": "GROUPING_REFUSED", "why": "no cut was chosen, so there are no branches to read"}
     if cut is not None:
         print("\n[step 4] one decision per group -- extractor")
-        extraction = pipeline.choose_extractors(engine, cut, extractors, record_dir=records, replay=replay)
+        extraction = pipeline.choose_extractors(engine, cut, extractors, record_dir=records,
+                                                replay=replay["extractors"])
         for group_id, entry in extraction.get("groups", {}).items():
             members = next(g["members"] for g in cut["groups"] if g["group_id"] == group_id)
             print(f"  {group_id} {','.join(members)}\n      {_probabilities(entry, 10)}")
 
         print("\n[step 5] one decision over the fused branches -- core")
-        core = pipeline.choose_core(engine, cut, cores, record_dir=records, extractor_plan=extraction, replay=replay)
+        core = pipeline.choose_core(engine, cut, cores, record_dir=records, extractor_plan=extraction,
+                                    replay=replay["core"])
         if core.get("status") == "OK":
             print(f"  {core['core']} ({core['chosen_by']}): {core.get('why') or _probabilities(core, 10)}")
         else:

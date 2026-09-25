@@ -118,9 +118,12 @@ candidate still names a decision.
 different namespace. `inline_encoders()` reads the core module's `ENCODERS` mapping with `ast` (no import), and
 `map_encoders()` carries a group's extractor into the spec as a branch encoder **only when the key is one of them**:
 
-- `MAPPED` — the extractor key IS an inline encoder of the core (`cnn`, `dense`, `lstm`, `tcn` today);
-- `NOT_MAPPED` — anything else, **naming the extractor**. Feature-extractor's `rnn` is not an inline encoder of
-  `fused_branches`, and no mapping is invented for it. A fit job reading this spec is told exactly that.
+- `MAPPED` — the extractor key IS an inline encoder of the core (`cnn`, `dense`, `lstm`, `rnn`, `tcn` today, after
+  WP24 added the GRU `rnn` encoder for feature-extractor's `rnn` family);
+- `NOT_MAPPED` — anything else, **naming the extractor**. No mapping is invented, and near-synonyms do not count:
+  feature-extractor's `default`/`ann` (per-channel Dense branches) and the core's `dense` (a flattened window through
+  a dense stack) are different keys built by different repositories, so a choice of `ann` stays `NOT_MAPPED` until
+  somebody declares the mapping. A fit job reading this spec is told exactly that.
 
 ## The states
 
@@ -179,6 +182,10 @@ crispdm-run -m 4G -t 900 -n wp18-laya -- python tools/wp18_pipeline.py \
     --out pipeline_spec.json            # add --replay to rebuild from the records, asking nothing
 ```
 
+`--replay --reask extractors` asks one step again and replays the rest. That is the move when a registry changed
+under one step's records: the choice is then made over the option list that exists now, and every other decision
+stays the one that was recorded.
+
 Records go to `~/.local/state/m5phet/decisions` by default. Each decision takes 10–20 s on the real checkpoint, and
 there are `features + 1 + k` of them, plus one for the core when more than one core qualifies.
 
@@ -197,19 +204,29 @@ profile is doing little work here. That is a fact about the answer, not a defect
 **Step 3b — the cut.** `k=2` at 0.372, over `k=3` 0.213, `k=6` 0.163, `k=4` 0.138, `k=5` 0.114 — against the
 deterministic recommendation `k=3` (the highest silhouette). The chooser is free to differ from it, and it did.
 
-**Step 4 — the extractor per group.** `g1` (`Global_active_power, Global_intensity, Global_reactive_power,
-Sub_metering_1, Sub_metering_3, Voltage`) → `rnn` 0.297 over `lstm` 0.222; `g2` (`Sub_metering_2`) → `lstm` 0.324
-over `default` 0.192. Both were chosen among the nine encoders of the pre-WP25 registry; the spec records the drift
-(`removed: ["cnn_signed"]`, every label rewritten).
+**Step 4 — the extractor per group.** First asked over the pre-WP25 registry: `g1` → `rnn` 0.297, `g2` → `lstm`
+0.324. WP25 then changed that option set (`cnn_signed` removed, every label rewritten), so step 4 was **asked again**
+over the registry as it now is — `--replay --reask extractors`, two real decisions, everything else replayed:
+
+| Group | Members | Chosen | Uncalibrated probabilities |
+|---|---|---|---|
+| `g1` | `Global_active_power, Global_intensity, Global_reactive_power, Sub_metering_1, Sub_metering_3, Voltage` | `default` | default 0.1816, lstm 0.1767, ann 0.1606, cnn 0.1565, vae 0.0985, rnn 0.0951, vae_small 0.0820, transformer 0.0490 |
+| `g2` | `Sub_metering_2` | `ann` | ann 0.1759, default 0.1571, cnn 0.1558, lstm 0.1441, vae 0.1252, vae_small 0.1109, rnn 0.0909, transformer 0.0400 |
+
+Both distributions are much flatter than the first pass (top mass 0.18 against 0.30) and both landed on the
+Dense-branch encoder. The labels changed, so the question changed; that is what the numbers say and nothing more.
 
 **Step 5 — the core.** `fused_branches`, `chosen_by: ONLY_CANDIDATE`, `decision: null`. Its encoder mapping is
-`NOT_MAPPED`: `g2`'s `lstm` maps to the core's own `lstm` encoder, `g1`'s `rnn` is not one of
-`["cnn", "dense", "lstm", "tcn"]` and nothing is invented for it.
+`NOT_MAPPED` on **both** branches: `default` and `ann` are not among the core's inline encoders
+`["cnn", "dense", "lstm", "rnn", "tcn"]`. WP24's new `rnn` encoder would have mapped the first pass's choices
+exactly; the re-asked choices moved elsewhere, and nothing is translated to make them fit.
 
 **Step 6 — the spec.** `m5phet.pipeline.v1` with representation `short_memory`
 (`representation_id e74ec65c0372…`), 7 preprocessing decisions, 1 grouping decision, 2 extractor decisions, a core
 that was the only candidate; it validates against the live catalogs and against the records on disk.
 
 None of this was fitted, scored or compared. WP18 step 7 — `baseline_hand` / `laya_chosen` / `searched` on the same
-sealed holdout, with the owner's closure table — has **not** run. The one thing standing between this spec and a fit
-is `g1`'s branch: its chosen extractor is not an encoder the core implements.
+sealed holdout, with the owner's closure table — has **not** run, and it runs on the 5090 only with **the owner's
+admission**. What still stands between this spec and a fit is the encoder mapping: neither branch's chosen extractor
+is an encoder the core implements, so either the core declares those keys, or a person declares the mapping, or
+step 4 is asked again over a registry whose keys and the core's agree.
