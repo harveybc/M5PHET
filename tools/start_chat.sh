@@ -53,6 +53,20 @@ else
     echo "configuration: environment (no m5phet.json)"
 fi
 
+# Bearer access for programs (docs/API.md). M5PHET_API_TOKEN_FILE names the FILE whose contents are the token a
+# program presents as `Authorization: Bearer <token>`; surfaces.api.token_file in the JSON configuration says the same
+# thing, and the variable overrides it so a verification instance never reads the owner's token. It is read once, at
+# start-up: with no file, bearer access is simply off and the owner's cookie stays the only way in. The token itself
+# is never written here, never printed, and belongs outside every repository.
+if [ -n "${M5PHET_API_TOKEN_FILE:-}" ]; then
+    export M5PHET_API_TOKEN_FILE
+    if [ -s "$M5PHET_API_TOKEN_FILE" ]; then
+        echo "API: bearer token read from ${M5PHET_API_TOKEN_FILE} (contents never printed)"
+    else
+        echo "API: ${M5PHET_API_TOKEN_FILE} is missing or empty -- bearer access stays off; the owner cookie is required"
+    fi
+fi
+
 PORT="${PORT:-8765}"
 echo "M5PHET workbench on http://127.0.0.1:${PORT}"
 exec "$CHAT_VENV/bin/m5phet-chat" --port "$PORT" "$@"

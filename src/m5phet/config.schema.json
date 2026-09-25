@@ -18,6 +18,10 @@
       "type": "string",
       "maxLength": 4000
     },
+    "$comment_surfaces": {
+      "type": "string",
+      "maxLength": 4000
+    },
     "interpreter": {
       "type": "object",
       "additionalProperties": false,

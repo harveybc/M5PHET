@@ -132,6 +132,63 @@ def run_envelope(base, spec, defaults):
     return {"status": "TIMEOUT", "content": "", "detail": {}}
 
 
+def evaluate(spec, message):
+    """What this envelope's answers had to be, beside what they were. One entry of the report, nothing printed.
+
+    It is a function and not the body of a loop because a second client drives these same envelopes over the API
+    with a bearer token (`tools/api_client_example.py --verify`), and two copies of "what counts as expected" would
+    eventually disagree -- at which point neither harness would mean anything."""
+    detail = message.get("detail") or {}
+    response = detail.get("response") or {}
+    answers = response.get("answers") or {}
+    rows = []
+    for name, expected in spec["expect"].items():
+        answer = answers.get(name) or {}
+        got = answer.get("status", "MISSING")
+        if got == "REFUSED":
+            got = f"REFUSED:{answer.get('refusal')}"
+        invented = got.startswith("REFUSED") and any(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                                     for k, v in answer.items() if k not in ("type",))
+        wanted = (spec.get("why_contains") or {}).get(name)
+        why_ok = wanted is None or wanted in str(answer.get("why", ""))
+        rows.append({"question": name, "type": answer.get("type"), "expected": expected, "got": got,
+                     "as_expected": got == expected and why_ok, "number_in_refusal": invented,
+                     "why_expected": wanted,
+                     "why": answer.get("why"), "preview": {k: v for k, v in list(answer.items())[:5]}})
+    narration = detail.get("narration") or {}
+    return {"area": spec["area"], "message_status": message.get("status"),
+            "questions": rows, "narration_source": narration.get("source"),
+            "narration_plugin": narration.get("output_plugin"),
+            "narration": (message.get("content") or "")[:300],
+            # the answers verbatim, so `tools/verify_outputs.py` can render THESE -- the ones the engines really
+            # returned -- instead of a shape someone typed into a test
+            "answers": answers, "answered": response.get("answered"), "refused": response.get("refused"),
+            "execution_authorized": detail.get("execution_authorized")}
+
+
+def show(entry):
+    """Print one envelope's outcome exactly as this harness has always printed it. Returns how many were as expected."""
+    ok_total = 0
+    for row in entry["questions"]:
+        mark = "OK " if row["as_expected"] and not row["number_in_refusal"] else "!! "
+        ok_total += row["as_expected"] and not row["number_in_refusal"]
+        print(f"{mark}{entry['area']:<15} {row['question']:<13} {str(row['type']):<20} {row['got']:<24} "
+              f"{(row['why'] or '')[:60]}")
+    print(f"    narration[{entry['narration_source']}]: {entry['narration'][:140]}")
+    return ok_total
+
+
+def summarize(report):
+    """The last JSON line every report of this harness ends with, and the exit code that goes with it."""
+    ok_total = sum(1 for e in report["envelopes"] for row in e["questions"]
+                   if row["as_expected"] and not row["number_in_refusal"])
+    total = sum(len(e["questions"]) for e in report["envelopes"])
+    report["summary"] = {"questions_as_expected": ok_total, "questions": total,
+                         "any_execution_authorized": any(e["execution_authorized"] for e in report["envelopes"])}
+    print(json.dumps(report["summary"]))
+    return 0 if ok_total == total and not report["summary"]["any_execution_authorized"] else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="http://127.0.0.1:8766")
@@ -145,50 +202,14 @@ def main(argv=None):
     areas = call(args.base, "GET", "/api/tasks/catalog")["areas"]
     report = {"schema": "m5phet_envelope_verification.v1", "areas": areas, "envelopes": []}
     for spec in envelopes(catalog["examples"]):
-        message = run_envelope(args.base, spec, catalog["defaults"])
-        detail = message.get("detail") or {}
-        response = detail.get("response") or {}
-        answers = response.get("answers") or {}
-        rows = []
-        for name, expected in spec["expect"].items():
-            answer = answers.get(name) or {}
-            got = answer.get("status", "MISSING")
-            if got == "REFUSED":
-                got = f"REFUSED:{answer.get('refusal')}"
-            invented = got.startswith("REFUSED") and any(isinstance(v, (int, float)) and not isinstance(v, bool)
-                                                         for k, v in answer.items() if k not in ("type",))
-            wanted = (spec.get("why_contains") or {}).get(name)
-            why_ok = wanted is None or wanted in str(answer.get("why", ""))
-            rows.append({"question": name, "type": answer.get("type"), "expected": expected, "got": got,
-                         "as_expected": got == expected and why_ok, "number_in_refusal": invented,
-                         "why_expected": wanted,
-                         "why": answer.get("why"), "preview": {k: v for k, v in list(answer.items())[:5]}})
-        narration = detail.get("narration") or {}
-        report["envelopes"].append({"area": spec["area"], "message_status": message.get("status"),
-                                    "questions": rows, "narration_source": narration.get("source"),
-                                    "narration_plugin": narration.get("output_plugin"),
-                                    "narration": (message.get("content") or "")[:300],
-                                    # the answers verbatim, so `tools/verify_outputs.py` can render THESE -- the ones
-                                    # the engines really returned -- instead of a shape someone typed into a test
-                                    "answers": answers, "answered": response.get("answered"),
-                                    "refused": response.get("refused"),
-                                    "execution_authorized": detail.get("execution_authorized")})
-    ok_total = 0
-    for env in report["envelopes"]:
-        for row in env["questions"]:
-            mark = "OK " if row["as_expected"] and not row["number_in_refusal"] else "!! "
-            ok_total += row["as_expected"] and not row["number_in_refusal"]
-            print(f"{mark}{env['area']:<15} {row['question']:<13} {str(row['type']):<20} {row['got']:<24} "
-                  f"{(row['why'] or '')[:60]}")
-        print(f"    narration[{env['narration_source']}]: {env['narration'][:140]}")
-    total = sum(len(e["questions"]) for e in report["envelopes"])
-    report["summary"] = {"questions_as_expected": ok_total, "questions": total,
-                         "any_execution_authorized": any(e["execution_authorized"] for e in report["envelopes"])}
-    print(json.dumps(report["summary"]))
+        report["envelopes"].append(evaluate(spec, run_envelope(args.base, spec, catalog["defaults"])))
+    for entry in report["envelopes"]:
+        show(entry)
+    status = summarize(report)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=1, ensure_ascii=False, default=str)
-    return 0 if ok_total == total and not report["summary"]["any_execution_authorized"] else 1
+    return status
 
 
 if __name__ == "__main__":

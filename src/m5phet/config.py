@@ -159,9 +159,11 @@ def _expand_string(value, environ, where):
 
 def _expand(value, environ, where):
     if isinstance(value, dict):
-        # `$comment` is documentation, not a setting: it may name a variable ($M5PHET_CHAT_LAYA_WORKER) without that
-        # variable having to be set. It is still checked for host literals, like every other string in the file.
-        return {key: (item if key == "$comment" else _expand(item, environ, _join(where, str(key))))
+        # a `$comment...` key is documentation, not a setting: it may name a variable ($M5PHET_CHAT_LAYA_WORKER,
+        # $M5PHET_API_TOKEN_FILE) without that variable having to be set. Every such key is exempt from expansion,
+        # not only the bare `$comment`, because the file carries one per section. They are still checked for host
+        # literals, like every other string in the file.
+        return {key: (item if str(key).startswith("$comment") else _expand(item, environ, _join(where, str(key))))
                 for key, item in value.items()}
     if isinstance(value, list):
         return [_expand(item, environ, f"{where}[{index}]") for index, item in enumerate(value)]

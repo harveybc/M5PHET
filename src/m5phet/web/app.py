@@ -49,13 +49,64 @@ class SendMessage(BaseModel):
     file_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
-def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None):
+#: WP12: the variable that names the bearer-token file. It is a PATH override of the same class as `M5PHET_CONFIG`,
+#: which is why it wins over the configuration's own binding: a verification instance has to be able to run with its
+#: own token without ever reading the owner's. Value bindings follow the opposite rule (the JSON wins); a path
+#: override is not one.
+API_TOKEN_VARIABLE = "M5PHET_API_TOKEN_FILE"
+
+
+def api_token_path(configuration=None, environ=None):
+    """Which file holds the token a program presents: `$M5PHET_API_TOKEN_FILE` first, then `surfaces.api.token_file`.
+
+    None when neither names one, which is how bearer access stays off until the operator turns it on."""
+    env = os.environ if environ is None else environ
+    surfaces = dict(getattr(configuration, "surfaces", None) or {})
+    named = env.get(API_TOKEN_VARIABLE) or (surfaces.get("api") or {}).get("token_file")
+    return Path(os.path.expanduser(str(named))) if named else None
+
+
+def read_api_token(path):
+    """The token a program must present, or None when bearer access is simply off.
+
+    Read ONCE, at start-up: a file that appears later does not quietly turn access on, and one that is deleted does
+    not turn it off in the middle of a run -- an access rule that changes under the operator's feet is not a rule.
+    A file that cannot be read is treated exactly as an absent one: bearer access off, the owner's cookie still
+    required. That is the only safe direction; falling back to "no credential needed" would open the API because a
+    permission bit was wrong, and raising would take the owner's workbench down over a program's credential."""
+    if path is None:
+        return None
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    return token or None
+
+
+def bearer_token(request):
+    """The token presented in `Authorization: Bearer <token>`, or "" when the header names another scheme."""
+    scheme, _, value = request.headers.get("authorization", "").partition(" ")
+    return value.strip() if scheme.lower() == "bearer" else ""
+
+
+def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None, api_token_file=None):
     root = root or Path.home() / ".local/state/m5phet/chat"
     store = Store(root)
     engine = engine or Engine()
     allowed = set(allowed_hosts or ["127.0.0.1", "localhost", "::1"])
     cookie = hashlib.sha256((access_token or "local").encode()).hexdigest()
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="m5phet-chat")
+    # WP12: a program's credential beside the owner's browser cookie. The token is never a value in a configuration
+    # file; the configuration names a file, and the file's contents are the token. No file, no bearer access.
+    api_token = read_api_token(Path(os.path.expanduser(str(api_token_file))) if api_token_file else
+                               api_token_path(getattr(engine, "configuration", None), getattr(engine, "environ", None)))
+
+    def authorized(request):
+        """The owner's cookie, or a program's bearer token. Both are compared in constant time and neither is logged."""
+        if hmac.compare_digest(request.cookies.get("m5phet_owner", ""), cookie):
+            return True
+        presented = bearer_token(request)
+        return bool(api_token) and bool(presented) and hmac.compare_digest(presented, api_token)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -78,8 +129,9 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
         if access_token and request.url.path.startswith("/api/") and request.url.path != "/api/login":
-            if not hmac.compare_digest(request.cookies.get("m5phet_owner", ""), cookie):
-                return JSONResponse({"detail": "Owner access token required"}, status_code=401)
+            if not authorized(request):
+                return JSONResponse({"detail": "Owner session cookie or bearer token required" if api_token
+                                               else "Owner access token required"}, status_code=401)
         # A declared length over the attachment limit is refused here, before anything parses the body. The multipart
         # parser gives up on its own first and answers "there was an error parsing the body", which tells someone holding
         # a 10 MB CSV nothing about what to do; this names the limit and the size they sent.
@@ -115,7 +167,10 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
     @app.post("/api/login")
     async def login(request: Request):
         value = (await request.json()).get("token", "")
-        if access_token and (not isinstance(value, str) or not hmac.compare_digest(value, access_token)):
+        # a program that already holds the bearer token may open the session with it instead of the owner's token:
+        # the two credentials are equivalent by design, and a client that keeps the cookie stops resending the token
+        by_token = isinstance(value, str) and access_token and hmac.compare_digest(value, access_token)
+        if access_token and not by_token and not authorized(request):
             return JSONResponse({"detail": "Invalid token"}, status_code=401)
         response = JSONResponse({"ok": True})
         response.set_cookie("m5phet_owner", cookie, httponly=True, samesite="strict", secure=request.url.scheme == "https")
