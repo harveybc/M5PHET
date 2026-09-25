@@ -33,7 +33,7 @@ default = "m5phet.outputs.default:DefaultOutput"
 telegram = "m5phet.outputs.telegram:TelegramOutput"
 
 [tool.setuptools.package-data]
-"m5phet" = ["config.schema.json"]
+"m5phet" = ["config.schema.json", "branch_capability.json"]
 "m5phet.web" = ["static/*", "static/vendor/*"]
 
 [tool.setuptools.packages.find]
