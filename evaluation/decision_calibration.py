@@ -6,7 +6,10 @@ nothing on their own: a choice is a hypothesis. `m5phet.decide.outcome` turns on
 of the closure table — a *measured*, `COMPARABLE`, *ranked* row — and this module reads those links and reports two
 things per decision kind and question:
 
-* **agreement** — how often Laya's argmax was the option whose pipeline the table ranked first. Not how often it was
+* **agreement** — how often Laya's argmax was the option whose pipeline **its own contest's** table ranked first. A
+  contest is one holdout: one corpus, one table, one ranking. WP29 links outcomes from many corpora precisely so that
+  the rate is not an estimate of how often the chooser is right about one dataset, and scoring every outcome against a
+  single corpus's winner would have undone that in one line of arithmetic. Not how often it was
   plausible, not how often a reviewer would have chosen the same, not how often the author thought it sensible: a
   person's opinion is never a label; only a table row is;
 * **reliability** — whether the probability the argmax carried means anything. The outcomes are put in bins of 0.1 by
@@ -64,8 +67,16 @@ NO_NEW_MEASUREMENT = "NO_NEW_MEASUREMENT"
 OPTION_SETS_DIFFER = "OPTION_SETS_DIFFER"
 #: no outcome of this (kind, question) came from a stage the table ranked first, so no option is the label
 NO_BEST_RANKED_OPTION = "NO_BEST_RANKED_OPTION"
-#: two stages ranked first under different option keys; no single option was ranked first
+#: two stages of ONE contest ranked first under different option keys; no single option was ranked first there
 AMBIGUOUS_BEST_RANKED_OPTION = "AMBIGUOUS_BEST_RANKED_OPTION"
+#: an outcome whose contest settled no best-ranked option: nothing in that contest is the label to score it against
+CONTEST_NOT_SETTLED = "contest_not_settled"
+#: `m5phet.decide.CONTEST_NOT_CARRIED`: an outcome written before WP29, whose row named no holdout. Such outcomes all
+#: came from one table each and are treated as one unnamed contest, which is what they were.
+CONTEST_NOT_CARRIED = "CONTEST_NOT_CARRIED"
+#: what the group-level field says when the contests settled different options: there is no one best option, by
+#: construction, and printing one of them would be picking a corpus and calling it the question
+PER_CONTEST = "PER_CONTEST"
 #: an outcome whose probabilities have no single maximum: there is no argmax to agree or disagree with
 AMBIGUOUS_ARGMAX = "ambiguous_argmax"
 #: an outcome whose argmax probability is not in [0, 1]; it belongs to no reliability bin
@@ -244,8 +255,42 @@ def chooser_of(entry):
     return entry.get("chosen_by", CHOSEN_BY_LAYA)
 
 
+def contest_of(entry):
+    """Which contest one outcome's rank belongs to: the holdout its stages were ranked on.
+
+    WP29 links outcomes from many corpora under one (kind, question). A rank orders the stages of ONE table over ONE
+    holdout, so "the option ranked first" is settled per contest and never across them: thirty corpora did not run one
+    contest, and scoring every outcome against one corpus's winner would report agreement with that corpus.
+    """
+    return entry.get("contest", CONTEST_NOT_CARRIED)
+
+
+def _best_per_contest(outcomes):
+    """`({contest: best option}, [reason, ...])` — the option each contest ranked first, or why it settled none."""
+    by_contest, best, reasons = {}, {}, []
+    for entry in outcomes:
+        by_contest.setdefault(contest_of(entry), []).append(entry)
+    unsettled = []
+    for contest in sorted(by_contest):
+        declared = sorted({entry["best_ranked_option"] for entry in by_contest[contest]
+                           if entry.get("best_ranked_option")})
+        if len(declared) == 1:
+            best[contest] = declared[0]
+        elif len(declared) > 1:
+            reasons.append(f"{AMBIGUOUS_BEST_RANKED_OPTION}: in contest {contest[:12]} the options {declared} were "
+                           f"each ranked first; no single option was")
+        else:
+            unsettled.append(contest)
+    return best, reasons, unsettled
+
+
 def _group_report(kind, question, outcomes, *, table=None):
     """One (kind, question): its counts, what is missing, and — only when nothing is missing — its numbers.
+
+    The best-ranked option is settled **per contest** (WP29). A rank orders the stages of one table over one holdout,
+    so an outcome from the EUR/USD 2012 corpus is scored against the option that corpus's own table ranked first, and
+    never against another corpus's winner. `best_ranked_option` at group level is a single option only when every
+    contest settled the same one; otherwise it is PER_CONTEST, and the per-contest map is carried beside it.
 
     Human-chosen outcomes are counted apart throughout. They are labels, not evidence: they may settle the
     best-ranked option (WP23's clause — a stage a person configured must say which option it used, or the rank-1 row
@@ -265,31 +310,44 @@ def _group_report(kind, question, outcomes, *, table=None):
         reasons.append(f"{OPTION_SETS_DIFFER}: {len(option_sets)} different option sets were declared under this kind "
                        "and question, so these outcomes do not answer one question and cannot share an agreement rate")
 
-    declared_best = sorted({entry["best_ranked_option"] for entry in outcomes if entry.get("best_ranked_option")})
-    best = declared_best[0] if len(declared_best) == 1 else None
+    best_by_contest, contest_reasons, unsettled = _best_per_contest(outcomes)
+    reasons.extend(contest_reasons)
+    contests = sorted({contest_of(entry) for entry in outcomes})
+    declared_best = sorted(set(best_by_contest.values()))
+    best = declared_best[0] if len(declared_best) == 1 else (PER_CONTEST if declared_best else None)
     stages = sorted({entry["stage"] for entry in outcomes})
     coverage = _coverage(stages, table)
-    if not declared_best:
+
+    # the minimum counts what can actually be scored: a scorable outcome whose own contest settled no best-ranked
+    # option has no label, and counting it towards thirty would print a rate over outcomes nothing was compared to
+    scored_candidates = [entry for entry in scorable if contest_of(entry) in best_by_contest]
+    missing = max(0, MINIMUM_LINKED - len(scored_candidates))
+
+    if not best_by_contest:
         first = [entry["stage"] for entry in (table or {}).get("ranked_first", ())]
         named = ("; the table's first-ranked stage is "
                  + ", ".join(f"{stage!r}, which carries no decision record for this question "
                              f"({COMPARABLE_BUT_NO_DECISION_RECORD})" for stage in first)) if first else ""
-        reasons.append(f"{NO_BEST_RANKED_OPTION}: no linked outcome came from a stage the table ranked first, so no "
-                       f"option is the label the others are scored against{named}")
-    elif len(declared_best) > 1:
-        reasons.append(f"{AMBIGUOUS_BEST_RANKED_OPTION}: {declared_best} were each ranked first; no single option was")
+        reasons.append(f"{NO_BEST_RANKED_OPTION}: no linked outcome came from a stage its own contest ranked first, "
+                       f"so no option is the label the others are scored against{named}")
+    elif unsettled:
+        reasons.append(f"{NO_BEST_RANKED_OPTION}: {len(unsettled)} of {len(contests)} contest(s) settled no "
+                       f"best-ranked option, and their outcomes are excluded as {CONTEST_NOT_SETTLED}")
 
     if missing:
-        reasons.append(f"{len(scorable)} scorable linked outcome(s) of {n_linked}, {MINIMUM_LINKED} required — "
-                       f"{missing} missing")
+        reasons.append(f"{len(scored_candidates)} scorable linked outcome(s) in a settled contest, of {n_linked} "
+                       f"linked over {len(contests)} contest(s), {MINIMUM_LINKED} required — {missing} missing")
 
     group = {"kind": kind, "question": question, "n_linked": n_linked, "n_scorable_linked": len(scorable),
              "n_human_linked": len(human), "n_search_linked": len(searched), "missing": missing,
              "status": MEASURED if not reasons else NO_NEW_MEASUREMENT,
              "reason": None if not reasons else f"{NO_NEW_MEASUREMENT}: " + "; ".join(reasons),
              "options": options, "best_ranked_option": best, "n_scored": 0,
+             "n_contests": len(contests), "contests": contests,
+             "best_ranked_option_by_contest": dict(sorted(best_by_contest.items())),
              "excluded": {AMBIGUOUS_ARGMAX: 0, PROBABILITY_OUT_OF_RANGE: 0, HUMAN_NOT_SCORED: len(human),
-                          SEARCH_NOT_SCORED: len(searched)},
+                          SEARCH_NOT_SCORED: len(searched),
+                          CONTEST_NOT_SETTLED: len(scorable) - len(scored_candidates)},
              "agreements": None, "agreement_rate": None, "bins": [], "expected_calibration_error": None,
              "stages": stages,
              "human_stages": sorted({entry["stage"] for entry in human}),
@@ -300,7 +358,8 @@ def _group_report(kind, question, outcomes, *, table=None):
 
     buckets = {}
     scored = agreements = 0
-    for entry in scorable:
+    for entry in scored_candidates:
+        best = best_by_contest[contest_of(entry)]          # each outcome is scored against ITS OWN contest's winner
         chosen, probability = argmax(entry["probabilities"])
         if chosen is None:
             group["excluded"][AMBIGUOUS_ARGMAX] += 1
@@ -320,8 +379,9 @@ def _group_report(kind, question, outcomes, *, table=None):
     group["n_scored"] = scored
     if scored == 0:
         group["status"] = NO_NEW_MEASUREMENT
-        group["reason"] = (f"{NO_NEW_MEASUREMENT}: none of the {len(scorable)} scorable linked outcomes carries a "
-                           "single argmax with a probability in [0, 1], so there is nothing to score")
+        group["reason"] = (f"{NO_NEW_MEASUREMENT}: none of the {len(scored_candidates)} scorable linked outcomes in a "
+                           "settled contest carries a single argmax with a probability in [0, 1], so there is nothing "
+                           "to score")
         return group
 
     group["agreements"] = agreements
@@ -435,7 +495,12 @@ def render_markdown(report: dict) -> str:
         lines.append(f"- linked outcomes: **{group['n_linked']}** — {group['n_scorable_linked']} scorable, "
                      f"{group['n_human_linked']} chosen by a person and {group['n_search_linked']} by a search, "
                      f"neither ever scored (minimum {report['minimum_linked']} scorable, {group['missing']} missing)")
+        lines.append(f"- contests (distinct holdouts these ranks were taken on): **{group.get('n_contests', 0)}** — "
+                     f"a rank orders the stages of one table over one holdout, so the best-ranked option is settled "
+                     f"inside each contest and each outcome is scored against its own")
         lines.append(f"- best-ranked option: {('`' + group['best_ranked_option'] + '`') if group['best_ranked_option'] else NO_NEW_MEASUREMENT}")
+        lines.append(f"- excluded because their contest settled none: "
+                     f"{group['excluded'].get(CONTEST_NOT_SETTLED, 0)}")
         lines.append(f"- status: **{group['status']}**")
         if group["reason"]:
             lines.append(f"- reason: {_cell(group['reason'])}")

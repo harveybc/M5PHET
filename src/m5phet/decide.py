@@ -178,6 +178,19 @@ COMPARABLE = "COMPARABLE"
 #: the fields an outcome reads out of the row. Everything else in the row is bound by `table_row_sha256` instead.
 TABLE_ROW_FIELDS = ("stage", "status", "comparability", "rank")
 
+# --- WP29: which contest a rank is a rank in ----------------------------------------------------------------------
+# A rank orders the stages of ONE table, over ONE holdout. WP29 links outcomes from many corpora under one (kind,
+# question), and then "the option ranked first" is not one option: each corpus ranked its own stages on its own rows.
+# So an outcome carries the identity of the contest its rank belongs to -- the holdout the stages were ranked on,
+# which is the corpus seal `compare_stages` already requires to be equal before it will call two rows COMPARABLE.
+# `evaluation/decision_calibration.py` settles the best-ranked option per contest and scores each outcome against its
+# own, instead of pretending that thirty corpora ran one contest.
+#: where the contest identity is read from inside a closure-table row
+CONTEST_FIELD = ("conditions", "corpus_seal")
+#: what an outcome says when the row carries no corpus seal: a single unnamed contest, and named as unnamed. Every
+#: outcome written before WP29 is of this kind, and they came from one table each, which is exactly one contest.
+CONTEST_NOT_CARRIED = "CONTEST_NOT_CARRIED"
+
 
 class DecisionError(ValueError):
     """A state cannot be rendered, or a record cannot be written or read back. Raised; never returned as a decision."""
@@ -1006,12 +1019,28 @@ def outcome(record_path, table_row, *, out_dir):
               "table_row_sha256": table_row_sha256(table_row),
               "stage": str(table_row["stage"]),
               "rank": rank,
+              # the contest this rank is a rank in: the holdout the stages were ranked on. Without it, outcomes from
+              # different corpora would be scored against one "best option" that no single table ever chose.
+              "contest": _contest_of(table_row),
               "comparability": comparability}
     if rank == 1:
         linked["best_ranked_option"] = decision["chosen"]
 
     validate_outcome(linked)
     return {"status": "OK", "outcome": linked, "record_path": str(record_outcome(linked, out_dir))}
+
+
+def _contest_of(table_row):
+    """The identity of the contest this row's rank belongs to: the holdout the stages were ranked on.
+
+    `compare_stages` refuses to call two rows COMPARABLE unless their corpus seals are equal, so the seal is exactly
+    the boundary a rank does not cross. A row that carries no seal says so by name rather than being folded into
+    everybody else's contest.
+    """
+    value = table_row
+    for key in CONTEST_FIELD:
+        value = value.get(key) if isinstance(value, dict) else None
+    return str(value) if isinstance(value, str) and value.strip() else CONTEST_NOT_CARRIED
 
 
 def _check_table_row(table_row):
@@ -1065,7 +1094,9 @@ def validate_outcome(linked):
         raise DecisionError(f"schema {linked.get('schema')!r} is not {OUTCOME_SCHEMA!r}")
     required = {"schema", "decision_sha256", "kind", "question", "chosen", "options", "probabilities",
                 "table_row_sha256", "stage", "rank", "comparability"}
-    optional = {"best_ranked_option", "chosen_by"}
+    # `contest` is optional rather than required because every outcome written before WP29 lacks it, and rewriting a
+    # content-addressed record to add a field would change its digest -- which is the one thing these records forbid
+    optional = {"best_ranked_option", "chosen_by", "contest"}
     extra = set(linked) - required - optional
     if extra or required - set(linked):
         raise DecisionError(f"a {OUTCOME_SCHEMA} record carries {sorted(required)} and optionally "
@@ -1075,6 +1106,8 @@ def validate_outcome(linked):
     for field in ("decision_sha256", "kind", "question", "chosen", "table_row_sha256", "stage", "comparability"):
         if not isinstance(linked[field], str) or not linked[field].strip():
             raise DecisionError(f"`{field}` must be a non-empty string")
+    if "contest" in linked and (not isinstance(linked["contest"], str) or not linked["contest"].strip()):
+        raise DecisionError("`contest` names the holdout this rank was taken on; an empty one names nothing")
     if linked["comparability"] != COMPARABLE:
         raise DecisionError(f"{NOT_COMPARABLE}: an outcome exists only for a {COMPARABLE} row")
     if not isinstance(linked["rank"], int) or isinstance(linked["rank"], bool) or linked["rank"] < 1:

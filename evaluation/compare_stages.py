@@ -17,7 +17,12 @@ So this generator reads, and refuses, and computes almost nothing:
   ``NOT_COMPARABLE: <field> differs (...)``, naming the field, and the stage is left unranked;
 * a stage with no measurement in an area is ``NO_NEW_MEASUREMENT`` with the reason, never a blank. For the three areas
   whose quality this package refuses by name (``regime_accuracy``, ``causal_accuracy``, ``policy_profitability``) the
-  reason is the package's own text, quoted from ``REFUSED_METRICS``;
+  reason is the package's own text, quoted from ``REFUSED_METRICS``. A refused area may still carry a **declared
+  internal index** — ``regimes`` does, and ``ranked_metric_is_not_a_quality_claim`` says so in the area and in the
+  rendering — and then the rows are ranked on that index under its own name while the refusal stays exactly where it
+  was. Ranking an internal index is not measuring quality: a tighter clustering is a tighter clustering, and the
+  refused metric is refused in the same row. An area whose ``metric_keys`` are empty (``causal``, ``policy``) has
+  nothing to rank and every row of it stays ``NO_NEW_MEASUREMENT``;
 * a literature value appears only when a report carries one, with its source. Otherwise the cell says ``NOT_CARRIED``,
   which is a different statement from "there is no literature";
 * skill is the package's definition, ``1 - model_error / naive_error`` on the same rows, read from the report when the
@@ -94,7 +99,12 @@ READINGS = {
     "forecast": ClosureReading("forecast", "error", ("mae", "rmse"),
                                {"mae": "skill_mae", "rmse": "skill_rmse"}, None),
     "classification": ClosureReading("classification", "score", ("macro_f1", "accuracy"), {}, None),
-    "regimes": ClosureReading("regimes", "score", (), {}, "regime_accuracy"),
+    # WP19 declares that the stage table carries the representation area's internal indices under their own names
+    # while `regime_accuracy` stays refused, and WP29 needs the two stages of one corpus ranked against each other.
+    # `silhouette` is the one index ranked, because a table ranks one metric and this package will not mix a
+    # higher-is-better index and a lower-is-better one into a single column. It is an internal index of the
+    # assignment, not an accuracy; nothing about it says the clusters mean anything.
+    "regimes": ClosureReading("regimes", "score", ("silhouette",), {}, "regime_accuracy"),
     "causal": ClosureReading("causal", "score", (), {}, "causal_accuracy"),
     "policy": ClosureReading("policy", "score", (), {}, "policy_profitability"),
 }
@@ -259,12 +269,15 @@ def _row_for(stage: Stage | None, reading: ClosureReading, stage_name: str, *, r
         row[key] = carried if carried is not None else NOT_CARRIED
 
     if reading.refusal is not None:
+        # the refusal is carried whether or not the area also has an index to rank: a reader of this row must see that
+        # the area's quality metric does not exist, in the row, and not only in the area's header
         row["refusal"] = {"metric": reading.refusal, "reason": REFUSED_METRICS[reading.refusal]}
-        row["reason"] = (f"{reading.refusal} is refused by this package: {REFUSED_METRICS[reading.refusal]}. The report "
-                         "carries what this area can report; none of it is a quality claim.")
-        row["metric"] = f"{reading.refusal} (refused)"
         row["skill_source"] = f"{NOT_DEFINED}: {reading.refusal} is refused by name"
-        return row
+        if not reading.metric_keys:
+            row["reason"] = (f"{reading.refusal} is refused by this package: {REFUSED_METRICS[reading.refusal]}. The "
+                             "report carries what this area can report; none of it is a quality claim.")
+            row["metric"] = f"{reading.refusal} (refused)"
+            return row
 
     index, metric_key, model_error = _select_metric(stage, reading)
     if metric_key is None:
@@ -400,6 +413,12 @@ def compare(stages, *, not_measured=()) -> dict:
         areas.append({
             "area": family,
             "orientation": reading.orientation,
+            "ranked_metric_keys": list(reading.metric_keys),
+            "ranked_metric_is_not_a_quality_claim": (
+                None if reading.refusal is None or not reading.metric_keys else
+                f"the rows of this area are ranked on {'/'.join(reading.metric_keys)}, a declared internal index of "
+                f"the assignment itself. {reading.refusal} is refused by name and stays refused in every row: a rank "
+                f"here orders the indices, and says nothing about whether the clusters mean anything"),
             "reference_stage": reference["stage"] if reference else None,
             "refused_metric": reading.refusal,
             "refusal_reason": REFUSED_METRICS[reading.refusal] if reading.refusal else None,
@@ -471,6 +490,10 @@ def render_markdown(table: dict) -> str:
         lines.append("")
         if area["refused_metric"]:
             lines.append(f"**{area['refused_metric']} is refused by this package.** {area['refusal_reason']}")
+            lines.append("")
+        if area.get("ranked_metric_is_not_a_quality_claim"):
+            lines.append(f"**The rank below is not a quality claim.** "
+                         f"{area['ranked_metric_is_not_a_quality_claim']}.")
             lines.append("")
         lines.append("| " + " | ".join(COLUMNS) + " |")
         lines.append("|" + "|".join("---" for _ in COLUMNS) + "|")

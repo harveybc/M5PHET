@@ -344,3 +344,54 @@ def test_the_cli_takes_a_not_measured_stage(tmp_path):
     assert code == 0
     table = json.loads(out.read_text())
     assert [entry["stage"] for entry in table["not_measured"]] == ["candidate_seasonal_lag_2892"]
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# WP19/WP29: the representation area carries a declared internal index, and it is ranked WITHOUT becoming a quality claim
+# --------------------------------------------------------------------------------------------------------------------
+
+def regimes_report_with_silhouette(silhouette):
+    """A regimes report that also carries the internal index `evaluate_regimes` computes on the holdout.
+
+    The index is put into the metric set the package itself built, exactly as `feature_eng_m5phet.evaluate_regimes`
+    writes it, so this test reads the field the real producer writes and not one invented here.
+    """
+    payload = json.loads(regimes_report().to_json())
+    payload["metric_sets"][0]["values"]["silhouette"] = silhouette
+    return payload
+
+
+def test_a_regimes_stage_carrying_a_silhouette_is_ranked_on_it_and_still_refuses_regime_accuracy(tmp_path):
+    files = [write(tmp_path, "hand_a", regimes_report_with_silhouette(0.11), stage="hand_baseline"),
+             write(tmp_path, "laya_b", regimes_report_with_silhouette(0.42), stage="laya_chosen")]
+    table = compare_stages.compare([compare_stages.load_stage(path) for path in files])
+    area = next(a for a in table["areas"] if a["area"] == "regimes")
+    rows = rows_of(table, "regimes")
+
+    # ranked, higher silhouette first, because the area's orientation is a score
+    assert rows["laya_chosen"]["rank"] == 1 and rows["hand_baseline"]["rank"] == 2
+    assert rows["laya_chosen"]["comparability"] == compare_stages.COMPARABLE
+    assert rows["laya_chosen"]["metric"] == "silhouette"
+    assert rows["laya_chosen"]["model_error"] == 0.42
+
+    # and the refusal is exactly where it was: in the area, and in every row
+    assert area["refused_metric"] == "regime_accuracy"
+    assert rows["laya_chosen"]["refusal"]["metric"] == "regime_accuracy"
+    # skill is still not defined: silhouette is a score, and this package will not divide two scores into one
+    assert rows["laya_chosen"]["skill"] is None
+    assert compare_stages.NOT_DEFINED in rows["laya_chosen"]["skill_source"]
+    markdown = compare_stages.render_markdown(table).split("## Area: regimes")[1]
+    assert "The rank below is not a quality claim." in markdown
+
+
+def test_a_regimes_stage_with_no_internal_index_is_still_no_new_measurement(tmp_path):
+    files = [write(tmp_path, "plain", regimes_report(), stage="hand_baseline")]
+    row = rows_of(compare_stages.compare([compare_stages.load_stage(path) for path in files]), "regimes")
+    assert row["hand_baseline"]["status"] == compare_stages.NO_NEW_MEASUREMENT
+    assert row["hand_baseline"]["rank"] is None
+
+
+def test_an_area_whose_metric_is_refused_and_declares_no_index_is_never_ranked():
+    for family in ("causal", "policy"):
+        assert compare_stages.READINGS[family].metric_keys == ()
+        assert compare_stages.READINGS[family].refusal is not None
