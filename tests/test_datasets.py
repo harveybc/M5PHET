@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from m5phet import datasets
+from m5phet import datasets, decide
 from m5phet.interpret import Interpreter
 from m5phet.orchestrate import check_proposal, route
 from m5phet.questions import catalog as question_catalog
@@ -155,37 +155,114 @@ def test_a_column_name_resolves_the_dataset_that_declares_it(roots):
 
 # --- ambiguity: the model chooses AMONG the candidates, and nothing else -------------------------------------------
 
-#: words that fit BOTH household resources and neither uniquely: the case the interpreter exists for
+#: words that fit BOTH household resources and neither uniquely: the case Laya exists for
 AMBIGUOUS_SENTENCE = "usa el dataset household power del data lake"
+
+
+class FakeLaya:
+    """A classification provider with Laya's answer shape, as `tests/test_decide.py` uses. `backend` is what decides
+    whether a decision may exist at all; `raises` is an unreachable worker."""
+
+    name, area = "laya_news", "classification"
+
+    def __init__(self, label, probabilities, backend="laya", raises=False):
+        self.label, self.probabilities, self.backend, self.raises = label, probabilities, backend, raises
+        self.seen = []
+
+    def capabilities(self):
+        return {"provider": self.name, "operations": ["infer"], "families": ["classification"],
+                "output_kinds": ["typed_questions"], "uncertainty_methods": ["UNCALIBRATED_CLASS_PROBABILITIES"],
+                "supported": [{"operation": "infer", "family": "classification",
+                               "output_kind": "typed_questions"}], "known_states": ["laya-checkpoint:abc"],
+                "backend": self.backend}
+
+    def question_types(self):
+        return {"choice": {"required": ["options"], "optional": ["instructions"]}}
+
+    def answer_questions(self, state, questions, data, as_of):
+        if self.raises:
+            raise OSError("the private worker is unreachable")
+        self.seen.append(state)
+        answers = {name: {"type": "choice", "status": "OK", "label": self.label, "backend": self.backend,
+                          "instructions": question.get("instructions"),
+                          "options": [list(o) for o in question["options"]],
+                          "uncalibrated_probabilities": dict(self.probabilities), "probability_decimals": 4,
+                          "calibration": "UNCALIBRATED", "execution_authorized": False,
+                          **({"non_model_fixture": True} if self.backend == "fixture" else {})}
+                   for name, question in questions.items()}
+        answers["__state_ref__"] = "laya-checkpoint:abc"
+        return answers
+
+
+def laya(label, backend="laya", raises=False):
+    registry = Registry()
+    registry.register(FakeLaya(label, {"e1_household_dev_pilot_v1": 0.2871, "e1_household_successor_v3": 0.7129},
+                               backend=backend, raises=raises))
+    return registry
 
 
 def ambiguous_catalog(tmp_path):
     write_resource(tmp_path, "e1_household_dev_pilot_v1", HOUSEHOLD)
     write_resource(tmp_path, "e1_household_successor_v3", dict(HOUSEHOLD, data_access="GOVERNED_DELIVERY"))
     catalog = datasets.build_catalog([tmp_path])
-    catalog["aliases"] = {}                   # no alias declares which household resource; only the model can choose
+    catalog["aliases"] = {}                   # no alias declares which household resource; only Laya can choose
     return catalog
 
 
-def test_when_two_candidates_remain_the_interpreter_chooses_among_them(tmp_path):
+def test_when_two_candidates_remain_laya_chooses_among_them_and_the_choice_is_recorded(tmp_path):
     catalog = ambiguous_catalog(tmp_path)
-    fixed = Fixed(json.dumps({"dataset": "e1_household_successor_v3"}))
-    out = datasets.resolve(AMBIGUOUS_SENTENCE, catalog, fixed)
+    registry = laya("e1_household_successor_v3")
+    out = datasets.resolve(AMBIGUOUS_SENTENCE, catalog, registry, area="forecasting",
+                           record_dir=tmp_path / "decisions")
     assert out["status"] == "OK" and out["dataset"]["id"] == "e1_household_successor_v3"
-    assert out["source_of_choice"] == "INTERPRETER"
+    assert out["source_of_choice"] == datasets.LAYA
     assert sorted(out["candidates"]) == ["e1_household_dev_pilot_v1", "e1_household_successor_v3"]
-    asked = fixed.asked[0]
-    assert "e1_household_dev_pilot_v1" in asked and "e1_household_successor_v3" in asked
+    decision = out["decision"]
+    assert decision["kind"] == "dataset_choice" and decision["chosen"] == "e1_household_successor_v3"
+    assert decision["backend"] == "laya" and decision["execution_authorized"] is False
+    assert decision["probabilities"] == {"e1_household_dev_pilot_v1": 0.2871,
+                                         "e1_household_successor_v3": 0.7129}, "the model's own numbers, verbatim"
+    assert [pair[0] for pair in decision["options"]] == ["e1_household_dev_pilot_v1", "e1_household_successor_v3"]
+    assert "state_sha256" in decision and "problem" not in json.dumps(decision), "the record carries the digest, not the text"
+    assert decide.load(out["record_path"])["chosen"] == "e1_household_successor_v3"
 
 
-def test_an_id_outside_the_candidates_is_refused_never_accepted(tmp_path):
-    catalog = ambiguous_catalog(tmp_path)
-    out = datasets.resolve(AMBIGUOUS_SENTENCE, catalog, Fixed(json.dumps({"dataset": "eurusd_hourly_v2"})))
-    assert out["status"] == datasets.AMBIGUOUS
-    assert out["dataset"] is None and "eurusd_hourly_v2" in out["why"]
+def test_the_state_laya_is_shown_describes_the_candidates_and_carries_no_row(tmp_path):
+    registry = laya("e1_household_dev_pilot_v1")
+    datasets.resolve(AMBIGUOUS_SENTENCE, ambiguous_catalog(tmp_path), registry, area="forecasting",
+                     record_dir=tmp_path / "decisions")
+    state = registry.get("laya_news").seen[0]["news"]
+    assert state.startswith("decision_kind: dataset_choice")
+    assert "e1_household_dev_pilot_v1" in state and "e1_household_successor_v3" in state
+    assert "area: forecasting" in state and AMBIGUOUS_SENTENCE in state
+    assert "Global_active_power" in state, "the columns are a description"
 
 
-def test_without_an_interpreter_two_candidates_are_refused_naming_both(tmp_path):
+def test_a_label_outside_the_candidates_is_refused_never_accepted(tmp_path):
+    out = datasets.resolve(AMBIGUOUS_SENTENCE, ambiguous_catalog(tmp_path), laya("eurusd_hourly_v2"),
+                           record_dir=tmp_path / "decisions")
+    assert out["status"] == datasets.AMBIGUOUS and out["dataset"] is None
+    assert "CHOICE_OUTSIDE_OPTIONS" in out["why"] and "e1_household_dev_pilot_v1" in out["why"]
+
+
+def test_an_answer_from_a_fixture_is_not_a_decision_and_nothing_falls_back(tmp_path):
+    out = datasets.resolve(AMBIGUOUS_SENTENCE, ambiguous_catalog(tmp_path),
+                           laya("e1_household_successor_v3", backend="fixture"), record_dir=tmp_path / "decisions")
+    assert out["status"] == datasets.AMBIGUOUS and out["dataset"] is None
+    assert "NON_MODEL_FIXTURE" in out["why"]
+    assert not list((tmp_path / "decisions").glob("*.json")) if (tmp_path / "decisions").is_dir() else True
+
+
+def test_an_unreachable_worker_refuses_naming_the_candidates_and_never_asks_the_interpreter(tmp_path):
+    out = datasets.resolve(AMBIGUOUS_SENTENCE, ambiguous_catalog(tmp_path),
+                           laya("e1_household_dev_pilot_v1", raises=True), record_dir=tmp_path / "decisions")
+    assert out["status"] == datasets.AMBIGUOUS and out["dataset"] is None
+    assert "PROVIDER_ERROR" in out["why"]
+    assert "e1_household_dev_pilot_v1" in out["why"] and "e1_household_successor_v3" in out["why"]
+    assert "interpreter" in out["why"], "the refusal says that nothing falls back to the sentence interpreter"
+
+
+def test_without_a_decider_two_candidates_are_refused_naming_both(tmp_path):
     out = datasets.resolve(AMBIGUOUS_SENTENCE, ambiguous_catalog(tmp_path), None)
     assert out["status"] == datasets.AMBIGUOUS
     assert "e1_household_dev_pilot_v1" in out["why"] and "e1_household_successor_v3" in out["why"]

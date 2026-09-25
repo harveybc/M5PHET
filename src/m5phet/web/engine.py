@@ -186,11 +186,13 @@ class Engine:
         """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first.
 
         With nothing attached, the sentence may name a dataset of the data lake; the proposal then carries
-        `dataset: {id, source, rows, columns, source_of_choice}` and the person reviews which data will be read and
-        whether their own words or a model chose it, before anything runs."""
+        `dataset: {id, source, rows, columns, source_of_choice}` -- plus, when more than one dataset fitted the
+        words, the `dataset_choice` decision record Laya made -- and the person reviews which data will be read and
+        who chose it, before anything runs."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
-        return route(prompt, payload, self.registry, interpreter=self.interpreter, datasets=self.datasets)
+        return route(prompt, payload, self.registry, interpreter=self.interpreter, datasets=self.datasets,
+                     decider=self)
 
     def output(self, area):
         """The procedure configured for this area: `areas.<area>.output.plugin`, `default` when nothing is bound."""
@@ -213,7 +215,9 @@ class Engine:
         copy -- and that refusal is what the person is shown."""
         state = task.get("state") if isinstance(task, dict) else None
         subject = state if isinstance(state, dict) and state.get("dataset") else prompt
-        resolution = dataset_catalog.resolve(subject, self.datasets, self.interpreter)
+        # no decider at execution: the choice was made and recorded when the person reviewed the proposal, and its
+        # id travels in `state.dataset`. A run is never the place to ask Laya again for a different dataset.
+        resolution = dataset_catalog.resolve(subject, self.datasets, None)
         if resolution["status"] != dataset_catalog.OK:
             return None, resolution
         return dataset_catalog.load_rows(resolution["dataset"]), resolution

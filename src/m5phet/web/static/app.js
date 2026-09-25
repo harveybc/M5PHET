@@ -139,7 +139,7 @@ function datasetLine(dataset){
   if(names.length)return 'Datos que se usarán: '+names.join(', ')+' (adjuntos a esta pregunta)';
   if(dataset&&dataset.id){
     const rows=(dataset.rows===null||dataset.rows===undefined)?'?':dataset.rows;
-    const who=dataset.source_of_choice==='INTERPRETER'?' · elegido por el modelo intérprete entre los candidatos del catálogo'
+    const who=dataset.source_of_choice==='LAYA'?' · elegido por Laya entre los candidatos del catálogo'+(dataset.decision?' (decisión '+dataset.decision.chosen+', probabilidades no calibradas)':'')
       :(dataset.source_of_choice==='EXPLICIT_ID'?' · nombrado por su identificador':' · fijado por sus propias palabras');
     const gov=dataset.governed?' · gobernado: la ejecución se rechaza (GOVERNED_ACCESS_NOT_CONFIGURED) hasta que el acceso data-gov esté configurado':'';
     const sca=dataset.scale==='FITTED_EXPERIMENT_PANEL'?' · panel ya escalado por su propio experimento: la ejecución se rechaza (ROWS_SCALE_NOT_DECLARED) hasta que exista el adaptador de ventana':'';

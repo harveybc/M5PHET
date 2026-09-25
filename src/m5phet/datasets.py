@@ -18,10 +18,14 @@ it to `~/.local/state/m5phet/dataset_catalog.json`.
 **The resolution** (`resolve`). In this order and nothing else: an explicit id (in the envelope's state or written
 verbatim in the sentence) wins; then deterministic word matching against id, name, description and columns with the
 same normalisation `interpret` uses, plus a small alias table; then, and only when more than one candidate remains,
-the configured interpreter is asked to choose AMONG THE CANDIDATE IDS -- a proposal outside them is refused, never
-rounded to a neighbour. Still ambiguous is `AMBIGUOUS` naming the candidates; nothing matched is `NOT_FOUND` naming
-the closest three. `source_of_choice` says which of the three settled it, so the person reviewing the proposal reads
-whether their own words or a model chose their data.
+**Laya** is asked to choose AMONG THE CANDIDATE IDS through `m5phet.decide` (the owner's order of 2026-09-25: the
+chooser of a configuration is Laya, the first cognitive layer of every area, not the sentence interpreter). The
+choice is a `dataset_choice` decision record -- state digest, the option set, the chosen id, the model's own
+uncalibrated probabilities, the checkpoint -- written beside the proposal. A label outside the candidates, an answer
+from a fixture, an unreachable worker: each refuses `AMBIGUOUS` naming the candidates, and NOTHING falls back to the
+interpreter, because a choice made by a non-model establishes nothing. Nothing matched is `NOT_FOUND` naming the
+closest three. `source_of_choice` says which of the three settled it, so the person reviewing the proposal reads
+whether their own words or Laya chose their data.
 
 **The access**. An ungoverned foundation resource is read from disk when the run needs it. A governed one resolves
 and is described exactly like any other -- a person must be able to see that it exists and that it is governed --
@@ -60,7 +64,12 @@ NOT_ASKED = "NOT_ASKED"
 #: how a dataset came to be chosen -- the three sources, and no fourth
 EXPLICIT_ID = "EXPLICIT_ID"
 QUESTION_TEXT = "QUESTION_TEXT"
-INTERPRETER = "INTERPRETER"
+LAYA = "LAYA"
+
+#: the kind of decision a dataset choice is recorded under, and where the records are kept
+DECISION_KIND = "dataset_choice"
+DECISION_INSTRUCTIONS = "Which dataset fits the problem described?"
+DEFAULT_RECORD_DIR = "~/.local/state/m5phet/decisions"
 
 #: a panel a fitted experiment wrote is not a table of readings: `Xs` of `e1_household_dev_pilot_v1` is the slice
 #: ALREADY standardized by the scaler its own manifest declares (mean 0, sd 1), while its labels stay in kW. Handing
@@ -411,13 +420,50 @@ def _closest(catalog, lowered, how_many=3):
     return [i["id"] for i in ranked[:how_many]]
 
 
-def _result(status, dataset=None, candidates=(), why=None, source_of_choice=None):
+def _result(status, dataset=None, candidates=(), why=None, source_of_choice=None, decision=None, record_path=None):
     return {"status": status, "dataset": dataset, "candidates": list(candidates), "why": why,
-            "source_of_choice": source_of_choice}
+            "source_of_choice": source_of_choice, "decision": decision, "record_path": record_path}
 
 
-def resolve(subject, catalog, interpreter=None):
-    """Which dataset these words name: an explicit id, then the words, then -- only between candidates -- a model."""
+def _laya_chooses(text, candidates, decider, *, area, record_dir, as_of):
+    """Laya chooses among the candidate ids, or the choice is refused. There is no path from here to a fallback.
+
+    The state describes the problem and each candidate the way the catalog describes it -- id, name, description,
+    columns, rows, step_seconds -- and the option set is exactly the candidate ids. `m5phet.decide` checks the answer
+    back against that set, refuses an answer that did not come from Laya's own backend, and writes the record."""
+    from . import decide
+    ids = [item["id"] for item in candidates]
+    state = decide.decision_state(DECISION_KIND, {
+        "problem": text, "area": area,
+        "candidates": [{"id": item["id"], "name": item["name"], "description": item["description"],
+                        "columns": list(item.get("columns") or []), "rows": item.get("rows"),
+                        "step_seconds": item.get("step_seconds")} for item in candidates]})
+    options = [[item["id"], item["name"]] for item in candidates]
+    try:
+        asked = decide.ask(decider, state, {"dataset": {"options": options, "instructions": DECISION_INSTRUCTIONS}},
+                           kind=DECISION_KIND, record_dir=record_dir, as_of=as_of)
+    except decide.DecisionError as error:
+        return _result(AMBIGUOUS, None, ids, f"these words fit {ids} and the choice could not be asked ({error}); "
+                                             "name the dataset by its id")
+    entry = asked["dataset"]
+    if entry.get("status") != "OK":
+        return _result(AMBIGUOUS, None, ids,
+                       f"these words fit {ids} and Laya did not make a decision "
+                       f"({entry.get('refusal')}: {entry.get('why')}); nothing falls back to the sentence "
+                       "interpreter, because a choice made by a non-model establishes nothing -- name the id")
+    decision = entry["decision"]
+    return _result(OK, entry_by_id(candidates, decision["chosen"]), ids, None, LAYA, decision, entry.get("record_path"))
+
+
+def entry_by_id(items, dataset_id):
+    return next((item for item in items if item.get("id") == dataset_id), None)
+
+
+def resolve(subject, catalog, decider=None, *, area=None, record_dir=None, as_of=None):
+    """Which dataset these words name: an explicit id, then the words, then -- only between candidates -- Laya.
+
+    `decider` is an `m5phet.web.engine.Engine` (so a decision takes the private worker route to the real checkpoint)
+    or a bare `Registry`. With none, two candidates are refused rather than guessed."""
     text, explicit = _sentence_and_explicit(subject)
     lowered = text.lower()
     items = list((catalog or {}).get("datasets") or [])
@@ -453,23 +499,14 @@ def resolve(subject, catalog, interpreter=None):
     if len(candidates) == 1:
         return _result(OK, candidates[0], [candidates[0]["id"]], None, QUESTION_TEXT)
 
-    # (3) more than one candidate: the interpreter chooses AMONG THEM, and among nothing else
+    # (3) more than one candidate: LAYA chooses AMONG THEM, and among nothing else
     ids = [item["id"] for item in candidates]
-    if interpreter is None or not interpreter.available:
+    if decider is None:
         return _result(AMBIGUOUS, None, ids,
-                       f"these words fit {ids}; say which one, or no interpreter is configured to choose between them")
-    slot = {"name": "dataset", "type": "string", "allowed": ids}
-    try:
-        proposed = interpreter.propose(text, [slot])
-    except Exception as error:                                          # noqa: BLE001
-        return _result(AMBIGUOUS, None, ids,
-                       f"these words fit {ids} and the interpreter could not be consulted ({error}); say which one")
-    chosen = proposed.get("dataset") if isinstance(proposed, dict) else None
-    if chosen in ids:
-        return _result(OK, entry(catalog, chosen), ids, None, INTERPRETER)
-    return _result(AMBIGUOUS, None, ids,
-                   f"the interpreter proposed {chosen!r} and the candidates were {ids}; a proposal outside the "
-                   "candidates is refused, never rounded to a neighbour")
+                       f"these words fit {ids}; say which one, or configure the classification engine so Laya can "
+                       "choose between them")
+    return _laya_chooses(text, candidates, decider, area=area,
+                         record_dir=DEFAULT_RECORD_DIR if record_dir is None else record_dir, as_of=as_of)
 
 
 def proposal_view(resolution):
@@ -477,9 +514,15 @@ def proposal_view(resolution):
     found = (resolution or {}).get("dataset")
     if not found:
         return None
-    return {"id": found["id"], "source": found["source"], "rows": found["rows"], "columns": list(found["columns"]),
+    view = {"id": found["id"], "source": found["source"], "rows": found["rows"], "columns": list(found["columns"]),
             "governed": found["governed"], "scale": found.get("scale", "UNKNOWN"),
             "source_of_choice": resolution.get("source_of_choice")}
+    if resolution.get("decision") is not None:
+        # the record beside the proposal: what Laya was shown (by digest), what it could choose from, what it chose
+        # and with which uncalibrated probabilities. The state TEXT is not here; its digest binds the record to it.
+        view["decision"] = resolution["decision"]
+        view["decision_record"] = resolution.get("record_path")
+    return view
 
 
 def profile_of(found):

@@ -171,7 +171,7 @@ def dataset_module():
     return module
 
 
-def resolve_dataset(prompt, data, catalog, interpreter):
+def resolve_dataset(prompt, data, catalog, decider):
     """(resolution, what the proposal carries) for a sentence that names a dataset, or (None, None).
 
     Nothing is resolved when a file is attached -- the attachment is the data -- and nothing is resolved when the
@@ -180,16 +180,17 @@ def resolve_dataset(prompt, data, catalog, interpreter):
     if data is not None or not (catalog or {}).get("datasets"):
         return None, None
     module = dataset_module()
-    resolution = module.resolve(prompt, catalog, interpreter)
+    resolution = module.resolve(prompt, catalog, decider)
     if resolution["status"] != module.OK:
         return (resolution if resolution["status"] != module.NOT_ASKED else None), None
     return resolution, module.proposal_view(resolution)
 
 
-def route(prompt, data, registry, *, interpreter=None, datasets=None):
+def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None):
     """Turn a sentence into a validated envelope, or say exactly why it could not be.
 
-    `datasets` is the dataset catalog (WP15). It is consulted ONLY when nothing is attached: an attached file is the
+    `datasets` is the dataset catalog (WP15) and `decider` the Engine or Registry Laya is asked through when
+    more than one dataset fits the words. The catalog is consulted ONLY when nothing is attached: an attached file is the
     data the person chose, and no catalog may quietly replace it. When the sentence names a dataset the catalog
     holds, the resolved description -- columns and a row count, never a row -- becomes the profile every check below
     reads, so an engine that needs data is satisfied by a named dataset exactly as it is by an attachment."""
@@ -201,7 +202,7 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None):
     catalog = question_catalog(registry)
     profile = dataset_profile(data)
     interpreter = interpreter if interpreter is not None else build_interpreter()
-    resolution, chosen = resolve_dataset(prompt, data, datasets, interpreter)
+    resolution, chosen = resolve_dataset(prompt, data, datasets, decider)
     if chosen:
         profile = dataset_module().profile_of(resolution["dataset"])
     report = {"profile": profile, "catalog": catalog, "interpreter": interpreter.identity(),
