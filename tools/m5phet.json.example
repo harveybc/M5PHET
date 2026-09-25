@@ -48,6 +48,7 @@
       "output": {"plugin": "default", "language": "es"}
     }
   },
+  "$comment_surfaces": "api.token_file names the FILE whose contents are the bearer token a program presents as `Authorization: Bearer <token>` beside the owner's browser cookie (docs/API.md). The token itself is never written here, and the file belongs outside every repository -- create it with `head -c 32 /dev/urandom | base64 > ~/.config/m5phet/api.token && chmod 600 ~/.config/m5phet/api.token`. It is read once, at start-up: no file, no bearer access, and the owner's cookie stays the only way in. $M5PHET_API_TOKEN_FILE overrides this binding so a verification instance never reads the owner's token.",
   "surfaces": {
     "web": {"port": 8765},
     "api": {"token_file": "~/.config/m5phet/api.token"},

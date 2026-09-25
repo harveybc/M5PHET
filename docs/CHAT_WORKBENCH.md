@@ -101,6 +101,51 @@ the token in the login dialog; it becomes an HttpOnly SameSite cookie. Use TLS
 or an authenticated private tunnel on untrusted networks. This is single-owner,
 not multi-tenant. Do not expose an unauthenticated public reverse proxy.
 
+### A program instead of a browser (`docs/API.md`)
+
+**[`docs/API.md`](API.md) is the API**: every endpoint with its request body,
+its response shape, its error codes and one working `curl`, plus the three rules
+a caller has to know -- review before run, the `client_id` 409 rule, and the
+receipt that travels with every answer. The browser client is one caller of that
+API; a program is a second.
+
+A program has no browser, and giving a script the owner's token to post at
+`/api/login` means putting that token in the script. So the API takes a **second
+credential of equal standing**: `Authorization: Bearer <token>`, where the token
+is the *contents of a file* the operator names.
+
+```json
+{"schema": "m5phet.config.v1",
+ "surfaces": {"api": {"token_file": "~/.config/m5phet/api.token"}}}
+```
+
+```bash
+head -c 32 /dev/urandom | base64 > ~/.config/m5phet/api.token
+chmod 600 ~/.config/m5phet/api.token
+M5PHET_API_TOKEN_FILE=~/.config/m5phet/api.token tools/start_chat.sh
+python3 tools/api_client_example.py --base http://127.0.0.1:8765 \
+        --token-file ~/.config/m5phet/api.token --verify
+```
+
+The file is read **once, at start-up**; a missing, empty or unreadable one leaves
+bearer access off and the owner's cookie as the only way in, which is the safe
+direction. The token is compared with `hmac.compare_digest` and appears in no
+response, header or log line. The host allow-list and the cross-origin rules
+apply to a bearer request exactly as to a browser's -- a token is not a way
+around them. `$M5PHET_API_TOKEN_FILE` overrides `surfaces.api.token_file`
+because it is a *path* override of the same class as `M5PHET_CONFIG`: a
+verification instance must be able to run with its own token and never read the
+owner's. (Value bindings keep the opposite precedence: there, the JSON wins.)
+
+`tools/api_client_example.py` is the whole path in the standard library alone --
+login, catalog, chat, upload from a path, preview, propose, run with a fresh
+`client_id`, poll, print the answers and the refusals, and both halves of the
+`client_id` rule. With `--verify` it drives the envelopes of
+`tools/verify_envelopes.py` (imported from that file, so the two cannot drift
+apart) over the token instead of the cookie. It refuses a non-loopback `--base`
+unless `--i-know-this-leaves-the-machine` is passed, and takes the token from a
+file only: a token in a command line is visible to every process on the machine.
+
 ### Verification and upstream UI dependencies
 
 ```bash
