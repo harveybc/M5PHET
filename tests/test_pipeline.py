@@ -10,6 +10,7 @@ Nothing here fits anything, and a passing suite says nothing about whether a cho
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -575,3 +576,33 @@ def test_a_recorded_choice_the_registries_no_longer_declare_cannot_be_replayed(r
     plan = pipeline.choose_preprocessing(engine_with(laya("normalizer", keys)), sheet_fixture(),
                                          pipeline.catalog_preprocessors(), replay=replay, features=["price"])
     assert plan["features"]["price"]["refusal"] == pipeline.CHOICE_NO_LONGER_DECLARED
+
+
+# --- the driver's one guard ---------------------------------------------------------------------------------------
+
+def _driver():
+    """`tools/wp18_pipeline.py` loaded by path: it is a script, not an installed module."""
+    import importlib.util
+    path = Path(__file__).resolve().parents[1] / "tools" / "wp18_pipeline.py"
+    spec = importlib.util.spec_from_file_location("wp18_pipeline", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_reasking_a_step_only_means_something_while_replaying_the_others(tmp_path, capsys):
+    """`--reask` says which step to ask again INSTEAD of replaying it; without --replay there is nothing to replay."""
+    driver = _driver()
+    empty = tmp_path / "x.json"
+    empty.write_text("{}", encoding="utf-8")
+    code = driver.main(["--metrics", str(empty), "--groups", str(empty), "--candidates", str(empty),
+                        "--out", str(tmp_path / "spec.json"), "--reask", "extractors"])
+    assert code == 2
+    assert "REASK_NEEDS_REPLAY" in capsys.readouterr().err
+
+
+def test_the_driver_only_accepts_the_four_steps_as_reaskable(tmp_path):
+    driver = _driver()
+    with pytest.raises(SystemExit):
+        driver.main(["--metrics", "m", "--groups", "g", "--candidates", "c", "--out", "o",
+                     "--replay", "--reask", "a_step_that_does_not_exist"])
