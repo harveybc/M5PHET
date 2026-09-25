@@ -7,9 +7,20 @@ answers out. A question the engine cannot answer must come back REFUSED with its
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
+
+
+def login(base, token):
+    """Open the owner's session when the instance requires the access token (M5PHET_CHAT_TOKEN in chat.env).
+
+    The cookie the login sets is kept for every later call by a process-wide cookie jar; without a token nothing
+    changes, and an instance that requires one answers 401 to the first call, which is the right failure."""
+    import http.cookiejar
+    urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())))
+    call(base, "POST", "/api/login", {"token": token})
 
 
 def call(base, method, path, body=None, raw=None, filename=None, timeout=300):
@@ -125,7 +136,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="http://127.0.0.1:8766")
     parser.add_argument("--out")
+    parser.add_argument("--token", default=os.environ.get("M5PHET_CHAT_TOKEN"),
+                        help="owner access token; defaults to M5PHET_CHAT_TOKEN")
     args = parser.parse_args(argv)
+    if args.token:
+        login(args.base, args.token)
     catalog = call(args.base, "GET", "/api/catalog")
     areas = call(args.base, "GET", "/api/tasks/catalog")["areas"]
     report = {"schema": "m5phet_envelope_verification.v1", "areas": areas, "envelopes": []}
