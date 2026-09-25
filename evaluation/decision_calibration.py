@@ -74,11 +74,18 @@ PROBABILITY_OUT_OF_RANGE = "probability_out_of_range"
 #: counted, it may settle the best-ranked option, and it is never scored: an agreement rate that included it would be
 #: measuring the person who configured the stage, not the chooser this report exists to calibrate.
 HUMAN_NOT_SCORED = "human_choice_not_scored"
+#: an outcome of a record a SEARCH wrote (WP06 stage 5). Like a person's it carries the option a stage used and no
+#: probability, so it is counted, it may settle the best-ranked option, and it is never scored -- a search's choice was
+#: made BY minimising the objective this table measures, so scoring it against the table would measure the table twice.
+SEARCH_NOT_SCORED = "search_choice_not_scored"
 
-#: `m5phet.decide.CHOSEN_BY_LAYA` / `CHOSEN_BY_HUMAN`; a record naming no chooser is Laya's, as every record written
-#: before WP23 is. A test binds these to that module's constants so the two cannot drift apart.
+#: `m5phet.decide.CHOSEN_BY_LAYA` / `CHOSEN_BY_HUMAN` / `CHOSEN_BY_SEARCH`; a record naming no chooser is Laya's, as
+#: every record written before WP23 is. A test binds these to that module's constants so the two cannot drift apart.
 CHOSEN_BY_LAYA = "LAYA"
 CHOSEN_BY_HUMAN = "HUMAN"
+CHOSEN_BY_SEARCH = "SEARCH"
+#: the choosers whose outcomes are labels and never evidence: neither carries a probability to calibrate
+CHOOSERS_NOT_SCORED = (CHOSEN_BY_HUMAN, CHOSEN_BY_SEARCH)
 
 #: WP23's two cases for a stage that entered the closure table, said of one (kind, question) at a time
 USABLE_FOR_CALIBRATION = "USABLE_FOR_CALIBRATION"
@@ -233,7 +240,7 @@ def _coverage(stages_with_records, table):
 
 
 def chooser_of(entry):
-    """`LAYA` or `HUMAN` for one outcome. An outcome naming no chooser links a record that named none: Laya's."""
+    """`LAYA`, `HUMAN` or `SEARCH` for one outcome. An outcome naming no chooser links a record that named none: Laya's."""
     return entry.get("chosen_by", CHOSEN_BY_LAYA)
 
 
@@ -246,8 +253,9 @@ def _group_report(kind, question, outcomes, *, table=None):
     `MINIMUM_LINKED` exists to stop a rate being printed over too few *scored* outcomes.
     """
     n_linked = len(outcomes)
-    scorable = [entry for entry in outcomes if chooser_of(entry) != CHOSEN_BY_HUMAN]
+    scorable = [entry for entry in outcomes if chooser_of(entry) not in CHOOSERS_NOT_SCORED]
     human = [entry for entry in outcomes if chooser_of(entry) == CHOSEN_BY_HUMAN]
+    searched = [entry for entry in outcomes if chooser_of(entry) == CHOSEN_BY_SEARCH]
     missing = max(0, MINIMUM_LINKED - len(scorable))
     reasons = []
 
@@ -276,14 +284,16 @@ def _group_report(kind, question, outcomes, *, table=None):
                        f"{missing} missing")
 
     group = {"kind": kind, "question": question, "n_linked": n_linked, "n_scorable_linked": len(scorable),
-             "n_human_linked": len(human), "missing": missing,
+             "n_human_linked": len(human), "n_search_linked": len(searched), "missing": missing,
              "status": MEASURED if not reasons else NO_NEW_MEASUREMENT,
              "reason": None if not reasons else f"{NO_NEW_MEASUREMENT}: " + "; ".join(reasons),
              "options": options, "best_ranked_option": best, "n_scored": 0,
-             "excluded": {AMBIGUOUS_ARGMAX: 0, PROBABILITY_OUT_OF_RANGE: 0, HUMAN_NOT_SCORED: len(human)},
+             "excluded": {AMBIGUOUS_ARGMAX: 0, PROBABILITY_OUT_OF_RANGE: 0, HUMAN_NOT_SCORED: len(human),
+                          SEARCH_NOT_SCORED: len(searched)},
              "agreements": None, "agreement_rate": None, "bins": [], "expected_calibration_error": None,
              "stages": stages,
              "human_stages": sorted({entry["stage"] for entry in human}),
+             "search_stages": sorted({entry["stage"] for entry in searched}),
              "stage_coverage": coverage}
     if reasons:
         return group
@@ -423,8 +433,8 @@ def render_markdown(report: dict) -> str:
         lines.append(f"## `{group['kind']}` · question `{group['question']}`")
         lines.append("")
         lines.append(f"- linked outcomes: **{group['n_linked']}** — {group['n_scorable_linked']} scorable, "
-                     f"{group['n_human_linked']} chosen by a person and never scored (minimum "
-                     f"{report['minimum_linked']} scorable, {group['missing']} missing)")
+                     f"{group['n_human_linked']} chosen by a person and {group['n_search_linked']} by a search, "
+                     f"neither ever scored (minimum {report['minimum_linked']} scorable, {group['missing']} missing)")
         lines.append(f"- best-ranked option: {('`' + group['best_ranked_option'] + '`') if group['best_ranked_option'] else NO_NEW_MEASUREMENT}")
         lines.append(f"- status: **{group['status']}**")
         if group["reason"]:
@@ -446,7 +456,8 @@ def render_markdown(report: dict) -> str:
         lines.append(f"- scored outcomes: {group['n_scored']} "
                      f"(excluded: {group['excluded'][AMBIGUOUS_ARGMAX]} with no single argmax, "
                      f"{group['excluded'][PROBABILITY_OUT_OF_RANGE]} with a probability outside [0, 1], "
-                     f"{group['excluded'][HUMAN_NOT_SCORED]} chosen by a person)")
+                     f"{group['excluded'][HUMAN_NOT_SCORED]} chosen by a person, "
+                     f"{group['excluded'][SEARCH_NOT_SCORED]} chosen by a search)")
         lines.append(f"- agreement with the best-ranked option: **{group['agreements']}/{group['n_scored']}** = "
                      f"{_cell(group['agreement_rate'])}")
         lines.append(f"- expected calibration error: **{_cell(group['expected_calibration_error'])}**")

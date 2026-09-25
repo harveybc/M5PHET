@@ -81,15 +81,37 @@ LAYA_BACKEND = "laya"
 CHOSEN_BY_LAYA = "LAYA"
 #: the chooser of a record a person wrote by hand: no backend, no checkpoint, no probabilities, and a stated ground
 CHOSEN_BY_HUMAN = "HUMAN"
-CHOOSERS = (CHOSEN_BY_LAYA, CHOSEN_BY_HUMAN)
+#: the chooser of a record a SEARCH wrote (WP06 stage 5): a declared budget of fits was spent over a declared space and
+#: the option that minimised one declared objective was kept. It is neither a person nor Laya, and saying it is either
+#: would be false in both directions: a search produced no distribution over the options (so it is not Laya's record,
+#: which is calibrated by its probabilities), and nobody deliberated (so it is not a person's, whose ground is a
+#: judgement). Its ground is mechanical and must name the two things that make it reviewable: the objective it
+#: minimised and the budget it was allowed to spend.
+CHOSEN_BY_SEARCH = "SEARCH"
+CHOOSERS = (CHOSEN_BY_LAYA, CHOSEN_BY_HUMAN, CHOSEN_BY_SEARCH)
+
+#: the choosers that carry no probabilities: a person produced no distribution, and a search produced a ranking of
+#: measured objective values, which is not one either. Only Laya's head emits probabilities, and only they are calibrated.
+CHOOSERS_WITHOUT_PROBABILITIES = (CHOSEN_BY_HUMAN, CHOSEN_BY_SEARCH)
 
 #: a human record carries no probability at all rather than a flat or invented one: a person did not produce a
 #: distribution, and writing 1.0 for the chosen option would put a certainty in the corpus that nobody claimed
 HUMAN_PROBABILITIES = {}
+#: the same, for a search: the objective values it measured are in the closure table, not in a probability field
+SEARCH_PROBABILITIES = {}
 #: `why` is empty, or a human record was written without the ground of the choice
 WHY_REQUIRED = "WHY_REQUIRED"
+#: a search record was written without naming the objective its choice minimised
+OBJECTIVE_REQUIRED = "OBJECTIVE_REQUIRED"
+#: a search record was written without naming the budget it was allowed to spend
+BUDGET_REQUIRED = "BUDGET_REQUIRED"
 #: a field only one kind of chooser may carry was found on the other kind
 CHOOSER_FIELDS = "CHOOSER_FIELDS"
+
+#: the two sentences a search's `why` must carry, written by `search_choice` and checked by `validate_decision`. They
+#: are fixed strings so the check is a property of the record and not of anybody's phrasing.
+OBJECTIVE_MARKER = "The objective minimised was "
+BUDGET_MARKER = "The budget spent was "
 
 # --- WP20: the abstention threshold, and the measurement it must be cited from ------------------------------------------
 #: the schema of the evaluation report a confidence threshold may be cited from. `evaluation/report.py` writes it.
@@ -634,26 +656,28 @@ def decision_sha256(decision):
 
 
 def chooser_of(decision):
-    """`LAYA` or `HUMAN`. A record that names no chooser is Laya's: every record written before WP23 is one."""
+    """`LAYA`, `HUMAN` or `SEARCH`. A record that names no chooser is Laya's: every record written before WP23 is one."""
     if not isinstance(decision, dict):
         raise DecisionError("a decision record is a mapping")
     chosen_by = decision.get("chosen_by", CHOSEN_BY_LAYA)
     if chosen_by not in CHOOSERS:
-        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {chosen_by!r} is neither, and a record whose "
-                            f"chooser is unknown cannot be read as evidence about either of them")
+        raise DecisionError(f"`chosen_by` is one of {list(CHOOSERS)}; {chosen_by!r} is none of them, and a record "
+                            f"whose chooser is unknown cannot be read as evidence about any of them")
     return chosen_by
 
 
 def validate_decision(decision):
     """Raise unless this is a complete decision record, claiming no authority, and saying who made the choice.
 
-    Three shapes are records, and nothing else is. A **Laya choice**: `chosen_by` absent or `LAYA`, backend `laya`, an
+    Four shapes are records, and nothing else is. A **Laya choice**: `chosen_by` absent or `LAYA`, backend `laya`, an
     option key in `chosen`, the head's own uncalibrated probabilities. An **abstention** (WP20): the same, with
     `chosen: null` and an `abstention` block naming the threshold and the measurement it was cited from -- a question
     that was asked and not answered, which is a fact about the checkpoint and never a choice. A **person's choice**
     (WP23): `chosen_by: HUMAN`, no backend and no checkpoint because a person is neither, `probabilities: {}` because
     there is no head to read them off, and a `why` in the person's own words, so a stage a person configured can enter
-    a closure table carrying records like any other.
+    a closure table carrying records like any other. A **search's choice** (WP06 stage 5): `chosen_by: SEARCH`, the
+    same absences as a person's, and a `why` that must name the objective it minimised and the budget it spent -- a
+    search is neither a person nor a model, and the two facts that make its winner readable are those.
 
     The shapes are validated apart on purpose, and neither can borrow a field from the other: a record that looked like
     the wrong kind of evidence would be read as the wrong kind of evidence later.
@@ -665,7 +689,7 @@ def validate_decision(decision):
     chosen_by = chooser_of(decision)
     expected = {"schema", "kind", "state_sha256", "question", "options", "chosen", "probabilities",
                 "probability_decimals", "checkpoint", "backend", "as_of", "execution_authorized"}
-    if chosen_by == CHOSEN_BY_HUMAN:
+    if chosen_by in CHOOSERS_WITHOUT_PROBABILITIES:
         expected |= {"chosen_by", "why"}
     else:
         if "chosen_by" in decision:
@@ -709,17 +733,26 @@ def validate_decision(decision):
                                 f"{abstention.get('top_option')!r} is not one of {keys}")
 
     probabilities = decision["probabilities"]
-    if chosen_by == CHOSEN_BY_HUMAN:
+    if chosen_by in CHOOSERS_WITHOUT_PROBABILITIES:
         if probabilities != HUMAN_PROBABILITIES:
-            raise DecisionError(f"{CHOOSER_FIELDS}: a record chosen by {CHOSEN_BY_HUMAN} carries no probabilities; a "
-                                f"person produced no distribution, and {probabilities!r} would be a claim nobody made")
+            raise DecisionError(f"{CHOOSER_FIELDS}: a record chosen by {chosen_by} carries no probabilities; it "
+                                f"produced no distribution, and {probabilities!r} would be a claim nobody made")
         for field in ("backend", "checkpoint", "probability_decimals"):
             if decision[field] is not None:
                 raise DecisionError(f"{CHOOSER_FIELDS}: `{field}` is {decision[field]!r} on a record chosen by "
-                                    f"{CHOSEN_BY_HUMAN}; a person is not a backend and ran no checkpoint")
+                                    f"{chosen_by}; neither a person nor a search is a backend or ran a checkpoint")
         if not isinstance(decision["why"], str) or not decision["why"].strip():
-            raise DecisionError(f"{WHY_REQUIRED}: a human choice carries the ground it was made on; a bare key in a "
-                                f"corpus is an opinion nobody can review")
+            raise DecisionError(f"{WHY_REQUIRED}: a {chosen_by} choice carries the ground it was made on; a bare key "
+                                f"in a corpus is an opinion nobody can review")
+        if chosen_by == CHOSEN_BY_SEARCH:
+            missing = [name for name, marker in ((OBJECTIVE_REQUIRED, OBJECTIVE_MARKER),
+                                                 (BUDGET_REQUIRED, BUDGET_MARKER)) if marker not in decision["why"]]
+            if missing:
+                raise DecisionError(f"{missing[0]}: a record chosen by {CHOSEN_BY_SEARCH} names, in `why`, the "
+                                    f"objective it minimised and the budget it was allowed to spend; this one's "
+                                    f"`why` carries no {missing[0].split('_')[0].lower()} sentence "
+                                    f"({', '.join(sorted(missing))} missing). A search whose objective or budget is "
+                                    f"not written down cannot be reviewed and its choice is not evidence")
         return decision
     if decision["backend"] != LAYA_BACKEND:
         raise DecisionError(f"{NON_MODEL_FIXTURE}: backend {decision['backend']!r} is not {LAYA_BACKEND!r}; a "
@@ -779,6 +812,80 @@ def human_choice(*, kind, question, options, chosen, state_text, why, as_of=None
                 "backend": None,
                 "chosen_by": CHOSEN_BY_HUMAN,
                 "why": why,
+                "as_of": as_of if as_of is not None else datetime.now(timezone.utc).isoformat(),
+                "execution_authorized": False}
+    validate_decision(decision)
+    entry = {"status": "OK", "decision": decision, "record_path": None}
+    if record_dir is not None:
+        entry["record_path"] = str(record(decision, record_dir))
+    return entry
+
+
+def search_choice(*, kind, question, options, chosen, state_text, objective, budget, why, as_of=None,
+                  record_dir=None):
+    """Record a choice a SEARCH made, in the same shape and the same store as Laya's and a person's.
+
+    WP06 stage 5, in one function. A search over declared configurations is a third chooser: it is not Laya, because
+    it produced no distribution over the options and there is nothing to calibrate; and it is not a person, because
+    nobody deliberated -- every option it kept it kept because a fit was run and one number came back smaller. The
+    record therefore carries `chosen_by: SEARCH`, no probabilities, no backend and no checkpoint, and a `why` that
+    must name the two facts without which a search result cannot be read at all:
+
+    * the **objective** -- which single scalar was minimised, on which population. A search that does not say what it
+      optimised has reported the winner of an unnamed contest;
+    * the **budget** -- how many candidates it was allowed to evaluate. The best of 60 evaluations and the best of 6
+      are different claims, and the difference is not visible in the winner.
+
+    Both are composed into `why` through fixed markers that `validate_decision` checks, so a record cannot be written
+    with one of them missing and cannot be edited into one afterwards without failing its own digest.
+
+    What it is NOT: evidence about Laya. `evaluation/decision_calibration.py` counts these records, may take the label
+    of a search-chosen stage the table ranked first, and excludes them from every rate -- scoring a search against the
+    table that scored it would only measure the table twice.
+
+    Returns `{"status": "OK", "decision": <record>, "record_path": str|None}`, or a typed refusal in the shape `ask`
+    uses, so a caller can handle both the same way.
+    """
+    if not isinstance(kind, str) or not kind.strip():
+        raise DecisionError("a decision kind must be a non-empty string")
+    if not isinstance(question, str) or not question.strip():
+        raise DecisionError("a decision question must be a non-empty string")
+    if not isinstance(why, str) or not why.strip():
+        return refusal(WHY_REQUIRED, "a search choice carries the ground it was made on; say what was searched and "
+                                     "how the winner was kept", "choice")
+    if not isinstance(objective, str) or not objective.strip():
+        return refusal(OBJECTIVE_REQUIRED, "a search choice names the single scalar it minimised and the population "
+                                           "it was measured on; without it the winner is the winner of nothing",
+                       "choice")
+    if not isinstance(budget, str) or not budget.strip():
+        return refusal(BUDGET_REQUIRED, "a search choice names the budget it was allowed to spend; the best of 60 "
+                                        "evaluations and the best of 6 are different claims", "choice")
+    problem = _check_question({"options": options, "instructions": why})
+    if problem is not None:
+        return refusal(problem[0], problem[1], "choice")
+    if not isinstance(state_text, str) or not state_text.strip():
+        return refusal(STATE_REQUIRED, "a decision needs a non-empty state text describing what is being chosen "
+                                       "about; nothing was recorded", "choice")
+    pairs = [[str(key), str(label)] for key, label in options]
+    keys = [key for key, _label in pairs]
+    if chosen not in keys:
+        return refusal(CHOICE_OUTSIDE_OPTIONS, f"the choice {chosen!r} is not one of the declared options {keys}; a "
+                                               f"search may not add an option to a set the executing repository "
+                                               f"declared, and a point it could not evaluate is a refusal, never a "
+                                               f"new option", "choice")
+    grounds = f"{why.strip()} {OBJECTIVE_MARKER}{objective.strip()}. {BUDGET_MARKER}{budget.strip()}."
+    decision = {"schema": DECISION_SCHEMA,
+                "kind": kind,
+                "state_sha256": state_sha256(state_text),
+                "question": question,
+                "options": pairs,
+                "chosen": str(chosen),
+                "probabilities": dict(SEARCH_PROBABILITIES),
+                "probability_decimals": None,
+                "checkpoint": None,
+                "backend": None,
+                "chosen_by": CHOSEN_BY_SEARCH,
+                "why": grounds,
                 "as_of": as_of if as_of is not None else datetime.now(timezone.utc).isoformat(),
                 "execution_authorized": False}
     validate_decision(decision)
@@ -979,10 +1086,10 @@ def validate_outcome(linked):
     if linked["chosen"] not in keys:
         raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {linked['chosen']!r} is not one of {keys}")
     probabilities = linked["probabilities"]
-    if linked.get("chosen_by") == CHOSEN_BY_HUMAN:
+    if linked.get("chosen_by") in CHOOSERS_WITHOUT_PROBABILITIES:
         if probabilities != HUMAN_PROBABILITIES:
-            raise DecisionError(f"{CHOOSER_FIELDS}: an outcome of a record chosen by {CHOSEN_BY_HUMAN} carries no "
-                                f"probabilities, because the record it links carries none")
+            raise DecisionError(f"{CHOOSER_FIELDS}: an outcome of a record chosen by {linked['chosen_by']} carries "
+                                f"no probabilities, because the record it links carries none")
     elif not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
         raise DecisionError("an outcome carries the decision's uncalibrated probabilities over its declared options")
     best = linked.get("best_ranked_option")
