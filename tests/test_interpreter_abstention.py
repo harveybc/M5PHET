@@ -440,3 +440,25 @@ def test_the_web_catalog_carries_the_reliability_beside_the_interpreters_identit
     bare = Engine(registry=Registry(), environ={})
     bare.interpreter = Silent({})
     assert bare.catalog()["interpreter"]["reliability"] == NOT_MEASURED
+
+
+def test_an_interpreter_that_only_proposes_is_used_as_it_is():
+    """The abstention work made `interpret` call `propose_with_confidence` on every interpreter, which broke every
+    implementation outside this package — including feature-eng's own test doubles (2026-09-25). An interpreter that
+    declares only the older protocol is used as it is, and its silence about confidence is not read as one."""
+    from m5phet.interpret import interpret
+
+    class OnlyProposes:
+        available = True
+
+        def identity(self):
+            return {"command": "double", "model": "double", "available": True, "plugin": "double"}
+
+        def propose(self, prompt, slots):
+            return {slot["name"]: slot["allowed"][0] for slot in slots}
+
+    slots = [{"name": "target", "allowed": ["ventas", "voltaje"], "aliases": {}}]
+    out = interpret("pronostica algo", slots, interpreter=OnlyProposes())
+    assert out["parameters"]["target"] == "ventas"
+    assert out["sources"]["target"] == "INTERPRETER"
+    assert "confidences" not in out or out["confidences"] in ({}, None)
