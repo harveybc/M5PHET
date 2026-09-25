@@ -288,3 +288,22 @@ def test_the_narrator_never_sees_the_backends_verbatim_object_nor_the_digests():
     out = narrate("q", {"answers": answers, "answered": 1, "refused": 0}, interpreter=fixed)
     assert out["source"] == "DETERMINISTIC" and "0.3403" in out["why"]
     assert "sdk_answer" not in fixed.asked[0] and "9f3a1c" not in fixed.asked[0]
+
+
+def test_an_area_that_declares_it_needs_data_refuses_an_envelope_with_none():
+    """2026-09-24: a household forecast sentence with nothing attached was proposed OK, ran, and came back ten
+    seconds later as PROVIDER_ERROR from the engine. The refusal belongs before the run, naming what to attach."""
+    from m5phet.orchestrate import check_proposal, dataset_profile
+    catalog = {"forecasting": {"provider": "f", "question_types": {"point_forecast": {"required": ["horizon"]}},
+                               "parameters": {}, "aliases": {}, "combinations": [],
+                               "data_requirement": {"required": True, "why": "it forecasts from the caller's window",
+                                                    "shape": "columns, values, scale and scaler_digest"}}}
+    envelope = {"area": "forecasting", "state": {}, "questions": {"p": {"type": "point_forecast", "horizon": 60}}}
+    task, problems = check_proposal(envelope, catalog, dataset_profile(None))
+    assert task is None and any("needs data attached" in p and "scaler_digest" in p for p in problems), problems
+    # with rows attached the same envelope is accepted, and an area that declares it needs none is never blocked
+    task, problems = check_proposal(envelope, catalog, dataset_profile([{"a": 1.0}, {"a": 2.0}]))
+    assert task is not None and problems == []
+    catalog["forecasting"]["data_requirement"] = {"required": False, "why": "it reads a fitted study"}
+    task, problems = check_proposal(envelope, catalog, dataset_profile(None))
+    assert task is not None and problems == []

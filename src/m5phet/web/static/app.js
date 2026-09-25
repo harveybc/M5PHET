@@ -95,7 +95,9 @@ function renderMessage(m){
       }
       body.append(row);
     }
-    const meta=el('div',undefined,'result-meta');meta.append(el('span',detail.config?.provider||''));
+    const meta=el('div',undefined,'result-meta');
+    meta.append(el('span',detail.response?.provider||detail.config?.provider||''));
+    if(detail.task?.area)meta.append(el('span',detail.task.area,'tag'));
     if(detail.backend==='fixture')meta.append(el('span','NON_MODEL_FIXTURE','tag warn'));
     if(detail.elapsed_seconds!==undefined)meta.append(el('span',detail.elapsed_seconds.toFixed(3)+' s'));
     meta.append(el('span','LOCAL_UNGOVERNED'));body.append(meta);
@@ -130,6 +132,12 @@ async function watch(){
 let taskMode=false;
 $('task-mode').onclick=()=>{taskMode=!taskMode;$('task-mode').classList.toggle('active',taskMode);$('task-mode').setAttribute('aria-pressed',String(taskMode));if(!taskMode)hideEnvelope();};
 function hideEnvelope(){$('envelope-panel').hidden=true;$('envelope').value='';$('envelope-problems').replaceChildren();$('envelope-status').textContent='';}
+function datasetLine(){
+  /* Where the data comes from: only the files attached to THIS question. Nothing else is ever read. */
+  const names=current.files.filter(f=>selected.includes(f.id)).map(f=>f.name);
+  return names.length?('Datos que se usarán: '+names.join(', ')+' (adjuntos a esta pregunta)')
+    :'Ningún dato adjunto. Si el motor de esta área necesita datos, la ejecución se rechaza: abra un ejemplo o adjunte un archivo con el botón +.';
+}
 function showEnvelope(proposal){
   $('envelope-panel').hidden=false;
   $('envelope').value=JSON.stringify(proposal.task||proposal.proposal||{},null,2);
@@ -137,6 +145,7 @@ function showEnvelope(proposal){
   const list=$('envelope-problems');list.replaceChildren();
   for(const p of (proposal.problems||[]))list.append(el('li',p));
   if(proposal.why&&proposal.status!=='OK')list.append(el('li',proposal.why));
+  list.append(el('li',datasetLine(),'interp'));
   $('envelope-run').disabled=false;
 }
 async function proposeEnvelope(prompt){
@@ -165,6 +174,7 @@ function showPreview(preview){
       list.append(el('li',field+' = '+String(value)+(source==='INTERPRETER'?' · elegido por el modelo intérprete ('+(interp.interpreter?.model||interp.interpreter?.command||'')+') entre los valores declarados':' · fijado por sus propias palabras'),'interp'));
     }
   }else list.append(el('li','Ningún parámetro se resolvió por intérprete; la petición se construyó solo desde la configuración del chat y su texto.','interp'));
+  list.append(el('li',datasetLine(),'interp'));
   $('envelope-run').textContent='Ejecutar petición';$('envelope-run').disabled=false;
 }
 function hidePreview(){pendingPreview=null;$('envelope').readOnly=false;$('envelope-title').textContent='Sobre propuesto (área · estado · preguntas). Puede editarlo antes de ejecutar.';$('envelope-run').textContent='Ejecutar sobre';hideEnvelope();}
@@ -199,7 +209,16 @@ $('composer').onsubmit=async e=>{
   if(taskMode){try{await proposeEnvelope(prompt);}catch(error){notify(error.message);}finally{$('send').disabled=false;}return;}
   if($('review-toggle').checked){
     try{const preview=await api(`/chats/${current.id}/preview`,{method:'POST',body:{prompt,file_ids:selected}});showPreview(preview);}
-    catch(error){notify(error.message);}
+    catch(error){
+      /* The engine selected in this chat cannot serve this sentence. Rather than stop at its complaint, ask the
+         router, which knows every area and every declared vocabulary, and show ITS envelope for review. */
+      try{
+        const proposal=await api(`/chats/${current.id}/tasks/propose`,{method:'POST',body:{prompt,file_ids:selected}});
+        hidePreview();showEnvelope(proposal);
+        notify('El motor seleccionado en este chat ('+(current.config.provider||'ninguno')+') no puede con esta frase: '
+               +error.message+' — abajo está el sobre que el enrutador propone; revíselo y ejecútelo.');
+      }catch(second){notify(error.message+' / '+second.message);}
+    }
     finally{$('send').disabled=false;}
     return;
   }

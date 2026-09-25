@@ -210,7 +210,7 @@ class Engine:
         # plugin's text is checked against the answers exactly as a model's narration is, in `narrate`.
         area = task.get("area") if isinstance(task, dict) else None
         language = language or (self.configuration.output(area).get("language") if area else None) or "es"
-        narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area,
+        narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area, task=task,
                             plugin=self.output(area))
         return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
                 "execution_authorized": False}

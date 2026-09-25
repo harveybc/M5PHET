@@ -163,7 +163,9 @@ def test_a_malformed_envelope_is_refused_and_recorded(client):
 
 def test_a_narration_that_invents_a_number_is_replaced(client):
     c, engine = client
-    engine.interpreter = Fixed([json.dumps(PROPOSAL), "Ventas de 0.5412 kW con 99% de certeza."])
+    # one reply, because on this path nothing is routed: the envelope is given, so the only question asked of the
+    # interpreter is the narration. With two replies the JSON proposal was narrated and this case never ran.
+    engine.interpreter = Fixed(["Ventas de 0.5412 kW con 99% de certeza."])
     cid, fid = chat_with_file(c)
     c.post(f"/api/chats/{cid}/tasks/run", json={"prompt": "p", "task": PROPOSAL, "file_ids": [fid], "client_id": "n"})
     data = finished(c, cid)
@@ -222,3 +224,24 @@ def test_a_forecasting_envelope_never_goes_to_the_classification_worker():
     engine.remote, engine._remote = "worker-host", lambda command: (_ for _ in ()).throw(AssertionError("routed"))
     out = engine.execute_task("p", PROPOSAL, [])
     assert out["response"]["answers"]["proximo"]["status"] == "OK"
+
+
+def test_a_narration_may_repeat_what_the_person_asked(client):
+    """The horizon in the envelope is the person's own number; a sentence about a REFUSED question carries no answer
+    figures at all, and refusing to repeat the question's own horizon discarded correct sentences (2026-09-24)."""
+    c, engine = client
+    engine.interpreter = Fixed(["No se pudo pronosticar a 3 pasos: la pregunta fue rechazada."])
+    cid, fid = chat_with_file(c)
+    only_interval = {"area": "forecasting", "state": {"target_variable": "ventas"},
+                     "questions": {"rango": {"type": "interval", "horizon": 3, "confidence_level": 0.95}}}
+    c.post(f"/api/chats/{cid}/tasks/run",
+           json={"prompt": "p", "task": only_interval, "file_ids": [fid], "client_id": "asked"})
+    detail = finished(c, cid)["messages"][-1]["detail"]
+    assert detail["narration"]["source"] == "INTERPRETER", detail["narration"].get("why")
+    assert "3 pasos" in detail["narration"]["text"]
+    # a number that is neither in the answers nor in the envelope is still refused
+    engine.interpreter = Fixed(["No se pudo pronosticar a 7 pasos."])
+    c.post(f"/api/chats/{cid}/tasks/run",
+           json={"prompt": "p", "task": only_interval, "file_ids": [fid], "client_id": "asked-2"})
+    second = finished(c, cid)["messages"][-1]["detail"]
+    assert second["narration"]["source"] == "DETERMINISTIC" and "'7'" in second["narration"]["why"]
