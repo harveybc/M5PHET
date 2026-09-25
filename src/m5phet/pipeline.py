@@ -47,6 +47,14 @@ BRANCH_CAPABILITY_SCHEMA = "m5phet.branch_capability.v1"
 
 #: what the spec carries as its core when no declared plugin accepts several input branches
 NOT_AVAILABLE_MULTI_BRANCH = "NOT_AVAILABLE_MULTI_BRANCH"
+
+#: how a core came to be in the spec. A decision is asked only when there is something to decide.
+LAYA_DECISION, ONLY_CANDIDATE, NOT_AVAILABLE = "LAYA_DECISION", "ONLY_CANDIDATE", "NOT_AVAILABLE"
+CHOSEN_BY = (LAYA_DECISION, ONLY_CANDIDATE, NOT_AVAILABLE)
+
+#: the per-branch encoder of a group is carried into the spec only when the chosen extractor IS one of the fusing
+#: core's own inline encoders; a name that is not one is never translated into one
+MAPPED, NOT_MAPPED = "MAPPED", "NOT_MAPPED"
 #: the verdict a core must carry in the branch-capability table to be offered as an option
 MULTI_BRANCH = "MULTI_BRANCH"
 
@@ -73,6 +81,9 @@ INSTRUCTIONS_CORE = ("Which core should read the fused group branches?")
 # --- refusal codes a caller may match on ---------------------------------------------------------------------------
 REGISTRY_NOT_READ = "REGISTRY_NOT_READ"
 MODULE_NOT_FOUND = "MODULE_NOT_FOUND"
+CHOSEN_BY_MISMATCH = "CHOSEN_BY_MISMATCH"
+NO_RECORD_TO_REPLAY = "NO_RECORD_TO_REPLAY"
+CHOICE_NO_LONGER_DECLARED = "CHOICE_NO_LONGER_DECLARED"
 DUPLICATE_PLUGIN_KEY = "DUPLICATE_PLUGIN_KEY"
 NO_OPTIONS = "NO_OPTIONS"
 NO_MULTI_BRANCH_CORE = "NO_MULTI_BRANCH_CORE"
@@ -232,8 +243,13 @@ def _catalog(role, sources, *, environ=None, start=None, keep=None, extra=None):
 
     `keep(record) -> bool` filters (the cores are filtered by their probed branch capability). A source that cannot be
     read contributes nothing and lands in `problems`: the option list is then shorter, never invented.
+
+    Three buckets, and a plugin is in exactly one: `options` -- offered to the chooser; `not_offerable` -- declared by
+    the registry but impossible to execute (its module is not in the checkout); `excluded` -- readable, but filtered
+    out by `keep` (a core that does not accept several branches). Nothing is silently dropped.
     """
-    document = {"schema": CATALOG_SCHEMA, "role": role, "sources": [], "options": [], "excluded": [], "problems": []}
+    document = {"schema": CATALOG_SCHEMA, "role": role, "sources": [], "options": [], "excluded": [],
+                "not_offerable": [], "problems": []}
     seen = {}
     for registry, group in sources:
         root = repo_root(registry, environ=environ, start=start)
@@ -256,15 +272,21 @@ def _catalog(role, sources, *, environ=None, start=None, keep=None, extra=None):
             record = {"key": key, "label": label, "label_source": label_source if label_source != "not_found" else "key",
                       "label_shortened": shortened, "module_found": module_found, "registry": registry,
                       "group": group, "target": target}
-            if not module_found:
-                document["problems"].append(f"{MODULE_NOT_FOUND}: {registry} declares {key!r} as {target} and that "
-                                            f"module is not in the checkout; the option stands as declared, and a "
-                                            f"choice that lands on it cannot be executed until it is fixed")
             if key in seen:
                 _refuse(DUPLICATE_PLUGIN_KEY,
                         f"{key!r} is declared by {seen[key]} and again by {registry}; the two registries share the "
                         f"entry-point group {group!r}, so a choice between them could not be executed unambiguously")
             seen[key] = registry
+            if not module_found:
+                # Declared, and not offerable: a choice that landed on it could not be executed, so it is never put
+                # in front of the chooser. It is kept here by name -- the registry declares it and this says why it
+                # cannot be used -- rather than dropped, which would hide a broken registration.
+                record["why"] = f"{registry} declares {key!r} as {target} and that module is not in the checkout"
+                document["not_offerable"].append(record)
+                document["problems"].append(f"{MODULE_NOT_FOUND}: {registry} declares {key!r} as {target} and that "
+                                            f"module is not in the checkout; it is NOT offered as an option, because "
+                                            f"a choice that landed on it could not be executed")
+                continue
             if keep is not None and not keep(record):
                 document["excluded"].append(record)
                 continue
@@ -375,8 +397,57 @@ def _now(as_of):
     return as_of if as_of is not None else datetime.now(timezone.utc).isoformat()
 
 
-def _ask_one(engine, state_text, *, question, instructions, pairs, kind, as_of, record_dir):
-    """One decision, asked and read back into the shape every plan below records."""
+def load_records(record_dir):
+    """Index the decision records in a directory by `(kind, question, state_sha256)`, for replay.
+
+    A decision is bound to the exact state it was made on, so rebuilding an artifact from records is not a matter of
+    trusting a file name: the state is rendered again here and only a record made on THAT state answers. Replay
+    therefore asks nothing and invents nothing -- and a state that has changed since simply has no record.
+    """
+    folder = Path(os.path.expanduser(str(record_dir)))
+    index = {}
+    for path in sorted(folder.glob("*.json")):
+        try:
+            record = decide.load(path)
+        except decide.DecisionError:
+            continue                                    # a file that is not a valid record is not a decision
+        index[(record["kind"], record["question"], record["state_sha256"])] = (record, str(path))
+    return index
+
+
+def _ask_one(engine, state_text, *, question, instructions, pairs, kind, as_of, record_dir, replay=None):
+    """One decision, asked and read back into the shape every plan below records.
+
+    With a `replay` index (`load_records`) nothing is asked: the record already made on this exact state answers, and
+    a state with no record is refused as `NO_RECORD_TO_REPLAY` rather than quietly asked again.
+    """
+    if replay is not None:
+        found = replay.get((kind, question, decide.state_sha256(state_text)))
+        if found is None:
+            return {"status": "REFUSED", "refusal": NO_RECORD_TO_REPLAY,
+                    "why": f"no {kind}/{question} decision was recorded on this state",
+                    "state_sha256": decide.state_sha256(state_text)}
+        record, path = found
+        asked = [list(pair) for pair in record["options"]]
+        now = [list(pair) for pair in pairs]
+        if record["chosen"] not in [pair[0] for pair in now]:
+            return {"status": "REFUSED", "refusal": CHOICE_NO_LONGER_DECLARED,
+                    "why": f"the recorded choice {record['chosen']!r} is not in the option list the registries "
+                           f"declare now ({[pair[0] for pair in now]}); it cannot be carried into a spec",
+                    "state_sha256": record["state_sha256"]}
+        entry = {"status": "OK", "chosen": record["chosen"], "probabilities": record["probabilities"],
+                 "probability_decimals": record["probability_decimals"], "checkpoint": record["checkpoint"],
+                 "state_sha256": record["state_sha256"], "decision_sha256": decide.decision_sha256(record),
+                 "record_path": path, "decision": record, "replayed": True, "options_at_decision": asked}
+        if asked != now:
+            # The registries moved under the record. The choice still stands -- it was made among THOSE candidates --
+            # so it is carried with both lists visible, never rewritten as if it had been made among these ones.
+            asked_keys, now_keys = {pair[0] for pair in asked}, {pair[0] for pair in now}
+            entry["options_changed"] = {"added": sorted(now_keys - asked_keys),
+                                        "removed": sorted(asked_keys - now_keys),
+                                        "labels_differ": sorted(key for key in asked_keys & now_keys
+                                                                if dict(asked)[key] != dict(now)[key])}
+        return entry
     answered = decide.ask(engine, state_text, {question: {"options": pairs, "instructions": instructions}},
                           kind=kind, as_of=as_of, record_dir=record_dir)
     entry = answered[question]
@@ -396,7 +467,8 @@ def _no_options(schema, role, catalog):
             "options": [], "problems": (catalog or {}).get("problems", []) if isinstance(catalog, dict) else []}
 
 
-def choose_preprocessing(engine, feature_metrics, catalog, *, as_of=None, record_dir=None, features=None):
+def choose_preprocessing(engine, feature_metrics, catalog, *, as_of=None, record_dir=None, features=None,
+                         replay=None):
     """Step 2: one decision per feature -- which declared preprocessor suits the profile the metric sheet measured.
 
     The state is exactly `feature_eng_m5phet.metrics.decision_payload(sheet, feature)` rendered by
@@ -418,7 +490,7 @@ def choose_preprocessing(engine, feature_metrics, catalog, *, as_of=None, record
     for feature in names:
         state = decide.decision_state("feature_profile", metrics.decision_payload(feature_metrics, feature))
         entry = _ask_one(engine, state, question=QUESTION_PREPROCESSING, instructions=INSTRUCTIONS_PREPROCESSING,
-                         pairs=pairs, kind=KIND_PREPROCESSING, as_of=stamped, record_dir=record_dir)
+                         pairs=pairs, kind=KIND_PREPROCESSING, as_of=stamped, record_dir=record_dir, replay=replay)
         plan["features"][feature] = entry
         if entry["status"] == "OK":
             plan["decisions"][feature] = entry["decision_sha256"]
@@ -461,7 +533,7 @@ def cuts_state_payload(document):
             "recommended_k": document["recommended_k"]}
 
 
-def confirm_grouping(engine, groups_document, *, as_of=None, record_dir=None):
+def confirm_grouping(engine, groups_document, *, as_of=None, record_dir=None, replay=None):
     """Step 3b: ONE decision among the cuts the grouping job declared (`k = 2..K`), with their summaries as state.
 
     The cuts are deterministic -- feature-eng computed them from the cross-metrics. What Laya adds is the cut, and only
@@ -479,7 +551,7 @@ def confirm_grouping(engine, groups_document, *, as_of=None, record_dir=None):
     state = decide.decision_state("feature_grouping_cuts", cuts_state_payload(groups_document),
                                   decimals=GROUPING_STATE_DECIMALS)
     entry = _ask_one(engine, state, question=QUESTION_GROUPING, instructions=INSTRUCTIONS_GROUPING, pairs=pairs,
-                     kind=KIND_GROUPING, as_of=stamped, record_dir=record_dir)
+                     kind=KIND_GROUPING, as_of=stamped, record_dir=record_dir, replay=replay)
     choice = {"schema": GROUPING_CHOICE_SCHEMA, "options": pairs, "as_of": stamped,
               "recommended_k": groups_document["recommended_k"],
               "source": dict(groups_document["source"]), "features": list(groups_document["features"]), **entry}
@@ -509,7 +581,7 @@ def group_state_payload(cut, group):
             "summary": group["summary"]}
 
 
-def choose_extractors(engine, groups_cut, catalog, *, as_of=None, record_dir=None):
+def choose_extractors(engine, groups_cut, catalog, *, as_of=None, record_dir=None, replay=None):
     """Step 4: one decision per group -- which declared extractor reads that group's branch."""
     pairs = options(catalog)
     if not pairs:
@@ -522,7 +594,7 @@ def choose_extractors(engine, groups_cut, catalog, *, as_of=None, record_dir=Non
     for group in groups_cut["groups"]:
         state = decide.decision_state("feature_group", group_state_payload(groups_cut, group))
         entry = _ask_one(engine, state, question=QUESTION_EXTRACTOR, instructions=INSTRUCTIONS_EXTRACTOR, pairs=pairs,
-                         kind=KIND_EXTRACTOR, as_of=stamped, record_dir=record_dir)
+                         kind=KIND_EXTRACTOR, as_of=stamped, record_dir=record_dir, replay=replay)
         plan["groups"][group["group_id"]] = entry
         if entry["status"] == "OK":
             plan["decisions"][group["group_id"]] = entry["decision_sha256"]
@@ -540,17 +612,97 @@ def core_state_payload(groups_cut, extractor_plan=None):
             "branch_count": len(groups_cut["groups"])}
 
 
-def choose_core(engine, groups_cut, catalog, *, as_of=None, record_dir=None, extractor_plan=None):
-    """Step 5: ONE decision over the fused branches, among cores PROBED to accept several input branches.
+def inline_encoders(core_key, catalog, *, environ=None, start=None):
+    """The encoders a fusing core implements ITSELF, read from its module's `ENCODERS` mapping without importing it.
 
-    When the probe found none, this asks nothing at all and returns `core: NOT_AVAILABLE_MULTI_BRANCH` with the plan
-    to add one. Asking Laya to pick a single-tensor core for a multi-branch pipeline would record a choice that cannot
-    be executed, which is exactly what the declared-options rule exists to prevent.
+    WP18 step 4 chooses an extractor per group from feature-extractor's registry; a fusing core implements its own
+    per-branch encoders. The two namespaces are not the same namespace, and this is how the spec finds out what the
+    core actually offers instead of assuming the names match.
+
+    Returns `{name: label}`, or `None` when the core's module or its `ENCODERS` mapping cannot be read.
+    """
+    record = next((option for option in (catalog.get("options", []) if isinstance(catalog, dict) else [])
+                   if option["key"] == core_key), None)
+    if record is None:
+        return None
+    root = repo_root(record["registry"], environ=environ, start=start)
+    if root is None:
+        return None
+    module_name = record["target"].partition(":")[0]
+    relative = Path(*module_name.split("."))
+    for candidate in (root / relative.with_suffix(".py"), root / relative / "__init__.py"):
+        if not candidate.is_file():
+            continue
+        try:
+            tree = ast.parse(candidate.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError):
+            return None
+        for node in tree.body:
+            targets = node.targets if isinstance(node, ast.Assign) else (
+                [node.target] if isinstance(node, ast.AnnAssign) else [])
+            if any(isinstance(target, ast.Name) and target.id == "ENCODERS" for target in targets):
+                value = node.value
+                if isinstance(value, ast.Dict):
+                    try:
+                        return {ast.literal_eval(key): ast.literal_eval(item)
+                                for key, item in zip(value.keys, value.values)}
+                    except ValueError:
+                        return None
+        return None
+    return None
+
+
+def map_encoders(core_key, extractor_plan, catalog, *, environ=None, start=None):
+    """Which group branches the chosen core can actually encode with the extractor that was chosen for them.
+
+    A branch is `MAPPED` only when the extractor key IS one of the core's own inline encoders -- the same name, not a
+    name that looks similar. Anything else is `NOT_MAPPED` and NAMES the extractor: feature-extractor's `rnn` is not
+    an inline encoder of `fused_branches`, and translating it into one would be inventing a pipeline nobody chose.
+    """
+    encoders = inline_encoders(core_key, catalog, environ=environ, start=start)
+    branches, chosen = {}, extractor_plan.get("groups", {})
+    for group_id, entry in chosen.items():
+        extractor = entry.get("chosen") if entry.get("status") == "OK" else None
+        if extractor is None:
+            branches[group_id] = {"extractor": None, "encoder": None, "status": NOT_MAPPED,
+                                  "why": "no extractor was chosen for this group"}
+        elif encoders is None:
+            branches[group_id] = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                                  "why": f"the inline encoders of {core_key!r} could not be read from its module"}
+        elif extractor in encoders:
+            branches[group_id] = {"extractor": extractor, "encoder": extractor, "status": MAPPED,
+                                  "why": f"{extractor!r} is an inline encoder of {core_key!r}: {encoders[extractor]}"}
+        else:
+            branches[group_id] = {"extractor": extractor, "encoder": None, "status": NOT_MAPPED,
+                                  "why": f"the chosen extractor {extractor!r} is not one of the inline encoders "
+                                         f"{sorted(encoders)} of {core_key!r}; no mapping is invented for it"}
+    return {"status": MAPPED if branches and all(branch["status"] == MAPPED for branch in branches.values())
+                      else NOT_MAPPED,
+            "core": core_key,
+            "inline_encoders": sorted(encoders) if encoders is not None else None,
+            "branches": branches}
+
+
+def choose_core(engine, groups_cut, catalog, *, as_of=None, record_dir=None, extractor_plan=None, replay=None):
+    """Step 5: the core over the fused branches, among cores PROBED to accept several input branches.
+
+    Three cases, and each says plainly how the core got there, because only one of them is a decision:
+
+    **No candidate.** The probe found no plugin that accepts several branches. Nothing is asked and the document
+    carries `core: NOT_AVAILABLE_MULTI_BRANCH` with the plan to add one. Asking Laya to pick a single-tensor core for
+    a multi-branch pipeline would record a choice that cannot be executed.
+
+    **One candidate.** Nothing is asked either, and `chosen_by` is `ONLY_CANDIDATE`. `decide` refuses an option list
+    with fewer than two entries (`MALFORMED_OPTIONS`: one option is not a choice, it is an instruction) and it is
+    right to: sending one option and recording the answer would manufacture a decision out of a foregone conclusion,
+    with probabilities that mean nothing. The spec then carries `decision: null` -- there is no decision to name.
+
+    **Two or more candidates.** One decision, asked and recorded exactly as the other steps are.
     """
     pairs = options(catalog)
     if not pairs:
         document = _no_options(CORE_CHOICE_SCHEMA, "core that accepts several input branches", catalog)
-        document.update(refusal=NO_MULTI_BRANCH_CORE, core=NOT_AVAILABLE_MULTI_BRANCH,
+        document.update(refusal=NO_MULTI_BRANCH_CORE, core=NOT_AVAILABLE_MULTI_BRANCH, chosen_by=NOT_AVAILABLE,
                         why="every declared predictor.plugins core was probed and none builds a Keras model with two "
                             "or more inputs from two branches, so there is nothing to choose between",
                         plan="a fusing core has to be added to predictor as a new predictor.plugins entry point (one "
@@ -558,10 +710,19 @@ def choose_core(engine, groups_cut, catalog, *, as_of=None, record_dir=None, ext
                              "the probe re-run; that work is not part of WP18 steps 2-6")
         return document
     stamped = _now(as_of)
+    if len(pairs) == 1:
+        key, label = pairs[0]
+        return {"schema": CORE_CHOICE_SCHEMA, "status": "OK", "chosen_by": ONLY_CANDIDATE, "options": pairs,
+                "as_of": stamped, "k": groups_cut["k"], "chosen": key, "core": key, "decision_sha256": None,
+                "record_path": None, "probabilities": None, "probability_decimals": None, "checkpoint": None,
+                "state_sha256": None,
+                "why": f"{key!r} ({label}) is the only declared core that the probe found to accept several input "
+                       f"branches; no decision was asked, because one option is not a choice"}
     state = decide.decision_state("fused_core", core_state_payload(groups_cut, extractor_plan))
     entry = _ask_one(engine, state, question=QUESTION_CORE, instructions=INSTRUCTIONS_CORE, pairs=pairs,
-                     kind=KIND_CORE, as_of=stamped, record_dir=record_dir)
+                     kind=KIND_CORE, as_of=stamped, record_dir=record_dir, replay=replay)
     return {"schema": CORE_CHOICE_SCHEMA, "options": pairs, "as_of": stamped, "k": groups_cut["k"], **entry,
+            "chosen_by": LAYA_DECISION if entry["status"] == "OK" else NOT_AVAILABLE,
             "core": entry.get("chosen") if entry["status"] == "OK" else NOT_AVAILABLE_MULTI_BRANCH}
 
 
@@ -569,6 +730,14 @@ def choose_core(engine, groups_cut, catalog, *, as_of=None, record_dir=None, ext
 
 SPEC_KEYS = ("schema", "as_of", "representation", "representation_id", "features", "preprocessing", "grouping",
              "extractors", "core", "catalogs", "decisions", "provenance", "fitted", "execution_authorized", "note")
+
+
+def _spec_entry(entry):
+    """One chosen plugin as the spec carries it, saying so when the registry moved under its decision record."""
+    spec_entry = {"plugin": entry["chosen"], "decision": entry["decision_sha256"]}
+    if entry.get("options_changed"):
+        spec_entry["options_changed_since_decision"] = entry["options_changed"]
+    return spec_entry
 
 
 def build_pipeline_spec(representation, preprocessing_plan, grouping_choice, extractor_plan, core_choice, *,
@@ -582,16 +751,21 @@ def build_pipeline_spec(representation, preprocessing_plan, grouping_choice, ext
     representation_module.validate_spec(representation)
     cut = grouping_choice.get("cut") or {}
     features = list(cut.get("features") or grouping_choice.get("features") or sorted(preprocessing_plan["features"]))
-    preprocessing = {feature: {"plugin": entry["chosen"], "decision": entry["decision_sha256"]}
-                     for feature, entry in preprocessing_plan.get("features", {}).items()
+    preprocessing = {feature: _spec_entry(entry) for feature, entry in preprocessing_plan.get("features", {}).items()
                      if entry.get("status") == "OK"}
-    extractors = {group_id: {"plugin": entry["chosen"], "decision": entry["decision_sha256"]}
-                  for group_id, entry in extractor_plan.get("groups", {}).items() if entry.get("status") == "OK"}
-    core = ({"plugin": core_choice["chosen"], "decision": core_choice["decision_sha256"]}
-            if core_choice.get("status") == "OK"
-            else {"plugin": NOT_AVAILABLE_MULTI_BRANCH, "decision": None,
-                  "why": core_choice.get("why"), "plan": core_choice.get("plan")})
+    extractors = {group_id: _spec_entry(entry) for group_id, entry in extractor_plan.get("groups", {}).items()
+                  if entry.get("status") == "OK"}
     catalogs = catalogs or {}
+    if core_choice.get("status") == "OK":
+        core = {"key": core_choice["chosen"], "chosen_by": core_choice.get("chosen_by", LAYA_DECISION),
+                "decision": core_choice.get("decision_sha256"), "why": core_choice.get("why"),
+                "encoder_mapping": map_encoders(core_choice["chosen"], extractor_plan, catalogs.get("core", {}))}
+    else:
+        core = {"key": NOT_AVAILABLE_MULTI_BRANCH, "chosen_by": NOT_AVAILABLE, "decision": None,
+                "why": core_choice.get("why"), "plan": core_choice.get("plan"),
+                "encoder_mapping": {"status": NOT_MAPPED, "core": NOT_AVAILABLE_MULTI_BRANCH,
+                                    "inline_encoders": None, "branches": {},
+                                    "why": "no core was chosen, so no branch has an encoder"}}
     spec = {
         "schema": PIPELINE_SCHEMA,
         "as_of": _now(as_of),
@@ -642,6 +816,10 @@ def validate_pipeline(spec, *, catalogs=None, record_dir=None):
     `FEATURE_WITHOUT_PREPROCESSING`                 a feature of the pipeline that no decision covers
     `GROUP_WITHOUT_EXTRACTOR`                       a group of the chosen cut that no decision covers
     `UNKNOWN_PREPROCESSOR` / `UNKNOWN_EXTRACTOR` / `UNKNOWN_CORE`   a plugin key outside the declared list
+    `CHOSEN_BY_MISMATCH`                            the core's `chosen_by` does not match what the lists show: a
+                                                    sole candidate among several declared cores, a sole candidate
+                                                    that still names a decision, an unavailable core that claims to
+                                                    have been chosen
     `DECISION_NOT_ON_DISK` / `DECISION_DOES_NOT_MATCH`              a digest with no record, or a record that
                                                                     chose something else
 
@@ -686,16 +864,35 @@ def validate_pipeline(spec, *, catalogs=None, record_dir=None):
             _refuse(UNKNOWN_EXTRACTOR, f"{entry['plugin']!r} (chosen for group {group_id!r}) is not one of the "
                                        f"declared extractors {declared['extractor']}")
 
-    core = spec["core"]["plugin"]
-    if core != NOT_AVAILABLE_MULTI_BRANCH and core not in declared["core"]:
-        _refuse(UNKNOWN_CORE, f"{core!r} is not one of the declared cores {declared['core']}")
+    core = spec["core"]["key"]
+    chosen_by = spec["core"].get("chosen_by")
+    if chosen_by not in CHOSEN_BY:
+        _refuse(CHOSEN_BY_MISMATCH, f"the core says it was chosen by {chosen_by!r}, which is not one of "
+                                    f"{list(CHOSEN_BY)}")
+    if core == NOT_AVAILABLE_MULTI_BRANCH:
+        if chosen_by != NOT_AVAILABLE:
+            _refuse(CHOSEN_BY_MISMATCH, f"a core that is {NOT_AVAILABLE_MULTI_BRANCH} was chosen by nothing, not by "
+                                        f"{chosen_by!r}")
+    else:
+        if core not in declared["core"]:
+            _refuse(UNKNOWN_CORE, f"{core!r} is not one of the declared cores {declared['core']}")
+        if chosen_by == ONLY_CANDIDATE:
+            if len(declared["core"]) != 1:
+                _refuse(CHOSEN_BY_MISMATCH, f"the core says it was the only candidate and the declared list holds "
+                                            f"{declared['core']}")
+            if spec["core"]["decision"] is not None:
+                _refuse(CHOSEN_BY_MISMATCH, "a core that was the only candidate names a decision; no decision was "
+                                            "asked, so it must carry none")
+        elif chosen_by == NOT_AVAILABLE:
+            _refuse(CHOSEN_BY_MISMATCH, f"{core!r} is a declared core, so {NOT_AVAILABLE!r} does not describe how it "
+                                        f"got here")
 
     if record_dir is not None:
         folder = Path(os.path.expanduser(str(record_dir)))
         expected = [("preprocessing", feature, entry) for feature, entry in spec["preprocessing"].items()]
         expected += [("extractor", group_id, entry) for group_id, entry in spec["extractors"].items()]
-        if core != NOT_AVAILABLE_MULTI_BRANCH:
-            expected.append(("core", "core", spec["core"]))
+        if core != NOT_AVAILABLE_MULTI_BRANCH and chosen_by == LAYA_DECISION:
+            expected.append(("core", "core", {"decision": spec["core"]["decision"], "plugin": core}))
         for role, where, entry in expected:
             _check_record(folder, entry["decision"], entry["plugin"], f"the {role} of {where!r}")
         if spec["grouping"].get("decision"):

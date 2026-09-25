@@ -1,13 +1,13 @@
 # The pipeline Laya configures (WP18)
 
-`m5phet.pipeline` turns the owner's WP18 design into four recorded decisions and one spec:
+`m5phet.pipeline` turns the owner's WP18 design into recorded choices and one spec:
 
 | Step | Function | One decision per | Options declared by |
 |---|---|---|---|
 | 2 | `choose_preprocessing(engine, feature_metrics, catalog)` | feature | `preprocessor.plugins` in **predictor** and **preprocessor** |
 | 3b | `confirm_grouping(engine, groups_document)` | the cut `k` | the cuts the grouping job wrote |
 | 4 | `choose_extractors(engine, groups_cut, catalog)` | group | `feature_extractor.encoders` in **feature-extractor** |
-| 5 | `choose_core(engine, groups_cut, catalog)` | the fused core | `predictor.plugins`, **restricted to the probed multi-branch ones** |
+| 5 | `choose_core(engine, groups_cut, catalog)` | the fused core, **when there is more than one candidate** | `predictor.plugins`, restricted to the probed multi-branch ones |
 | 6 | `build_pipeline_spec(...)` / `validate_pipeline(...)` | — | — |
 
 Steps 1 and 3 are feature-eng's (`feature_eng_m5phet.metrics`, `feature_eng_m5phet.grouping`); step 7 — fit, score,
@@ -25,83 +25,102 @@ import those packages: TensorFlow and the rest are not installed beside M5PHET, 
 whether an import happens to succeed.
 
 - A **label** is the plugin's own docstring first line, read from its source with `ast` (the class the entry point
-  names first, then its module). When the module cannot be read the label is the **key**. Nothing invents a
+  names first, then its module). When the module has no docstring the label is the **key**. Nothing invents a
   description.
 - A label longer than `LABEL_MAX_CHARS` (60) is shortened and the record says `label_shortened: true`. That limit is
   not cosmetic: the provider keeps at most 48 tokens of each option and **refuses** the whole question rather than
   truncate one (`TOKEN_BUDGET_EXCEEDED`).
+- Every declared plugin lands in exactly one of three buckets, and none is silently dropped:
+  **`options`** (offered to the chooser), **`not_offerable`** (declared, but its module is not in the checkout — a
+  choice that landed on it could not be executed, so it is never put in front of the chooser; also reported as
+  `MODULE_NOT_FOUND` in `problems`), **`excluded`** (readable, filtered out by the role's own rule — for cores, the
+  branch-capability verdict).
 - A checkout that cannot be found contributes **nothing** and lands in `problems` as `REGISTRY_NOT_READ`. An empty
   option list is an honest answer.
-- Two registries declaring the **same key** in the same shared group are refused as `DUPLICATE_PLUGIN_KEY`: a choice
-  between them could not be executed unambiguously.
+- Two registries declaring the **same key** in the same shared group are refused as `DUPLICATE_PLUGIN_KEY` — whether
+  or not the modules exist — because a choice between them could not be executed unambiguously.
 - Checkouts are located by walking up from the package and from the working directory, or by
   `M5PHET_PREDICTOR_REPO`, `M5PHET_PREPROCESSOR_REPO`, `M5PHET_FEATURE_EXTRACTOR_REPO`. No path is written into the
   repository.
 
-What that produced on 2026-09-25 (the labels are the repositories' own words, quoted as found):
+What that produced on 2026-09-25 after WP25's registry hygiene (preprocessor and feature-extractor on
+`satoshi/wp25-registry-hygiene-20260925`), quoted exactly as the repositories now declare them:
 
 | Role | Key | Label | From |
 |---|---|---|---|
 | preprocessing | `default_preprocessor` | Default Preprocessor Plugin | predictor |
-| preprocessing | `stl_preprocessor` | *(no docstring found — the key is the label)* | predictor |
-| preprocessing | `default_plugin` | Plugin to preprocess the dataset for feature extraction with external… | preprocessor |
-| preprocessing | `normalizer` | `1.60139 1.16481` | preprocessor |
+| preprocessing | `stl_preprocessor` | *(no docstring — the key is the label)* | predictor |
+| preprocessing | `default_plugin` | Trims, splits into D1-D6 and normalizes the dataset. | preprocessor |
+| preprocessing | `normalizer` | Normalizes the dataset columns by min-max or z-score. | preprocessor |
 | preprocessing | `unbiaser` | Unbiaser Plugin to apply unbiasing methods to the dataset. | preprocessor |
-| preprocessing | `trimmer` | *(no docstring found)* | preprocessor |
-| preprocessing | `feature_selector` | Feature Selector Plugin to perform feature selection on the dataset… | preprocessor |
-| preprocessing | `cleaner` | *(no docstring found)* | preprocessor |
-| extractor | `default`, `ann`, `transformer`, `lstm`, `vae` | "An encoder plugin using a convolutional neural network (CNN)…" | feature-extractor |
-| extractor | `rnn`, `cnn_signed` | *(module missing — the key is the label)* | feature-extractor |
-| extractor | `cnn` | A CNN-based encoder plugin for feature extraction using Keras. | feature-extractor |
-| extractor | `vae_small` | Plugin to define and manage a per-step inference network (encoder-like component) | feature-extractor |
+| preprocessing | `trimmer` | Removes the listed columns and rows from the dataset. | preprocessor |
+| preprocessing | `feature_selector` | Selects features from the dataset by the chosen method. | preprocessor |
+| preprocessing | `cleaner` | Cleans the dataset: missing rows and values, or outliers. | preprocessor |
+| extractor | `default` / `ann` | Encoder of per-channel Dense branches over the window. | feature-extractor |
+| extractor | `rnn` | Encoder of two recurrent layers (SimpleRNN or GRU). | feature-extractor |
+| extractor | `transformer` | Encoder: positional encoding, attention, strided Conv1D. | feature-extractor |
+| extractor | `lstm` | Encoder: positional encoding, attention, two BiLSTM layers. | feature-extractor |
+| extractor | `cnn` | Encoder of two strided Conv1D layers over the input window. | feature-extractor |
+| extractor | `vae` | Encoder of two strided Conv1D layers, with no sampling step. | feature-extractor |
+| extractor | `vae_small` | Per-step CVAE inference network: mean and log-variance. | feature-extractor |
+| core | `fused_branches` | Multi-branch core: one encoder per feature group, fused. | predictor (WP24) |
 
-Two things in that table are worth reading twice, because they change how the step-2 and step-4 choices should be
-read, and neither is something this module may fix by inventing better words:
+Before WP25 those labels were worse in ways that mattered to a chooser reading them: five of nine encoders shared one
+copy-pasted docstring describing a CNN whatever the plugin was, `rnn` and `cnn_signed` were registered with no module
+at all, and preprocessor's `normalizer` docstring first line was the leftover text `1.60139 1.16481`. `cnn_signed` is
+gone from the registry, `rnn` has a module, and each label is now one truthful sentence. `base` in predictor's
+`predictor.plugins` is still `not_offerable`: it names the package `predictor_plugin`, which does not exist (the
+others are `predictor_plugins`).
 
-1. `normalizer`'s class docstring first line in **preprocessor** is `1.60139 1.16481` — a leftover number line. The
-   chooser is shown that, because that is what the repository declares.
-2. Five of feature-extractor's nine encoders carry the **same copy-pasted docstring**, which describes a CNN
-   regardless of whether the plugin is the ANN, the LSTM, the transformer or the VAE. A chooser reading labels cannot
-   tell those five apart. Fixing those docstrings in feature-extractor would change what the chooser sees; that work
-   belongs to that repository and was not done here.
-
-**The "grouped extractor" WP18 points at is not in feature-extractor.** `grep -rin "group" feature-extractor/app/*.py`
-finds only entry-point plumbing, and no branch of that repository carries one. The only implementation of the idea in
-the owner's code is `agent-multi/agent_plugins/grouped_features_extractor.py` (with `feature_fusion_plugins/
+**The "grouped extractor" WP18 points at is not in feature-extractor.** The only implementation of that idea in the
+owner's code is `agent-multi/agent_plugins/grouped_features_extractor.py` (with `feature_fusion_plugins/
 gated_fusion.py` and `cross_family_attention.py`), the RL observation extractor: it takes one `(B, T, F)` tensor,
 selects channels per branch and fuses the per-branch vectors. It is registered in agent-multi's own groups, not in
-`feature_extractor.encoders`, so it is **not** offered as an option here. It is the closest existing design to the
-fusing core step 5 is missing.
+`feature_extractor.encoders`, so it is **not** an option here. It is the closest earlier design to WP24's fusing core.
 
-## Step 5: which cores accept several input branches
+## Step 5: the core over the fused branches
 
-WP18 forbids assuming. The probe is `predictor/tests/test_wp18_branch_capability.py` (branch
-`satoshi/rp132-rp134-20260923`): for every `predictor.plugins` entry point it tries to build a model from two branches
-in three shapes (a list of shapes, a tuple of shapes, a mapping of branch name to shape, each with matching arrays),
-then a **single-branch control** that tells "refuses branches" apart from "could not be built here at all". A positive
-control proves the two-input detector itself works. Run on the CPU
-(`CUDA_VISIBLE_DEVICES=""`, `crispdm-run -m 6G -t 900 -n wp18-probe`) with `~/anaconda3/bin/python` — Python 3.12.7,
-TensorFlow 2.18.0, tensorflow-probability 0.25.0. (`~/anaconda3/envs/predictor` does not exist on this host; the
-conda **base** environment is the one that carries predictor's TensorFlow stack.)
+WP18 forbids assuming which cores accept several input branches. The probe is
+`predictor/tests/test_wp18_branch_capability.py`: for every `predictor.plugins` entry point it tries to build a model
+from two branches in three shapes (a list of shapes, a tuple of shapes, a mapping of branch name to shape, each with
+matching arrays), then a **single-branch control** that tells "refuses branches" apart from "could not be built here
+at all". A positive control proves the two-input detector itself works. CPU only, under `crispdm-run`.
 
-Result, 2026-09-25: **no declared core accepts several input branches.** 26 of 28 entry points are
-`SINGLE_BRANCH_ONLY`, 2 are `NOT_PROBED`, 0 are `MULTI_BRANCH`.
+Its table is `src/m5phet/branch_capability.json` (`m5phet.branch_capability.v1`), which `catalog_cores()` reads. A
+plugin is offered **only** with a `MULTI_BRANCH` verdict: an unknown capability is not a declared one.
 
-| Verdict | Entry points | Why |
-|---|---|---|
-| `SINGLE_BRANCH_ONLY` (26) | `ann`, `default_predictor`, `lstm`, `mimo`, `n_beats`, `tcn`, `tft`, `transformer`, and every `binary_*` and `direction_*` | each unpacks `input_shape` as one `(window, channels)` pair; the two-branch attempts raise `ValueError: Invalid dtype: tuple` (or `TypeError: can't multiply sequence by non-int` in the N-BEATS family) while the one-tensor control builds a one-input model |
-| `NOT_PROBED` (2) | `cnn` | its `build_model` exits (`SystemExit: 1`) when TensorFlow sees no GPU, so neither attempt nor control could run on the CPU; its capability is **unknown**, not single-branch |
-| `NOT_PROBED` (2) | `base` | `setup.py` points it at `predictor_plugin.predictor_plugin_base` — a package name that does not exist (the others are `predictor_plugins`); it cannot be imported at all |
+- **First probe (before WP24):** 26 of 28 entry points `SINGLE_BRANCH_ONLY` — each unpacks `input_shape` as one
+  `(window, channels)` pair — 2 `NOT_PROBED` (`cnn` exits with `SystemExit: 1` when TensorFlow sees no GPU; `base`
+  cannot be imported at all), **0 `MULTI_BRANCH`**. That is why the WP18 spec could carry
+  `core: NOT_AVAILABLE_MULTI_BRANCH`, and why WP24 exists.
+- **After WP24:** `predictor_plugins.fused_branches` is declared and probed `MULTI_BRANCH` ("built a model with 2
+  inputs from a list_of_shapes of two branches"). It is now the **only** multi-branch core.
 
-The full table, with each plugin's exact reason, is `src/m5phet/branch_capability.json`
-(`m5phet.branch_capability.v1`), which `catalog_cores()` reads. A plugin is offered **only** with a `MULTI_BRANCH`
-verdict: an unknown capability is not a declared one.
+`choose_core` therefore has three cases, and each says plainly how the core got there, because only one of them is a
+decision:
 
-**So step 5's option list is empty**, no decision is asked, and the spec carries
-`core: NOT_AVAILABLE_MULTI_BRANCH`. The plan recorded with it — **not part of WP18 steps 2–6** — is: add a fusing core
-to predictor as a new `predictor.plugins` entry point (one `Input` per group branch, a declared fusion such as
-agent-multi's gated fusion, then the existing multi-horizon Bayesian heads), and re-run the probe. Until then a
-WP18 pipeline cannot be fitted end to end, and step 7's closure table cannot have a `laya_chosen` row.
+| Candidates | What happens | `chosen_by` | `decision` |
+|---|---|---|---|
+| none | nothing is asked; the spec carries `core: NOT_AVAILABLE_MULTI_BRANCH` and the plan to add one | `NOT_AVAILABLE` | `null` |
+| exactly one | nothing is asked | `ONLY_CANDIDATE` | `null` |
+| two or more | one decision, asked and recorded like the others | `LAYA_DECISION` | the record's digest |
+
+The single-candidate case is not a workaround for `decide`'s refusal — `decide` is right to refuse an option list of
+one (`MALFORMED_OPTIONS`: one option is not a choice, it is an instruction). Sending one option and recording the
+answer would manufacture a decision out of a foregone conclusion, with probabilities that mean nothing. The spec says
+`ONLY_CANDIDATE` and names no decision, because there is none. `validate_pipeline` enforces the same thing from the
+other side: `CHOSEN_BY_MISMATCH` if a sole candidate is claimed while several cores are declared, or if a sole
+candidate still names a decision.
+
+### The per-branch encoder
+
+`fused_branches` implements its **own** inline encoders; feature-extractor's `feature_extractor.encoders` is a
+different namespace. `inline_encoders()` reads the core module's `ENCODERS` mapping with `ast` (no import), and
+`map_encoders()` carries a group's extractor into the spec as a branch encoder **only when the key is one of them**:
+
+- `MAPPED` — the extractor key IS an inline encoder of the core (`cnn`, `dense`, `lstm`, `tcn` today);
+- `NOT_MAPPED` — anything else, **naming the extractor**. Feature-extractor's `rnn` is not an inline encoder of
+  `fused_branches`, and no mapping is invented for it. A fit job reading this spec is told exactly that.
 
 ## The states
 
@@ -112,15 +131,29 @@ WP18 pipeline cannot be fitted end to end, and step 7's closure table cannot hav
 | extractor | `group_state_payload(cut, group)` | that group's members, tightness, dominant stationarity verdict, shared ACF peaks and the grouping job's own summary line |
 | core | `core_state_payload(cut, extractor_plan)` | how many branches, of what, with the extractor already chosen for each |
 
-The compaction in the grouping state is not cosmetic either: the first attempt sent all five cuts with full names and
-numbers (594 tokens against 333 of room) and the provider refused the whole question as `TOKEN_BUDGET_EXCEEDED` —
-by name, as designed, rather than silently truncating it.
+The compaction in the grouping state is not cosmetic: the first attempt sent all five cuts with full names and
+numbers (594 tokens against 333 of room) and the provider refused the whole question as `TOKEN_BUDGET_EXCEEDED` — by
+name, as designed, rather than silently truncating it.
+
+## Replaying recorded decisions
+
+`load_records(dir)` indexes the decision records by `(kind, question, state_sha256)`, and every chooser takes
+`replay=`. With it **nothing is asked**: the record made on that exact state answers, and a state with no record is
+refused as `NO_RECORD_TO_REPLAY` rather than quietly asked again. This is how an artifact is rebuilt without
+spending the checkpoint, and it is bound to the state, not to a file name.
+
+The registries move under records. Replay is loud about it instead of pretending:
+
+- `CHOICE_NO_LONGER_DECLARED` — the recorded choice is not in today's option list; it cannot be carried into a spec.
+- `options_changed` on the entry, and `options_changed_since_decision` in the spec — the choice stands, it was made
+  among **those** candidates, and both lists stay visible (`added`, `removed`, `labels_differ`).
 
 ## The spec, and what `validate_pipeline` refuses
 
 `m5phet.pipeline.v1` carries the WP06 representation (validated through
-`feature_eng_m5phet.representation.validate_spec`), the preprocessing plan, the chosen cut, the extractors, the core,
-the declared catalogs and every decision digest. `validate_pipeline(spec, catalogs=…, record_dir=…)` refuses by name:
+`feature_eng_m5phet.representation.validate_spec`), the preprocessing plan, the chosen cut, the extractors, the core
+with its `chosen_by` and `encoder_mapping`, the declared catalogs and every decision digest.
+`validate_pipeline(spec, catalogs=…, record_dir=…)` refuses by name:
 
 | Refusal | When |
 |---|---|
@@ -129,6 +162,7 @@ the declared catalogs and every decision digest. `validate_pipeline(spec, catalo
 | `FEATURE_WITHOUT_PREPROCESSING` | a feature of the pipeline that no decision covers |
 | `GROUP_WITHOUT_EXTRACTOR` | a group of the chosen cut that no decision covers |
 | `UNKNOWN_PREPROCESSOR` / `UNKNOWN_EXTRACTOR` / `UNKNOWN_CORE` | a plugin key outside the declared lists |
+| `CHOSEN_BY_MISMATCH` | the core's `chosen_by` contradicts the declared list or the decision it names |
 | `DECISION_NOT_ON_DISK` | a digest with no record, or one that does not read back |
 | `DECISION_DOES_NOT_MATCH` | a record that chose something other than what the spec claims |
 | `EXECUTION_AUTHORIZED` | a spec that claims authority; a pipeline spec authorizes nothing |
@@ -142,44 +176,40 @@ spec itself carries — which is what a later reader of an archived spec has.
 set -a; source ~/.config/m5phet/chat.env; set +a
 crispdm-run -m 4G -t 900 -n wp18-laya -- python tools/wp18_pipeline.py \
     --metrics feature_metrics.json --groups groups.json --candidates candidates.json \
-    --out pipeline_spec.json
+    --out pipeline_spec.json            # add --replay to rebuild from the records, asking nothing
 ```
 
 Records go to `~/.local/state/m5phet/decisions` by default. Each decision takes 10–20 s on the real checkpoint, and
-there are `features + 1 + k (+ 1)` of them.
+there are `features + 1 + k` of them, plus one for the core when more than one core qualifies.
 
 ## The household run of 2026-09-25 (uncalibrated choices, not measurements)
 
 Artifacts: the WP18 step 1 metric sheet and step 3 groups document of the household power slice (50 400 rows,
 target `Global_active_power`), and the WP06 candidate `short_memory`. Ten decisions against the real Laya checkpoint
-`laya-checkpoint:bd12df88…` on the private worker's GPU, written to `~/.local/state/m5phet/decisions`.
+`laya-checkpoint:bd12df88…` on the private worker's GPU, written to `~/.local/state/m5phet/decisions`. The spec was
+later rebuilt from those same records with `--replay` after WP24 and WP25 landed — no new decisions were asked.
 
-**Step 2 — preprocessing, one decision per feature.** All seven features chose `default_plugin` (preprocessor's
-"Plugin to preprocess the dataset for feature extraction…"), with the top probability between 0.335
-(`Global_reactive_power`) and 0.493 (`Voltage`); `unbiaser` was second everywhere (0.18–0.29). The chooser did not
-separate the features: seven different metric sheets produced the same label, so the profile is doing little work
-here. That is a fact about the answer, not a defect this module may paper over.
+**Step 2 — preprocessing, one decision per feature.** All seven features chose `default_plugin`, with the top
+probability between 0.335 (`Global_reactive_power`) and 0.493 (`Voltage`); `unbiaser` was second everywhere
+(0.18–0.29). The chooser did not separate the features: seven different metric sheets produced the same label, so the
+profile is doing little work here. That is a fact about the answer, not a defect this module may paper over.
 
 **Step 3b — the cut.** `k=2` at 0.372, over `k=3` 0.213, `k=6` 0.163, `k=4` 0.138, `k=5` 0.114 — against the
 deterministic recommendation `k=3` (the highest silhouette). The chooser is free to differ from it, and it did.
 
 **Step 4 — the extractor per group.** `g1` (`Global_active_power, Global_intensity, Global_reactive_power,
 Sub_metering_1, Sub_metering_3, Voltage`) → `rnn` 0.297 over `lstm` 0.222; `g2` (`Sub_metering_2`) → `lstm` 0.324
-over `default` 0.192.
+over `default` 0.192. Both were chosen among the nine encoders of the pre-WP25 registry; the spec records the drift
+(`removed: ["cnn_signed"]`, every label rewritten).
 
-> `rnn` is a **declared but broken** entry point: feature-extractor's `setup.py` registers
-> `app.plugins.encoder_plugin_rnn` and that module does not exist in the checkout (its README lists `rnn` and
-> `cnn_signed` as broken for exactly this reason). The catalog now reports it as `MODULE_NOT_FOUND` and keeps it as
-> an option, because the repository declares it. The consequence is concrete: the `g1` branch of this spec cannot be
-> built until feature-extractor ships that module or removes the entry point.
-
-**Step 5 — the core.** Nothing was asked: the probe found no `predictor.plugins` plugin that accepts several input
-branches, so the option list was empty and the spec carries `core: NOT_AVAILABLE_MULTI_BRANCH` with the plan above.
+**Step 5 — the core.** `fused_branches`, `chosen_by: ONLY_CANDIDATE`, `decision: null`. Its encoder mapping is
+`NOT_MAPPED`: `g2`'s `lstm` maps to the core's own `lstm` encoder, `g1`'s `rnn` is not one of
+`["cnn", "dense", "lstm", "tcn"]` and nothing is invented for it.
 
 **Step 6 — the spec.** `m5phet.pipeline.v1` with representation `short_memory`
-(`representation_id e74ec65c0372…`), 7 preprocessing decisions, 1 grouping decision, 2 extractor decisions, no core;
-it validates against the live catalogs and against the records on disk.
+(`representation_id e74ec65c0372…`), 7 preprocessing decisions, 1 grouping decision, 2 extractor decisions, a core
+that was the only candidate; it validates against the live catalogs and against the records on disk.
 
 None of this was fitted, scored or compared. WP18 step 7 — `baseline_hand` / `laya_chosen` / `searched` on the same
-sealed holdout, with the owner's closure table — has **not** run, and it cannot run for `laya_chosen` while the core
-is `NOT_AVAILABLE_MULTI_BRANCH`.
+sealed holdout, with the owner's closure table — has **not** run. The one thing standing between this spec and a fit
+is `g1`'s branch: its chosen extractor is not an encoder the core implements.
