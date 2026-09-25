@@ -276,3 +276,87 @@ def test_the_cli_reports_the_inventory_beside_an_empty_calibration(tmp_path):
 
 def test_the_outcome_schema_the_report_reads_is_the_one_decide_writes():
     assert decision_calibration.OUTCOME_SCHEMA == decide.OUTCOME_SCHEMA
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# WP29: thirty outcomes over thirty corpora are thirty contests, not one
+# --------------------------------------------------------------------------------------------------------------------
+
+def contest(tmp_path, name, plan, shift, *, kind="regime_method", question="regime_method", options=None):
+    """One corpus: its OWN holdout (the realised series shifted by `shift`, so its own seal), its own table, its own
+    ranking. `plan` is one `(chosen, argmax_probability)` per stage in rank order, best first."""
+    folder = tmp_path / name
+    folder.mkdir(parents=True, exist_ok=True)
+    options = options or METHOD_OPTIONS
+    truth = {row: value + shift for row, value in closure_fixtures.TRUTH.items()}
+    stages = {f"{name}_{index:03d}": (round(0.05 * (index + 1), 4), truth) for index in range(len(plan))}
+    rows = sorted(closure_fixtures.table(folder, stages).values(), key=lambda row: row["rank"])
+    entries = []
+    for index, ((chosen, argmax_probability), row) in enumerate(zip(plan, rows)):
+        path = decide.record(decision(kind, question, options, chosen, argmax_probability, f"{name}-{index}"),
+                             folder / "decisions")
+        entry = decide.outcome(path, row, out_dir=folder / "outcomes")
+        assert entry["status"] == "OK", entry
+        entries.append(entry)
+    return entries
+
+
+def test_each_outcome_is_scored_against_its_own_contests_winner(tmp_path):
+    # two corpora that ranked DIFFERENT options first. In each one Laya's argmax is the winner, so the honest
+    # agreement is 2/2 -- while scoring both against a single "best option" would score one of them against the
+    # option the other corpus happened to prefer, and report 1/2.
+    entries = (contest(tmp_path, "corpus_one", [("kmeans", HIGH), ("dbscan", LOW)], 0.0)
+               + contest(tmp_path, "corpus_two", [("dbscan", HIGH), ("kmeans", LOW)], 100.0))
+    outcomes = [entry["outcome"] for entry in entries]
+    group = decision_calibration.calibrate(outcomes)["groups"][0]
+
+    assert group["n_contests"] == 2
+    assert group["best_ranked_option"] == decision_calibration.PER_CONTEST
+    # each contest settled its own winner, and they are not the same option. Under one shared best-ranked option the
+    # group would have been refused AMBIGUOUS_BEST_RANKED_OPTION and no outcome of either corpus would ever be scored
+    assert sorted(group["best_ranked_option_by_contest"].values()) == ["dbscan", "kmeans"]
+    assert decision_calibration.AMBIGUOUS_BEST_RANKED_OPTION not in (group["reason"] or "")
+    # and four outcomes are still four outcomes: the minimum is what stops a rate here, nothing else
+    assert group["n_scorable_linked"] == 4 and group["missing"] == 26
+    assert group["excluded"][decision_calibration.CONTEST_NOT_SETTLED] == 0
+
+
+def test_a_group_reaches_a_rate_only_over_thirty_outcomes_and_says_over_how_many_contests(tmp_path):
+    entries = []
+    for index in range(15):                                # 15 corpora x 2 stages = 30 scorable outcomes
+        chosen = "kmeans" if index % 2 else "dbscan"
+        other = "dbscan" if index % 2 else "kmeans"
+        entries += contest(tmp_path, f"corpus_{index:02d}", [(chosen, HIGH), (other, LOW)], 10.0 * index)
+    report = decision_calibration.calibrate([entry["outcome"] for entry in entries])
+    group = report["groups"][0]
+
+    assert group["n_linked"] == 30 and group["n_contests"] == 15 and group["missing"] == 0
+    assert group["status"] == decision_calibration.MEASURED
+    # in every corpus Laya's rank-1 argmax is that corpus's winner and its rank-2 argmax is not, so 15 of 30 agree.
+    # The winners are not one option: eight corpora ranked one first and seven the other.
+    assert sorted(set(group["best_ranked_option_by_contest"].values())) == ["dbscan", "kmeans"]
+    assert len(group["best_ranked_option_by_contest"]) == 15
+    assert group["n_scored"] == 30 and group["agreements"] == 15 and group["agreement_rate"] == 0.5
+    assert group["expected_calibration_error"] is not None
+    markdown = decision_calibration.render_markdown(report)
+    assert "contests (distinct holdouts these ranks were taken on): **15**" in markdown
+
+
+def test_an_outcome_whose_contest_ranked_no_recorded_option_first_is_excluded_and_counted(tmp_path):
+    # a contest in which only the SECOND-ranked stage carries a decision record: nothing there is the label
+    settled = contest(tmp_path, "settled", [("kmeans", HIGH), ("dbscan", LOW)], 0.0)
+    folder = tmp_path / "unsettled"
+    folder.mkdir()
+    other_truth = {row: value + 500.0 for row, value in closure_fixtures.TRUTH.items()}
+    rows = sorted(closure_fixtures.table(folder, {"u_a": (0.25, other_truth),
+                                                  "u_b": (0.5, other_truth)}).values(),
+                  key=lambda row: row["rank"])
+    path = decide.record(decision("regime_method", "regime_method", METHOD_OPTIONS, "kmeans", HIGH, "u"),
+                         folder / "decisions")
+    orphan = decide.outcome(path, rows[1], out_dir=folder / "outcomes")       # rank 2, and no rank-1 record exists
+    assert orphan["status"] == "OK" and orphan["outcome"]["rank"] == 2
+
+    group = decision_calibration.calibrate([entry["outcome"] for entry in settled] + [orphan["outcome"]])["groups"][0]
+    assert group["n_linked"] == 3 and group["n_contests"] == 2
+    assert group["excluded"][decision_calibration.CONTEST_NOT_SETTLED] == 1
+    assert decision_calibration.NO_BEST_RANKED_OPTION in group["reason"]

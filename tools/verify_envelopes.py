@@ -74,6 +74,38 @@ def interval_expectation(providers, target, level):
     return "OK" if round(float(level), 9) in fitted else "REFUSED:CONFIDENCE_LEVEL_NOT_FITTED"
 
 
+def point_expectation(providers, target):
+    """What a bare `point_forecast` question about `target` MUST come back as, in the configuration that is running.
+
+    The sibling of `interval_expectation`, and here for the same reason. The product's rule for a request that names
+    no bundle is explicit (`prediction_provider_forecast.provider`): a `point_forecast` prefers the bundle WITHOUT a
+    quantile head *when exactly one has none*, and when several candidates remain the request is refused
+    `STATE_REQUIRED` with every candidate named and the three ways to tell them apart spelled out.
+
+    Freezing `OK` here would have meant that installing a SECOND point bundle for the same series -- which WP27 does,
+    with the representation WP26 confirmed -- makes this harness fail, and that reading the refusal, which is the rule
+    working exactly as designed, as a regression. So the rule is asserted against the catalog the running instance
+    publishes:
+
+    * no configured bundle serves this series -> `NOT_ESTIMABLE`;
+    * exactly one candidate -> the answer, `OK`;
+    * several candidates and exactly one without a quantile head -> that one answers, `OK`;
+    * several and the rule cannot single one out -> `STATE_REQUIRED`, naming them.
+
+    A person who wants a particular engine names it; that path is exercised by `examples` in `verify_families.py`,
+    where every configured bundle contributes its own catalog example and each one answers from its own engine.
+    """
+    bundles = [b for provider in providers if provider.get("name") == FORECAST_PROVIDER
+               for b in ((provider.get("capabilities") or {}).get("bundles") or [])
+               if target in (b.get("targets") or ())]
+    if not bundles:
+        return "REFUSED:NOT_ESTIMABLE"
+    if len(bundles) == 1:
+        return "OK"
+    without_quantiles = [b for b in bundles if "quantile" not in (b.get("heads") or ())]
+    return "OK" if len(without_quantiles) == 1 else "REFUSED:STATE_REQUIRED"
+
+
 #: for each area: which catalog example supplies the data, the envelope in the owner's shape, and what each question
 #: must come back as. `expect` is the status; a REFUSED expectation also names the refusal code.
 def envelopes(examples, providers=()):
@@ -86,7 +118,7 @@ def envelopes(examples, providers=()):
                   "questions": {"prediccion": {"type": "point_forecast", "horizon": 60},
                                 "rango": {"type": "interval", "horizon": 60, "confidence_level": 0.95},
                                 "riesgo": {"type": "anomaly_risk", "threshold": "< 0.3"}}},
-         "expect": {"prediccion": "OK",
+         "expect": {"prediccion": point_expectation(providers, "Global_active_power"),
                     "rango": interval_expectation(providers, "Global_active_power", 0.95),
                     "riesgo": "REFUSED:NOT_ESTIMABLE"}},
         # the causal provider is inference-only over a study fitted beforehand: attaching rows would mean "fit", which it

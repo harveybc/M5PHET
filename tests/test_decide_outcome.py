@@ -186,3 +186,51 @@ def test_an_outcome_record_reloads_and_a_tampered_one_does_not(tmp_path):
     open(out["record_path"], "w").write(json.dumps(altered, sort_keys=True, separators=(",", ":")))
     with pytest.raises(decide.DecisionError):
         decide.load_outcome(out["record_path"])
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# WP29: a rank is a rank in ONE contest, and the outcome says which
+# --------------------------------------------------------------------------------------------------------------------
+
+def test_an_outcome_carries_the_holdout_its_rank_was_taken_on(tmp_path):
+    rows = comparable_rows(tmp_path)
+    out = decide.outcome(written(tmp_path, chosen="b"), rows["designed"], out_dir=tmp_path / "outcomes")
+    assert out["status"] == "OK"
+    assert out["outcome"]["contest"] == rows["designed"]["conditions"]["corpus_seal"]
+
+
+def test_two_stages_of_one_table_share_a_contest_and_two_holdouts_do_not(tmp_path):
+    (tmp_path / "one").mkdir()
+    (tmp_path / "two").mkdir()
+    here = closure_fixtures.table(tmp_path / "one", {"designed": 0.25, "baseline": 0.5})
+    there = closure_fixtures.table(tmp_path / "two", {"designed": (0.25, closure_fixtures.OTHER_TRUTH),
+                                                      "baseline": (0.5, closure_fixtures.OTHER_TRUTH)})
+    first = decide.outcome(written(tmp_path, chosen="b", salt="1"), here["designed"], out_dir=tmp_path / "o")
+    second = decide.outcome(written(tmp_path, chosen="c", salt="2"), here["baseline"], out_dir=tmp_path / "o")
+    other = decide.outcome(written(tmp_path, chosen="b", salt="3"), there["designed"], out_dir=tmp_path / "o")
+
+    assert first["outcome"]["contest"] == second["outcome"]["contest"]
+    assert other["outcome"]["contest"] != first["outcome"]["contest"]
+
+
+def test_a_row_that_names_no_holdout_says_so_rather_than_joining_everybody_elses_contest(tmp_path):
+    rows = comparable_rows(tmp_path)
+    row = dict(rows["designed"])
+    row.pop("conditions")
+    out = decide.outcome(written(tmp_path, chosen="b"), row, out_dir=tmp_path / "outcomes")
+    assert out["status"] == "OK"
+    assert out["outcome"]["contest"] == decide.CONTEST_NOT_CARRIED
+
+
+def test_an_outcome_written_before_this_field_existed_is_still_a_valid_outcome(tmp_path):
+    rows = comparable_rows(tmp_path)
+    out = decide.outcome(written(tmp_path, chosen="b"), rows["designed"], out_dir=tmp_path / "outcomes")
+    older = {key: value for key, value in out["outcome"].items() if key != "contest"}
+    assert decide.validate_outcome(older) == older          # a content-addressed record is never rewritten to add a field
+
+
+def test_an_empty_contest_names_nothing_and_is_refused(tmp_path):
+    rows = comparable_rows(tmp_path)
+    out = decide.outcome(written(tmp_path, chosen="b"), rows["designed"], out_dir=tmp_path / "outcomes")
+    with pytest.raises(decide.DecisionError):
+        decide.validate_outcome(dict(out["outcome"], contest="  "))
