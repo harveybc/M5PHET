@@ -150,3 +150,113 @@ decisions it came from.
   the existing evaluation protocol against `flat` and the fitted SAC on the same rows. Nothing here sends an order.
 
 In every one of them the decision is the hypothesis and the closure table is the verdict.
+
+## The outcome: when a decision becomes a label (WP23)
+
+**A person's opinion is never a label; only a table row is.** That sentence is the whole rule of this section, and
+every refusal below enforces it. A decision record is a hypothesis: Laya chose an option out of a declared set, having
+seen a description and no rows. It becomes evidence *about Laya* only when the configuration it led to was fitted and
+**measured**, and the measurement was found commensurable with the alternatives it is ranked against. Nothing else may
+be written into an outcome — not the author's judgement that the choice looked sensible, not the plausibility of the
+label, not a reviewer's agreement — because a fine-tuning corpus built from those would train the checkpoint on the
+opinions of whoever assembled it, and would then be presented as measured evidence.
+
+`outcome(record_path, table_row, *, out_dir)` links one decision record to **one** row of the closure table that
+`evaluation/compare_stages.py` emits (WP13): the mapping carrying `stage`, `status`, `comparability`, `rank`,
+`metric`, `model_error`, the `naive` reference and `skill`. It writes a content-addressed **outcome record**:
+
+| Field | Meaning |
+|---|---|
+| `schema` | `m5phet.decision_outcome.v1` |
+| `decision_sha256` | the decision record this outcome is about; also the name that record is filed under |
+| `kind`, `question`, `chosen`, `options` | copied from the decision, so the outcome is readable on its own |
+| `probabilities` | the decision's uncalibrated probabilities, verbatim — the argmax and the probability it claimed are what the calibration report bins, and a report that had to re-open the decision record to find them could be run against a different one |
+| `table_row_sha256` | sha256 of the row's canonical JSON. The closure numbers are **bound, not copied**: they cannot be quoted out of the outcome, and cannot be changed behind it either |
+| `stage` | the stage whose row this is |
+| `rank` | the row's rank among the comparable stages — **this is the label** |
+| `comparability` | always `COMPARABLE`; an outcome exists for no other verdict |
+| `best_ranked_option` | present only on the outcome of the stage ranked first, where it equals `chosen` |
+
+Refusals, each by name, **nothing written** for any of them:
+
+| Code | When |
+|---|---|
+| `NOT_COMPARABLE` | the row's `comparability` is not `COMPARABLE`. A rank among stages measured on different holdouts, or against a different metric, orders incommensurable numbers |
+| `NOT_RANKED` | the row carries no rank. The rank *is* the label |
+| `DECISION_NOT_FOUND` | the path holds no readable `m5phet.decision.v1` record |
+| `DIGEST_MISMATCH` | the record's bytes no longer hash to the name it is filed under: it was altered after it was written |
+| `MALFORMED_TABLE_ROW` | the object is not a row as `compare_stages` emits it |
+
+`best_ranked_option` is defined as *the option key of the stage ranked first among the stages that share the
+decision's `kind` and `question`*. One call sees one row, so it can be settled at write time only when that row **is**
+that stage — `rank == 1`. Otherwise the field is absent and the calibration report settles it for the group, by
+reading every outcome that shares the kind and the question.
+
+## The calibration rule (WP23)
+
+`evaluation/decision_calibration.py` reads outcome records and reports, **per decision kind and question**:
+
+- **n linked** — how many outcomes exist for that kind and question;
+- **agreement** — how often Laya's argmax was the `best_ranked_option`. Not how often it was plausible, not how often
+  a reviewer would have chosen the same;
+- **reliability** — the outcomes binned by their argmax probability in bins of 0.1, each bin showing `n`, its observed
+  agreement and the mean probability claimed in it;
+- **the expected calibration error** —
+  `Σ over non-empty bins (n_bin / n_scored) · |agreement_bin − mean_argmax_probability_bin|`. It is a gap between what
+  the head claimed and what the table found. It is not an accuracy, and it says nothing about whether the
+  ranked-first pipeline was any good.
+
+```
+python -m evaluation.decision_calibration --outcomes <dir> --out report.json --markdown report.md
+python -m evaluation.decision_calibration --inventory <decisions dir> [<dir> ...] --out report.json
+```
+
+**The threshold is 30.** Any `(kind, question)` with fewer than 30 linked outcomes is `NO_NEW_MEASUREMENT`, and the
+report prints how many are missing (`29 linked outcome(s), 30 required — 1 missing`) instead of a rate. An agreement
+rate over nine links looks exactly like a measurement and is not one. Three further conditions produce
+`NO_NEW_MEASUREMENT` even at or above the threshold, because without them the rate would not mean what it reads as:
+`OPTION_SETS_DIFFER` (the outcomes were chosen from different option sets, so they do not answer one question),
+`NO_BEST_RANKED_OPTION` (no linked outcome came from a stage ranked first, so no option is the label), and
+`AMBIGUOUS_BEST_RANKED_OPTION` (two stages ranked first under different keys). An outcome whose probabilities have no
+single maximum is excluded from the scoring and counted, rather than having its tie broken by option order — a tie
+means the head separated nothing, and breaking it would invent the preference the report exists to measure.
+
+`--inventory` states the position from the other side: how many decision records exist today per kind and question,
+and how many of them have an outcome. The rendering sorts everything and reads no clock, so two runs over the same
+records produce the same bytes and the report can be diffed.
+
+### Where this stands today (2026-09-25)
+
+Run over the three directories the framework has written records into —
+`~/.local/state/m5phet/decisions` (WP17, WP18, WP15),
+`~/.local/state/m5phet/regimes-wp19-20260925/records` (WP19), and
+`~/.local/share/causal-inference-m5phet/studies/decisions` (WP20):
+
+| kind | question | records | linked | unlinked |
+|---|---|---|---|---|
+| `causal_study` | `baseline` | 1 | 0 | 1 |
+| `causal_study` | `confidence_level` | 1 | 0 | 1 |
+| `causal_study` | `confounder` | 1 | 0 | 1 |
+| `causal_study` | `estimator` | 1 | 0 | 1 |
+| `causal_study` | `model_t` | 1 | 0 | 1 |
+| `causal_study` | `model_y` | 1 | 0 | 1 |
+| `causal_study` | `outcome` | 1 | 0 | 1 |
+| `causal_study` | `treatment` | 1 | 0 | 1 |
+| `dataset_choice` | `dataset` | 1 | 0 | 1 |
+| `feature_grouping` | `grouping_cut` | 1 | 0 | 1 |
+| `feature_preprocessing` | `preprocessing` | 7 | 0 | 7 |
+| `group_extractor` | `extractor` | 2 | 0 | 2 |
+| `regime_method` | `regime_method` | 1 | 0 | 1 |
+| `regime_parameters` | `regime_parameters_linkage` | 1 | 0 | 1 |
+| `regime_parameters` | `regime_parameters_n_clusters` | 1 | 0 | 1 |
+
+**22 decision records exist and zero outcomes exist.** Not one of them is a label: no closure-table row links any of
+them, because no Laya-chosen pipeline has been fitted and ranked yet. Every kind above is therefore at least 30 short
+of its first measurement, and the calibration report says exactly that rather than reporting a rate over what is
+there. The work plan's own WP23 records why the records look as they do — a zero-shot checkpoint that barely separates
+the options (0.35/0.32/0.32 over three transforms, 0.30–0.41 over five causal roles, the same preprocessor for all
+seven features) — and those are facts about the checkpoint, not measurements of it.
+
+This is also why WP23's **step 3** — a fine-tuning corpus for the Laya checkpoint built from linked records — has not
+begun and could not: there is nothing to build it from, and it needs the owner's go besides. Until then the framework
+keeps the zero-shot checkpoint, and every decision record says so in its `checkpoint` field.
