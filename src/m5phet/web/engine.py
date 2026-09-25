@@ -207,28 +207,31 @@ class Engine:
                 for area in configuration_module.AREAS}
 
     def resolved_rows(self, prompt, task):
-        """The rows of the dataset this envelope names, or None when it names none.
+        """`(rows, resolution, governance)` for the dataset this envelope names, or `(None, resolution, None)`.
 
         The envelope carries the id the proposal resolved (`state.dataset`), so what runs reads what the person
         reviewed; a hand-written envelope may name one the same way, and a sentence with no envelope id is resolved
-        from its own words. A governed resource is refused by name here -- it is never served from an ungoverned
-        copy -- and that refusal is what the person is shown."""
+        from its own words. A governed resource is read THROUGH data-gov and `governance` is its receipt; if
+        data-gov is not configured or refuses, the refusal is raised by name and is what the person is shown. There
+        is no path from a refusal to a local read of the same bytes."""
         state = task.get("state") if isinstance(task, dict) else None
         subject = state if isinstance(state, dict) and state.get("dataset") else prompt
         # no decider at execution: the choice was made and recorded when the person reviewed the proposal, and its
         # id travels in `state.dataset`. A run is never the place to ask Laya again for a different dataset.
         resolution = dataset_catalog.resolve(subject, self.datasets, None)
         if resolution["status"] != dataset_catalog.OK:
-            return None, resolution
-        return dataset_catalog.load_rows(resolution["dataset"]), resolution
+            return None, resolution, None
+        rows, governance = dataset_catalog.load_rows_with_receipt(resolution["dataset"])
+        return rows, resolution, governance
 
     def execute_task(self, prompt, task, attachments, language=None):
         """Run an envelope the person accepted (or wrote), then narrate its answers without touching a number."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
         dataset = None
+        governance = None
         if payload is None and (self.datasets or {}).get("datasets"):
-            rows, resolution = self.resolved_rows(prompt, task)
+            rows, resolution, governance = self.resolved_rows(prompt, task)
             if rows is not None:
                 payload, dataset = rows, dataset_catalog.proposal_view(resolution)
                 # how the inputs came to be what the engine was handed, recorded beside the answer
@@ -252,8 +255,11 @@ class Engine:
         language = language or (self.configuration.output(area).get("language") if area else None) or "es"
         narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area, task=task,
                             plugin=self.output(area))
-        return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
-                "dataset": dataset, "execution_authorized": False}
+        # WP15: a run whose rows came through data-gov IS a governed run, and says so beside its answers. Nothing
+        # else in this method may set that profile: it is the receipt that makes it true, not an intention.
+        profile = dataset_catalog.GOVERNED_PROFILE if governance else "LOCAL_UNGOVERNED"
+        return {"task": task, "response": response, "narration": narration, "profile": profile,
+                "dataset": dataset, "governance": governance, "execution_authorized": False}
 
     def execute(self, prompt, config, attachments, *, dry_run=False):
         """Resolve a sentence into the typed request its selected engine will run, and run it.

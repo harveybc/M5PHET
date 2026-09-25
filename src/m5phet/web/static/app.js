@@ -327,6 +327,8 @@ function renderEnvelopeAnswers(body,m,detail){
     n.append(el('span',narration.source==='INTERPRETER'?('Narrado por el intérprete · verificado contra las cifras'+(narration.interpreter?.model?' · '+narration.interpreter.model:'')):'Redacción determinista desde las cifras','narration-source'));
     if(narration.why)n.append(el('span',narration.why,'narration-why'));
     body.append(n);}
-  const meta=el('div',undefined,'result-meta');meta.append(el('span','LOCAL_UNGOVERNED'));if(detail.elapsed_seconds!==undefined)meta.append(el('span',detail.elapsed_seconds.toFixed(3)+' s'));body.append(meta);
+  const meta=el('div',undefined,'result-meta');meta.append(el('span',detail.profile||'LOCAL_UNGOVERNED'));
+  if(detail.governance){const g=detail.governance;meta.append(el('span','data-gov · '+g.lake+'/'+g.resource+' · '+String(g.response_digest||'').slice(0,12)+'… · '+g.requested_at));}
+  if(detail.elapsed_seconds!==undefined)meta.append(el('span',detail.elapsed_seconds.toFixed(3)+' s'));body.append(meta);
   const details=el('details');details.append(el('summary','Sobre ejecutado y respuestas'),el('pre',JSON.stringify({envelope:detail.envelope||detail.task,response},null,2)));body.append(details);
 }

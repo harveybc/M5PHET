@@ -29,9 +29,18 @@ whether their own words or Laya chose their data.
 
 **The access**. An ungoverned foundation resource is read from disk when the run needs it. A governed one resolves
 and is described exactly like any other -- a person must be able to see that it exists and that it is governed --
-but its rows are refused by name: `GOVERNED_ACCESS_NOT_CONFIGURED`, naming the environment variables a successor
-must bind to reach data-gov with the owner's identity. This package implements no governed access and holds no
-credential; it refuses instead of downgrading to an ungoverned read, which is the failure that would matter.
+and its rows are read **through data-gov**, with `data_gov.client.DataGovClient`, under the owner's identity bound
+in the environment (`DATA_GOV_BASE_URL`, `DATA_GOV_USER`, `DATA_GOV_API_KEY_FILE`). This module never holds a
+credential: it reads the key file at the moment of the call, hands it to the client and keeps nothing; no value of
+any of those variables is ever printed, logged, returned in a receipt or written into this repository.
+
+Three outcomes and no fourth. Nothing bound (or no key file where the variable points, or no data-gov client
+importable) is `GOVERNED_ACCESS_NOT_CONFIGURED`, naming the variables. data-gov answered no -- an unauthenticated
+key, a policy that does not grant `download`, a range under holdout, a resource it does not serve -- is
+`GOVERNED_ACCESS_REFUSED` **carrying the server's own reason**; the run stops there and no ungoverned copy of the
+same bytes is read in its place, which is the failure that would matter. data-gov answered yes and the run carries
+a `governance` receipt -- profile `GOVERNED`, the lake, the resource, the delivery's digest and when it was asked --
+beside its answers.
 """
 
 import argparse
@@ -42,7 +51,8 @@ import math
 import os
 import re
 import sys
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
 
 CATALOG_SCHEMA = "m5phet.dataset_catalog.v1"
 
@@ -88,17 +98,30 @@ SCALE_REFUSAL = "ROWS_SCALE_NOT_DECLARED"
 INVERTED_ORIGIN = "inverse_standardized_from_manifest_scaler"
 STORED_ORIGIN = "as_stored"
 
-#: governed access is NOT implemented here. A governed dataset resolves; its rows are refused by this name.
+#: governed access with nothing bound to reach data-gov with. The dataset still resolves and is described; only its
+#: rows are refused, by this name.
 GOVERNED_REFUSAL = "GOVERNED_ACCESS_NOT_CONFIGURED"
-#: the variables a successor must bind for data-gov to be reached with the owner's identity. Their VALUES are never
-#: read, printed or written by this module; only these names ever appear.
+#: governed access attempted and DENIED BY DATA-GOV. A different thing from the one above and never merged with it:
+#: this one means the governance server was reached, was asked, and said no. It is never downgraded to a local read.
+GOVERNED_DENIED = "GOVERNED_ACCESS_REFUSED"
+#: the profile a run carries once its rows came through data-gov, against `LOCAL_UNGOVERNED` for every other run
+GOVERNED_PROFILE = "GOVERNED"
+#: the variables the owner binds for data-gov to be reached with his identity. Their VALUES are never printed,
+#: logged, put in a receipt or written into this repository by this module; only these names ever appear.
 GOVERNED_VARIABLES = ("DATA_GOV_BASE_URL", "DATA_GOV_USER", "DATA_GOV_API_KEY_FILE")
+#: where a checkout of data-gov may be found when its distribution is not installed in this interpreter
+CHECKOUT_VARIABLE = "DATA_GOV_CHECKOUT"
+#: where delivered bytes are kept. Content-addressed by data-gov's client, outside every repository.
+GOVERNED_CACHE = "~/.cache/m5phet/data-gov"
+CACHE_VARIABLE = "M5PHET_DATA_GOV_CACHE"
+#: the experiment key these reads are recorded under in data-gov's accounting
+GOVERNED_EXPERIMENT_KEY = "m5phet-chat"
 
-#: how data-gov would be listed if it were reachable. Its installed console script in anaconda is shadowed by another
-#: project's top-level `app` package, so the repository's own checkout is the way to run it; and its listing is an
-#: HTTP call needing the owner's key, which is why the catalog carries a stub and not an entry.
-DATA_GOV_COMMAND = ("PYTHONPATH=<data-gov checkout> python -m app.main --load_config examples/config/default.json "
-                    "  # then DataGovClient(base_url=$DATA_GOV_BASE_URL).lakes() / .resources(lake_id)")
+#: how data-gov is reached. The client is data-gov's OWN (`data_gov.client.DataGovClient`), installed in this
+#: environment or loaded from a checkout named by DATA_GOV_CHECKOUT; the listing is an authenticated HTTP call.
+DATA_GOV_COMMAND = ("pip install <data-gov checkout>   # or export DATA_GOV_CHECKOUT=<data-gov checkout>\n"
+                    "  # then DataGovClient(base_url=$DATA_GOV_BASE_URL, api_key_file=$DATA_GOV_API_KEY_FILE)"
+                    ".lakes() / .resources(lake_id)")
 
 #: ordinary phrasings that name one resource. A phrase maps to an ID because two household resources exist on this
 #: host -- an ungoverned development pilot and a governed delivery -- and "consumo eléctrico" names the one a person
@@ -129,7 +152,11 @@ _WORD = re.compile(r"[a-z0-9]+")
 
 
 class GovernedAccess(PermissionError):
-    """A governed resource whose rows this package will not read. Refused by name, never downgraded."""
+    """A governed resource whose rows cannot be read as this installation stands. Refused by name, never downgraded."""
+
+
+class GovernedRefused(GovernedAccess):
+    """data-gov was reached, was asked, and said no. Its own reason travels in the message; nothing falls back."""
 
 
 class RowsNotUsable(ValueError):
@@ -355,17 +382,206 @@ def file_entry(name, data):
             "provenance": "ATTACHED_BY_THE_PERSON", "governed": False, "source": "file", "path_or_ref": name}
 
 
-def data_gov_source(available=False):
-    """data-gov as a SOURCE, not as entries: its listing is an HTTP call needing the owner's key, so nothing is
-    invented about what it holds. The stub says how the owner would reach it."""
-    return {"source": "data-gov", "available": bool(available), "command": DATA_GOV_COMMAND,
-            "why": ("data-gov's listing (`DataGovClient.lakes()` / `.resources()`) is an HTTP call that needs "
-                    f"{', '.join(GOVERNED_VARIABLES)}; none is bound here, so no dataset of it is listed"),
-            "variables": list(GOVERNED_VARIABLES)}
+def data_gov_source(available=False, *, why=None, lakes=None, resources=None, bound=0):
+    """data-gov as a SOURCE. Reachable, it says what it listed; unreachable, it says what is missing and never
+    invents an entry. No value of any governed variable appears here -- not the base URL, not the key path."""
+    record = {"source": "data-gov", "available": bool(available), "command": DATA_GOV_COMMAND,
+              "variables": list(GOVERNED_VARIABLES)}
+    if available:
+        record.update(lakes=lakes, resources=resources, bound_to_foundation_resources=bound,
+                      why=why or "listed through DataGovClient.lakes() / .resources() with the bound identity")
+    else:
+        record["why"] = why or ("data-gov's listing (`DataGovClient.lakes()` / `.resources()`) is an authenticated "
+                                f"HTTP call that needs {', '.join(GOVERNED_VARIABLES)}; they are not all bound "
+                                "here, so no dataset of it is listed")
+    return record
 
 
-def build_catalog(roots=None, *, files=None):
-    """Every resource under every root that carries a manifest, described and never read for its content."""
+# --- reaching data-gov ---------------------------------------------------------------------------------------------
+
+def governed_configuration(environ=None):
+    """`(configuration, missing)` from the environment. `missing` names variables, never shows a value.
+
+    A variable bound to a key file that is not there is as missing as one not bound at all: what the owner meant is
+    not available, and pretending otherwise would fail later with a confusing message."""
+    env = os.environ if environ is None else environ
+    values = {name: str(env.get(name) or "").strip() for name in GOVERNED_VARIABLES}
+    missing = [name for name in GOVERNED_VARIABLES if not values[name]]
+    key_file = None
+    if values["DATA_GOV_API_KEY_FILE"]:
+        key_file = Path(os.path.expanduser(values["DATA_GOV_API_KEY_FILE"]))
+        if not key_file.is_file():
+            missing.append("DATA_GOV_API_KEY_FILE")
+    if missing:
+        return None, sorted(set(missing))
+    return {"base_url": values["DATA_GOV_BASE_URL"], "user": values["DATA_GOV_USER"],
+            "key_file": str(key_file)}, []
+
+
+def _not_configured(subject, missing, extra=""):
+    return GovernedAccess(
+        f"{GOVERNED_REFUSAL}: {subject!r} is a governed resource and this installation cannot reach data-gov: "
+        f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not usable here. Bind "
+        f"{', '.join(GOVERNED_VARIABLES)} to the owner's identity (the key lives in a file outside every "
+        f"repository; no value of them is ever printed). {extra}"
+        "Until then the run is refused rather than served from an ungoverned copy.")
+
+
+def data_gov_client_class(environ=None):
+    """data-gov's OWN client class: the installed distribution, else a checkout named by DATA_GOV_CHECKOUT.
+
+    M5PHET writes no HTTP client for governance. A second implementation of a governed download is a second set of
+    rules about what a delivery is, and only data-gov's rules govern."""
+    try:
+        from data_gov.client import DataGovClient                       # the installed distribution
+        return DataGovClient
+    except ImportError:
+        pass
+    env = os.environ if environ is None else environ
+    checkout = str(env.get(CHECKOUT_VARIABLE) or "").strip()
+    if not checkout:
+        return None
+    module_path = Path(os.path.expanduser(checkout)) / "data_gov" / "client.py"
+    if not module_path.is_file():
+        return None
+    import importlib.util
+    package = module_path.parent
+    name = "m5phet_data_gov"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            name, package / "__init__.py", submodule_search_locations=[str(package)])
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        spec.loader.exec_module(module)
+    import importlib
+    return importlib.import_module(f"{name}.client").DataGovClient
+
+
+def governed_client(configuration, environ=None, *, experiment_key=GOVERNED_EXPERIMENT_KEY):
+    """One client, built for one call, reading the key file AT THE MOMENT OF THE CALL and keeping nothing."""
+    cls = data_gov_client_class(environ)
+    if cls is None:
+        raise _not_configured(
+            "this installation", ["the data-gov client"],
+            "Install data-gov in this environment or bind "
+            f"{CHECKOUT_VARIABLE} to its checkout. ")
+    return cls(base_url=configuration["base_url"], api_key_file=configuration["key_file"],
+               experiment_key=experiment_key)
+
+
+def _refused(subject, reason, where=""):
+    return GovernedRefused(
+        f"{GOVERNED_DENIED}: data-gov was asked for {subject!r}{where} and refused: {reason}. The run is refused "
+        "by that reason; the same bytes are NOT read from an ungoverned copy.")
+
+
+def _transport(subject, error, where=""):
+    """A governance server that does not answer is a governed run that does not happen, said by name.
+
+    The failure mode this closes: an OSError climbing out of the client would surface as a raw transport error and
+    a reader could not tell it from a bug. It is a refusal, and it is the same refusal as any other `no`."""
+    return _refused(subject, f"data-gov did not answer ({type(error).__name__})", where)
+
+
+def data_gov_listing(client):
+    """`[(lake_id, resource_id, lake)]` -- everything the bound identity may see. Its own failure is its own reason."""
+    try:
+        status, payload = client.lakes()
+    except OSError as error:
+        raise _transport("the lake listing", error) from None
+    if status != 200:
+        raise _refused("the lake listing", _reason(status, payload))
+    listing = []
+    for lake in (payload or {}).get("lakes") or []:
+        lake_id = lake.get("lake_id")
+        if not lake_id:
+            continue
+        try:
+            status, resources = client.resources(lake_id)
+        except OSError as error:
+            raise _transport(f"the inventory of {lake_id!r}", error) from None
+        if status != 200:
+            continue                                                    # a lake this identity may not inventory
+        for resource in (resources or {}).get("resources") or []:
+            resource_id = resource.get("resource_id")
+            if resource_id:
+                listing.append((lake_id, resource_id, lake))
+    return listing
+
+
+def _reason(status, payload):
+    """data-gov's own words for a refusal, never replaced by ours."""
+    if isinstance(payload, dict):
+        for key in ("error", "reason", "detail", "message"):
+            if payload.get(key):
+                return f"{payload[key]} (HTTP {status})"
+    return f"HTTP {status}"
+
+
+def governed_binding(found, client):
+    """Which (lake, resource) of data-gov IS this catalog entry. Declared wins; else exactly one match, else refused.
+
+    The deterministic rule: a data-gov resource binds to a foundation entry when the resource's file name without
+    its suffix IS the entry's id. Nothing fuzzy: two matches or none is refused, naming what was seen, so nobody's
+    run silently reads a different resource than the one the person reviewed."""
+    if found.get("lake") and found.get("resource"):
+        return found["lake"], found["resource"]
+    dataset_id = found["id"]
+    matches = [(lake_id, resource_id) for lake_id, resource_id, _ in data_gov_listing(client)
+               if resource_id == dataset_id or PurePosixPath(resource_id).stem == dataset_id]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise _refused(dataset_id, "no resource of any lake this identity may see is named that way")
+    named = ", ".join(f"{lake}/{resource}" for lake, resource in sorted(matches))
+    raise _refused(dataset_id, f"{len(matches)} resources answer to that name ({named}); the catalog entry must "
+                               "declare which lake and resource it is")
+
+
+def governed_rows(found, environ=None):
+    """`(rows, governance)` for a governed resource, through data-gov and through nothing else."""
+    env = os.environ if environ is None else environ
+    configuration, missing = governed_configuration(env)
+    if missing:
+        raise _not_configured(found["id"], missing)
+    client = governed_client(configuration, env)
+    lake, resource = governed_binding(found, client)
+    requested_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cache = Path(os.path.expanduser(str(env.get(CACHE_VARIABLE) or GOVERNED_CACHE)))
+    try:
+        status, info = client.download(lake, resource, str(cache))
+    except OSError as error:
+        raise _transport(found["id"], error, where=f" ({lake}/{resource})") from None
+    if status != 200:
+        raise _refused(found["id"], _reason(status, info), where=f" ({lake}/{resource})")
+    delivered = Path(str(info.get("path") or ""))
+    if not delivered.is_file():
+        raise _refused(found["id"], "the delivery reported success but left no file",
+                       where=f" ({lake}/{resource})")
+    rows = _rows_from_path(delivered, found)
+    governance = {
+        "profile": GOVERNED_PROFILE, "lake": lake, "resource": resource,
+        # Flow v2 deliveries carry no receipt id; the digest of the delivered bytes IS the receipt data-gov and this
+        # answer share, and it is what its accounting recorded for this identity.
+        "receipt_id": info.get("delivery_id"),
+        "response_digest": info.get("sha256"),
+        "source_digest": info.get("source_sha256") or None,
+        "delivery": info.get("delivery"), "bytes": info.get("bytes"),
+        "cached": bool(info.get("cached")), "requested_at": requested_at,
+        "user": configuration["user"], "client": "data_gov.client.DataGovClient",
+        "reading": ("these rows were delivered by data-gov to this identity and its accounting recorded the "
+                    "delivery; the receipt names no address and carries no credential"),
+    }
+    return rows, governance
+
+
+def build_catalog(roots=None, *, files=None, environ=None, data_gov=None):
+    """Every resource under every root that carries a manifest, described and never read for its content.
+
+    When the identity to reach data-gov is bound (and `data_gov` is not False), its listing is folded in too: a
+    resource whose name IS a foundation resource's id binds to that entry -- one dataset, now addressable through
+    governance, never a second entry competing with the first in the resolver -- and a resource with no counterpart
+    on this disk becomes its own entry. Still descriptions only: a listing gives names and sizes, not rows."""
     roots = [Path(os.path.expanduser(str(r))) for r in (roots if roots is not None else DEFAULT_ROOTS)]
     entries, scanned = [], []
     for root in roots:
@@ -378,10 +594,40 @@ def build_catalog(roots=None, *, files=None):
                 entries.append(entry)
     for name, data in (files or {}).items():
         entries.append(file_entry(name, data))
+    source = data_gov_source() if data_gov is False else _fold_in_data_gov(entries, environ)
     return {"schema": CATALOG_SCHEMA, "roots": scanned, "datasets": entries,
-            "sources": [{"source": "foundation", "available": True, "roots": scanned}, data_gov_source()],
+            "sources": [{"source": "foundation", "available": True, "roots": scanned}, source],
             "aliases": dict(DEFAULT_ALIASES),
             "reading": "descriptions of what exists; no catalog entry carries a row of anybody's data"}
+
+
+def _fold_in_data_gov(entries, environ=None):
+    """Bind or add data-gov's resources, and say plainly when it could not be listed. Never raises."""
+    configuration, missing = governed_configuration(environ)
+    if missing:
+        return data_gov_source(False, why=("not listed: " + ", ".join(missing) + " "
+                                           + ("is" if len(missing) == 1 else "are") + " not usable here"))
+    try:
+        client = governed_client(configuration, environ)
+        listing = data_gov_listing(client)
+    except GovernedAccess as refusal:                                   # including a server that is simply not up
+        return data_gov_source(False, why=f"not listed: {refusal}")
+    by_id = {item["id"]: item for item in entries}
+    bound, lakes = 0, set()
+    for lake_id, resource_id, lake in listing:
+        lakes.add(lake_id)
+        existing = by_id.get(PurePosixPath(resource_id).stem) or by_id.get(resource_id)
+        if existing is not None:
+            existing.update(lake=lake_id, resource=resource_id, governed=True)
+            bound += 1
+            continue
+        entries.append({
+            "id": f"data-gov:{lake_id}/{resource_id}", "name": PurePosixPath(resource_id).stem.replace("_", " "),
+            "description": f"{lake.get('title') or lake_id}: {lake.get('description') or 'governed resource'}",
+            "columns": [], "rows": None, "scale": "UNKNOWN", "scaler_sha256": None, "target_channel": None,
+            "step_seconds": None, "provenance": "DATA_GOV_LISTING", "governed": True, "source": "data-gov",
+            "manifest_ref": None, "path_or_ref": None, "lake": lake_id, "resource": resource_id})
+    return data_gov_source(True, lakes=sorted(lakes), resources=len(listing), bound=bound)
 
 
 def entry(catalog, dataset_id):
@@ -579,25 +825,42 @@ def profile_of(found):
 
 # --- the rows, when a run actually needs them ---------------------------------------------------------------------
 
-def load_rows(found):
-    """The rows of a resolved dataset, as a list of row mappings. Governed access is refused, never downgraded."""
+def load_rows(found, environ=None):
+    """The rows of a resolved dataset. Kept for callers that do not record governance; see `load_rows_with_receipt`."""
+    return load_rows_with_receipt(found, environ)[0]
+
+
+def load_rows_with_receipt(found, environ=None):
+    """`(rows, governance)`. `governance` is None for an ungoverned read and a receipt for a governed delivery.
+
+    A governed resource goes through data-gov and through nothing else: configured, it is delivered and the receipt
+    travels with the answer; not configured, `GOVERNED_ACCESS_NOT_CONFIGURED`; refused by the server,
+    `GOVERNED_ACCESS_REFUSED` with the server's reason. There is no branch that reads a governed resource's bytes
+    off the disk they happen to also sit on."""
     if found.get("governed"):
-        raise GovernedAccess(
-            f"{GOVERNED_REFUSAL}: {found['id']!r} is a governed resource and this package implements no governed "
-            f"access. A successor must bind {', '.join(GOVERNED_VARIABLES)} and read it through data-gov with the "
-            "owner's identity; the values of those variables are never written into this repository nor printed. "
-            "Until then the run is refused rather than served from an ungoverned copy.")
+        return governed_rows(found, environ)
     path = Path(str(found.get("path_or_ref") or ""))
     if not path.is_file():
         raise CatalogError(f"{found['id']}: its declared file {path} is not there; refresh the catalog")
-    if found.get("scale") == "FITTED_EXPERIMENT_PANEL":
+    return _rows_from_path(path, found), None
+
+
+def _rows_from_path(path, found):
+    """The rows a delivered or local file holds, in the one vocabulary the engines are handed.
+
+    What can be said about the units is a statement about the bytes IN HAND. For a local read those are the
+    resource's declared file and this changes nothing; a governed delivery may hand over the same resource in
+    another form -- the panel as a parquet table rather than the fitted experiment's `.npz` arrays -- and a table
+    is read as a table, exactly as an attached file is, never put through an inversion meant for those arrays."""
+    scale = found.get("scale", "UNKNOWN") if path.suffix.lower() == ".npz" else _scale_of(path)
+    if scale == "FITTED_EXPERIMENT_PANEL":
         raise RowsNotUsable(
             f"{SCALE_REFUSAL}: {found['id']!r} stores its panel as a fitted experiment's arrays ({path.name}) and "
             "its manifest declares no scaler for them, so what units those numbers are in is unknown. Handing them "
             "to an engine would have it scale them again and answer a number in no scale at all. A panel whose "
             "manifest DOES declare its scaler is inverted to original units and read; a resource stored as .csv or "
             ".parquet is read as an attached file is. This one is refused rather than guessed.")
-    if found.get("scale") == "STANDARDIZED_BY_DECLARED_SCALER":
+    if scale == "STANDARDIZED_BY_DECLARED_SCALER":
         return _inverted_rows(found, path)
     suffix = path.suffix.lower()
     columns = list(found.get("columns") or [])
@@ -722,14 +985,21 @@ def main(argv=None):
     index.add_argument("--root", action="append", default=None,
                        help=f"a data foundation to scan (repeatable; default {DEFAULT_ROOTS[0]})")
     index.add_argument("--out", default=None, help=f"where to write it (default {DEFAULT_CATALOG_PATH})")
+    index.add_argument("--no-data-gov", action="store_true",
+                       help="do not list data-gov even when the identity to reach it is bound")
     show = sub.add_parser("show", help="print the catalog this installation has")
     show.add_argument("--catalog", default=None)
     args = parser.parse_args(argv)
     if args.command == "index":
-        catalog = build_catalog(args.root)
+        catalog = build_catalog(args.root, data_gov=not args.no_data_gov)
         target = write_catalog(catalog, args.out)
+        listed = next((s for s in catalog["sources"] if s["source"] == "data-gov"), {})
         print(json.dumps({"schema": catalog["schema"], "datasets": len(catalog["datasets"]),
                           "governed": sum(1 for d in catalog["datasets"] if d["governed"]),
+                          "data_gov": {"available": listed.get("available", False),
+                                       "resources": listed.get("resources"),
+                                       "bound_to_foundation_resources": listed.get(
+                                           "bound_to_foundation_resources")},
                           "roots": catalog["roots"], "written": str(target)}, ensure_ascii=False))
         return 0
     print(json.dumps(load_catalog(args.catalog), indent=2, ensure_ascii=False))

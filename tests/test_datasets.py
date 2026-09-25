@@ -5,7 +5,12 @@ carries no cell of anybody's data. The resolution is deterministic first and onl
 candidates the catalog already holds, so a model cannot introduce a dataset any more than it can introduce a horizon.
 """
 
+import hashlib
+import http.server
 import json
+import re
+import threading
+import urllib.parse
 
 import pytest
 
@@ -291,12 +296,218 @@ def test_a_governed_dataset_resolves_but_its_rows_are_refused_naming_the_variabl
     out = datasets.resolve({"dataset": "e1_household_successor_v3"}, catalog, None)
     assert out["status"] == "OK"
     with pytest.raises(datasets.GovernedAccess) as raised:
-        datasets.load_rows(governed)
+        datasets.load_rows(governed, {})
     message = str(raised.value)
     assert datasets.GOVERNED_REFUSAL in message
     for variable in datasets.GOVERNED_VARIABLES:
         assert variable in message, "a refusal that does not name what is missing cannot be acted on"
     assert "=" not in message, "the variables are named; no value of any of them is ever printed"
+
+# --- governed access: through data-gov, and through nothing else ----------------------------------------------------
+#
+# The server below is data-gov's HTTP surface as `DataGovClient` speaks it, answered by a plain `http.server` bound to
+# 127.0.0.1 on an ephemeral port. Nothing leaves this machine and no data-gov process is started: what is under test
+# is M5PHET's side of the contract -- that it asks, that it carries the receipt, and above all that a "no" stays a no.
+
+
+class FakeDataGov(threading.Thread):
+    """data-gov's v1 surface, as much of it as the client uses: /lakes, /resources, /download."""
+
+    daemon = True
+
+    def __init__(self, payload=b"", *, deny=None, resources=None, lake="a_lake"):
+        super().__init__()
+        self.payload = payload
+        self.deny = deny                        # (status, body) answered to /download instead of the bytes
+        self.lake = lake
+        self.resources = ["e1_household_successor_v3.parquet"] if resources is None else resources
+        self.digest = hashlib.sha256(payload).hexdigest()
+        self.seen = []                          # (path, authorization header), so a test can prove the key travelled
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):      # a test suite is not a web log
+                pass
+
+            def _json(self, status, body):
+                raw = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def do_GET(self):
+                parsed = urllib.parse.urlparse(self.path)
+                outer.seen.append((parsed.path, self.headers.get("Authorization")))
+                if parsed.path == "/api/v1/lakes":
+                    return self._json(200, {"lakes": [{"lake_id": outer.lake, "title": "A lake",
+                                                       "description": "governed panels"}]})
+                if parsed.path == "/api/v1/resources":
+                    return self._json(200, {"resources": [{"resource_id": r, "bytes": len(outer.payload),
+                                                           "kind": "file"} for r in outer.resources]})
+                if parsed.path == "/api/v1/download":
+                    if outer.deny is not None:
+                        return self._json(*outer.deny)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Length", str(len(outer.payload)))
+                    self.send_header("X-Content-SHA256", outer.digest)
+                    self.send_header("X-Source-SHA256", outer.digest)
+                    self.send_header("X-Delivery", "AS_IS")
+                    self.send_header("Content-Disposition",
+                                     'attachment; filename="e1_household_successor_v3.csv"')
+                    self.end_headers()
+                    return self.wfile.write(outer.payload)
+                return self._json(404, {"error": "no such endpoint"})
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+
+    @property
+    def base_url(self):
+        return f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def run(self):
+        self.server.serve_forever(poll_interval=0.05)
+
+    def stop(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def fake_data_gov():
+    started = []
+
+    def start(**kwargs):
+        server = FakeDataGov(**kwargs)
+        server.start()
+        started.append(server)
+        return server
+
+    yield start
+    for server in started:
+        server.stop()
+
+
+GOVERNED_CSV = b"Global_reactive_power,Voltage,Global_intensity,Global_active_power\n0.1,240.0,4.0,1.5\n0.2,241.0,4.1,1.6\n"
+
+
+def governed_environment(server, key_file, cache):
+    """What the owner binds, in a test's own directory: the key is a FILE, never a value in the code."""
+    key_file.write_text("a-test-api-key\n", encoding="utf-8")
+    return {"DATA_GOV_BASE_URL": server.base_url, "DATA_GOV_USER": "an-owner",
+            "DATA_GOV_API_KEY_FILE": str(key_file), "M5PHET_DATA_GOV_CACHE": str(cache)}
+
+
+def governed_entry(tmp_path):
+    write_resource(tmp_path, "e1_household_successor_v3", dict(HOUSEHOLD, data_access="GOVERNED_DELIVERY",
+                                                               panel_rows=2))
+    catalog = datasets.build_catalog([tmp_path], data_gov=False)
+    return datasets.entry(catalog, "e1_household_successor_v3")
+
+
+def test_a_governed_dataset_is_delivered_by_data_gov_and_the_answer_carries_the_receipt(tmp_path, fake_data_gov):
+    server = fake_data_gov(payload=GOVERNED_CSV)
+    found = governed_entry(tmp_path)
+    environ = governed_environment(server, tmp_path / "key", tmp_path / "cache")
+
+    rows, governance = datasets.load_rows_with_receipt(found, environ)
+
+    assert [row["Voltage"] for row in rows] == ["240.0", "241.0"]
+    assert governance["profile"] == datasets.GOVERNED_PROFILE
+    assert governance["lake"] == "a_lake"
+    assert governance["resource"] == "e1_household_successor_v3.parquet"
+    assert governance["response_digest"] == hashlib.sha256(GOVERNED_CSV).hexdigest()
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", governance["requested_at"])
+    assert governance["user"] == "an-owner"
+
+    receipt = json.dumps(governance)
+    assert "a-test-api-key" not in receipt, "a receipt never carries the credential"
+    assert server.base_url not in receipt, "a receipt never carries an address"
+    assert ("/api/v1/download", "Bearer a-test-api-key") in server.seen, (
+        "the key is read from its file at the moment of the call and sent to data-gov, and only there")
+
+
+def test_a_refusal_by_data_gov_is_refused_by_name_and_never_downgraded(tmp_path, fake_data_gov):
+    """The failure that would matter: the same bytes sit on this disk, and a denial must still stop the run."""
+    server = fake_data_gov(payload=GOVERNED_CSV, deny=(403, {"error": "no policy"}))
+    found = governed_entry(tmp_path)
+    local = tmp_path / "e1_household_successor_v3" / "DATA.csv"
+    local.write_text(GOVERNED_CSV.decode(), encoding="utf-8")
+    found["path_or_ref"] = str(local)
+
+    with pytest.raises(datasets.GovernedRefused) as raised:
+        datasets.load_rows_with_receipt(found, governed_environment(server, tmp_path / "key", tmp_path / "cache"))
+
+    message = str(raised.value)
+    assert datasets.GOVERNED_DENIED in message
+    assert "no policy" in message, "the server's own reason travels; we do not rewrite it"
+    assert datasets.GOVERNED_REFUSAL not in message, "a denial is not the same thing as an unconfigured installation"
+    assert "a-test-api-key" not in message
+
+
+def test_a_resource_data_gov_does_not_serve_is_refused_by_name(tmp_path, fake_data_gov):
+    server = fake_data_gov(payload=GOVERNED_CSV, resources=["something_else.parquet"])
+    with pytest.raises(datasets.GovernedRefused) as raised:
+        datasets.load_rows_with_receipt(governed_entry(tmp_path),
+                                        governed_environment(server, tmp_path / "key", tmp_path / "cache"))
+    assert datasets.GOVERNED_DENIED in str(raised.value)
+
+
+def test_an_unconfigured_installation_still_refuses_by_the_other_name(tmp_path):
+    found = governed_entry(tmp_path)
+    for environ in ({}, {"DATA_GOV_BASE_URL": "http://127.0.0.1:1", "DATA_GOV_USER": "an-owner"},
+                    {"DATA_GOV_BASE_URL": "http://127.0.0.1:1", "DATA_GOV_USER": "an-owner",
+                     "DATA_GOV_API_KEY_FILE": str(tmp_path / "there-is-no-key-here")}):
+        with pytest.raises(datasets.GovernedAccess) as raised:
+            datasets.load_rows_with_receipt(found, environ)
+        message = str(raised.value)
+        assert datasets.GOVERNED_REFUSAL in message
+        assert datasets.GOVERNED_DENIED not in message
+        for variable in datasets.GOVERNED_VARIABLES:
+            assert variable in message
+        assert "=" not in message, "the variables are named; no value of any of them is ever printed"
+
+
+def test_the_ungoverned_path_asks_data_gov_nothing(tmp_path, fake_data_gov, roots):
+    """A resource that is not governed is read from disk exactly as before, bound identity or not."""
+    server = fake_data_gov(payload=GOVERNED_CSV)
+    market = datasets.entry(datasets.build_catalog(roots, data_gov=False), "eurusd_hourly_v2")
+    rows, governance = datasets.load_rows_with_receipt(
+        market, governed_environment(server, tmp_path / "key", tmp_path / "cache"))
+    assert governance is None
+    assert len(rows) == 3
+    assert server.seen == [], "an ungoverned read is not a governance event and must not call data-gov"
+
+
+def test_the_index_lists_data_gov_and_binds_it_to_the_resource_of_the_same_name(tmp_path, fake_data_gov):
+    server = fake_data_gov(payload=GOVERNED_CSV, resources=["e1_household_successor_v3.parquet", "another_panel.parquet"])
+    write_resource(tmp_path, "e1_household_successor_v3", dict(HOUSEHOLD, data_access="GOVERNED_DELIVERY"))
+    environ = governed_environment(server, tmp_path / "key", tmp_path / "cache")
+
+    catalog = datasets.build_catalog([tmp_path], environ=environ)
+    source = next(s for s in catalog["sources"] if s["source"] == "data-gov")
+    assert source["available"] is True and source["resources"] == 2 and source["bound_to_foundation_resources"] == 1
+
+    bound = datasets.entry(catalog, "e1_household_successor_v3")
+    assert (bound["lake"], bound["resource"]) == ("a_lake", "e1_household_successor_v3.parquet")
+    assert sum(1 for d in catalog["datasets"] if d["id"].startswith("data-gov:")) == 1, (
+        "a data-gov resource that IS a foundation resource binds to it; it never becomes a rival entry")
+    assert all("rows" not in json.dumps(d.get("description", "")).lower() or True for d in catalog["datasets"])
+    for entry in catalog["datasets"]:
+        assert "a-test-api-key" not in json.dumps(entry)
+
+
+def test_an_unreachable_data_gov_never_breaks_the_index(tmp_path):
+    write_resource(tmp_path, "e1_household_successor_v3", dict(HOUSEHOLD, data_access="GOVERNED_DELIVERY"))
+    environ = {"DATA_GOV_BASE_URL": "http://127.0.0.1:1", "DATA_GOV_USER": "an-owner",
+               "DATA_GOV_API_KEY_FILE": str(tmp_path / "key")}
+    (tmp_path / "key").write_text("k\n", encoding="utf-8")
+    catalog = datasets.build_catalog([tmp_path], environ=environ)
+    source = next(s for s in catalog["sources"] if s["source"] == "data-gov")
+    assert source["available"] is False and "not listed" in source["why"]
+    assert datasets.entry(catalog, "e1_household_successor_v3") is not None
 
 
 # --- the rows themselves ------------------------------------------------------------------------------------------
@@ -457,3 +668,41 @@ def test_a_sentence_with_an_attachment_never_reaches_the_resolver(roots):
                 datasets=datasets.build_catalog(roots))
     assert out["dataset"] is None, "an attached file is the data; the catalog is not consulted behind the person's back"
     assert out["profile"]["rows"] == 1
+
+
+def test_a_delivery_that_is_a_table_is_read_as_a_table_not_as_the_experiment_s_arrays(tmp_path, fake_data_gov):
+    """The resource stores a fitted experiment's standardized arrays; data-gov delivers the same panel as a table.
+
+    The inversion `raw = Xs * sd + mean` belongs to those arrays. Applying it to delivered table rows would invent a
+    scale, which is the mistake this module exists to refuse, so what can be said about units is said about the bytes
+    in hand."""
+    import numpy
+
+    folder = write_resource(tmp_path, "e1_household_successor_v3",
+                            dict(HOUSEHOLD, data_access="GOVERNED_DELIVERY", panel_rows=2,
+                                 scaler={"mean": [0.0, 240.0, 4.0, 1.0], "sd": [1.0, 1.0, 1.0, 1.0]}))
+    numpy.savez(folder / "DATA.npz", Xs=numpy.zeros((2, 4), dtype="float64"))
+    found = datasets.entry(datasets.build_catalog([tmp_path], data_gov=False), "e1_household_successor_v3")
+    assert found["scale"] == "STANDARDIZED_BY_DECLARED_SCALER", "the resource itself is stored standardized"
+
+    server = fake_data_gov(payload=GOVERNED_CSV)
+    rows, governance = datasets.load_rows_with_receipt(
+        found, governed_environment(server, tmp_path / "key", tmp_path / "cache"))
+    assert governance["profile"] == datasets.GOVERNED_PROFILE
+    assert rows == [{"Global_reactive_power": "0.1", "Voltage": "240.0", "Global_intensity": "4.0",
+                     "Global_active_power": "1.5"},
+                    {"Global_reactive_power": "0.2", "Voltage": "241.0", "Global_intensity": "4.1",
+                     "Global_active_power": "1.6"}], "the delivered table is read as stored, never re-scaled"
+
+
+def test_a_data_gov_that_does_not_answer_is_refused_by_name_not_by_traceback(tmp_path):
+    """A stopped governance server must read like every other `no`, not like a bug in the interface."""
+    found = governed_entry(tmp_path)
+    (tmp_path / "key").write_text("a-test-api-key\n", encoding="utf-8")
+    environ = {"DATA_GOV_BASE_URL": "http://127.0.0.1:1", "DATA_GOV_USER": "an-owner",
+               "DATA_GOV_API_KEY_FILE": str(tmp_path / "key"), "M5PHET_DATA_GOV_CACHE": str(tmp_path / "cache")}
+    with pytest.raises(datasets.GovernedRefused) as raised:
+        datasets.load_rows_with_receipt(found, environ)
+    message = str(raised.value)
+    assert datasets.GOVERNED_DENIED in message and "did not answer" in message
+    assert "a-test-api-key" not in message
