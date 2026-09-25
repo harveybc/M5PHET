@@ -1,22 +1,45 @@
+<p align="center"><img src="docs/logo/m5phet.svg" width="160" alt="M5PHET: a downward triangle enclosing a circle that holds a five-petal flower"></p>
+
 # M5PHET
 
-**Ask questions about your data. Get structured decisions, forecasts,
-market representations, policy proposals and causal estimates from specialized ML engines.**
+**Typed contracts for five machine-learning task families — classification, forecasting, representation,
+reinforcement learning, causal inference — with a reference runtime in which a language model may only *choose
+declared values* to write a request a person reviews, providers that wrap already-fitted engines answer it, and every
+number keeps its unit, provenance and refusal reason.**
 
-M5PHET is being built as a Python framework: supply text,
-structured records or time series, describe them and ask a question in natural
-language, optionally specifying the answer schema. The framework resolves the
-task and calls a suitable engine through a common interface. An explicit typed
-API remains available for programs. Its first application domain
-is algorithmic trading, starting with news and **point-in-time economic calendar
-data**. The interfaces are intended for other domains too.
+*Keywords: machine learning framework · typed ML contracts · natural-language ML orchestration · Laya · decision
+primitives · time-series forecasting · hierarchical regimes · causal inference · EconML · reinforcement learning ·
+economic calendar · point-in-time data · DOIN · decentralized AI.*
 
-**Release status:** v0.1.0 implements the classification result contract consumed
-by [news-signal](https://github.com/harveybc/news-signal). The provider runtime,
-calendar integration and other task contracts below are designed, not shipped.
-There is no five-engine inference service or demonstrated trading advantage yet.
-The question-first interface is a required delivery, not shipped functionality;
-see [its design and acceptance tests](docs/NATURAL_LANGUAGE_INTERFACE.md).
+The logo is the design: the **triangle** is the triad of life — decentralization, self-awareness, evolution; the
+**circle** it encloses is the link that runs through everything and can be used in every stance; the **five-petal
+flower** inside, seen from above, is the five disciplines.
+
+## What runs today (2026-09-25)
+
+- A local **web workbench** (`m5phet-chat`, port 8765): write a sentence, attach a dataset or name one from the data
+  lake, review the typed envelope the sentence resolved into, run it, read the answers with their units and refusals.
+  Five providers answer: `laya_news` (classification, real Laya checkpoint on a worker GPU), `predictor_forecast`
+  (TensorFlow bundles), `feature-eng-hierarchical-regimes`, `trading_policy` (SB3 + gym-fx observation) and
+  `causal_inference` (EconML studies fitted beforehand). See [docs/CHAT_WORKBENCH.md](docs/CHAT_WORKBENCH.md).
+- The **envelope contract** `m5phet.task.questions.v1`: `{area, state, questions:{name:{type,…}}}` → named typed
+  answers or refusals by name (`NOT_ESTIMABLE`, `STATE_REQUIRED`, …). No invented numbers; every answer carries
+  `execution_authorized: false`.
+- **Plugins by JSON configuration**: interpreters (`command`, `ollama`, `openai_compatible` — off unless consented),
+  outputs (`default`, `telegram`), providers per area. See `tools/m5phet.json.example`.
+- **`m5phet.decide`**: Laya as the first layer of every area — it chooses among *declared* options (a preprocessing,
+  a clustering method, an estimator, a dataset) and the choice is recorded, then fitted and measured by explicit jobs.
+  See [docs/DECISIONS.md](docs/DECISIONS.md).
+- An **MCP server** (`python -m m5phet.mcp_server`) with three tools, reachable from Hermes and from Telegram
+  ([docs/TELEGRAM.md](docs/TELEGRAM.md)); the evaluation instrument and the stage comparison table
+  ([docs/EVALUATION_STAGES.md](docs/EVALUATION_STAGES.md)).
+- What is **not** here yet, said plainly: measured quality for any area, forecast intervals (needs a quantile
+  bundle), a calendar with a publication clock (the event study waits for it), parameter search (DOIN) inside the
+  framework. The executable plan with locations, proofs and order is
+  [docs/WORK_PLAN_2026_09_24.md](docs/WORK_PLAN_2026_09_24.md).
+
+**Release status:** v0.1.0 shipped the classification contract; the runtime, workbench, envelope, plugins and decision
+primitive above are on `master` since 2026-09-25, all states `DEVELOPMENT`. There is no demonstrated trading advantage.
 
 ## What you will be able to ask
 

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="t d">
+  <title id="t">M5PHET</title>
+  <desc id="d">A downward triangle (the triad: decentralization, self-awareness, evolution) enclosing a circle (the link between everything) that holds a five-petal flower seen from above (the five machine-learning disciplines).</desc>
+  <!-- the triad -->
+  <polygon points="20,40 180,40 100,178.56" fill="#17694e"/>
+  <!-- the circle that links everything: the incircle of the triad -->
+  <circle cx="100.00" cy="86.19" r="46.19" fill="#f4f7f5" stroke="#0f4a36" stroke-width="2"/>
+  <!-- the five disciplines, one petal each, seen from above; no stem, no leaves -->
+  <g fill="#17694e" stroke="#f4f7f5" stroke-width="1.6">
+        <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(0 100.00 86.19)"/>
+    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(72 100.00 86.19)"/>
+    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(144 100.00 86.19)"/>
+    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(216 100.00 86.19)"/>
+    <ellipse cx="100.00" cy="65.19" rx="9.5" ry="21" transform="rotate(288 100.00 86.19)"/>
+  </g>
+  <g fill="#f4f7f5">
+        <circle cx="100.00" cy="55.19" r="2.2"/>
+    <circle cx="129.48" cy="76.61" r="2.2"/>
+    <circle cx="118.22" cy="111.27" r="2.2"/>
+    <circle cx="81.78" cy="111.27" r="2.2"/>
+    <circle cx="70.52" cy="76.61" r="2.2"/>
+  </g>
+  <circle cx="100.00" cy="86.19" r="6.5" fill="#925669" stroke="#f4f7f5" stroke-width="1.6"/>
+</svg>
