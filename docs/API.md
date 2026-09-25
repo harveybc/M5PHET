@@ -315,11 +315,41 @@ proposal then carries what will be read, before anything runs:
 * when several datasets fit the words, **Laya chooses among those candidates and among nothing else**, and the
   decision record (what it was shown by digest, what it could choose from, what it chose, with which uncalibrated
   probabilities) travels beside the proposal;
-* ambiguity with no decider, a name the catalog does not hold, a **governed** resource, or a panel whose units are
-  unknown are each **refused by name** — never served from whatever else was to hand;
+* ambiguity with no decider, a name the catalog does not hold, or a panel whose units are unknown are each
+  **refused by name** — never served from whatever else was to hand;
 * an attachment always wins: no catalog may quietly replace the data a person chose.
 
 The resolved id is written into `task.state.dataset`, so what runs reads what was reviewed.
+
+### A governed dataset
+
+A resource the data foundation marks `GOVERNED_DELIVERY` is described in the catalog like any other — a person must
+be able to see that it exists and that it is governed — and its **rows come only from data-gov**, through data-gov's
+own `DataGovClient`, under the identity the operator binds:
+
+| Variable | What it is |
+|---|---|
+| `DATA_GOV_BASE_URL` | where the governance server answers |
+| `DATA_GOV_USER` | the service principal the delivery is recorded against |
+| `DATA_GOV_API_KEY_FILE` | the **path** of a file (mode 600, outside every repository) holding the API key |
+
+The key is read from that file at the moment of the call and kept nowhere. No value of any of these three variables
+is printed, logged, returned in a receipt or written into this repository. When data-gov's distribution is not
+installed in the interface's environment, `DATA_GOV_CHECKOUT` may name its checkout instead.
+
+Three outcomes and no fourth:
+
+| Outcome | What the run carries |
+|---|---|
+| delivered | `detail.profile` is `GOVERNED` and `detail.governance` is the receipt: `{profile, lake, resource, receipt_id, response_digest, source_digest, delivery, bytes, cached, requested_at, user}` |
+| not configured | refused `GOVERNED_ACCESS_NOT_CONFIGURED`, naming the variables that are not usable here |
+| data-gov said no | refused `GOVERNED_ACCESS_REFUSED`, **carrying data-gov's own reason** |
+
+A refusal is never downgraded to a local read of the same bytes, even when those bytes are on this disk.
+
+When the identity is bound, `python -m m5phet.datasets index` also lists data-gov: a resource whose file name is a
+foundation resource's id binds to that entry (one dataset, now addressable through governance), and one with no
+counterpart on this disk becomes its own entry. `--no-data-gov` builds the catalog from the foundation alone.
 
 ### The receipt
 
@@ -334,7 +364,8 @@ the sentence around it:
 | `detail.dataset.rows_receipt.target_column` | which column the target is, and where it came from |
 | `detail.dataset.rows_receipt.rows_sha256` / `rows_handed_over` | the digest and count of the rows actually handed over, in the order they were handed over |
 | `detail.narration.source` / `output_plugin` | whether the sentence was written by the interpreter or rendered deterministically, and by which output plugin |
-| `detail.profile` | `LOCAL_UNGOVERNED` — this is the owner's workbench, not governed evidence |
+| `detail.profile` | `LOCAL_UNGOVERNED` — the owner's workbench, not governed evidence — or `GOVERNED` when the rows were delivered by data-gov |
+| `detail.governance` | the delivery receipt of a `GOVERNED` run: lake, resource, digest, when it was asked, and under which identity. Never an address, never a credential |
 | `detail.elapsed_seconds` | wall time of the run |
 
 A narration that states a number the answers do not carry is discarded in favour of the deterministic rendering, and
