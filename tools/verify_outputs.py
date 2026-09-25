@@ -35,7 +35,10 @@ def responses(report):
             answered = sum(1 for a in answers.values() if isinstance(a, dict) and a.get("status") == "OK")
         if refused is None:
             refused = len(answers) - answered
-        out.append({"area": envelope.get("area"), "answers": answers, "answered": answered, "refused": refused})
+        out.append({"area": envelope.get("area"), "answers": answers, "answered": answered, "refused": refused,
+                    # WP31: the quality block the run's own answer carried, so what is rendered here is what the
+                    # person read and not a shape someone typed into a harness
+                    "quality": envelope.get("quality")})
     return out
 
 
@@ -44,8 +47,13 @@ def check(response, plugin_name):
     rendered = plugin.render(response["area"], response, "es")
     text = rendered.get("text") or ""
     problems = narration_problems(text, response_view(response))
+    quality_lines = [line for line in text.splitlines() if line.startswith("quality (")]
+    if response.get("quality") is not None and len(quality_lines) != 1:
+        problems.append(f"the response carries a quality block and this rendering states it on "
+                        f"{len(quality_lines)} lines; exactly one is the rule")
     row = {"area": response["area"], "plugin": plugin_name, "questions": list(response["answers"]),
-           "characters": len(text), "problems": problems, "text": text}
+           "characters": len(text), "problems": problems, "text": text,
+           "quality_line": quality_lines[0] if quality_lines else None}
     if plugin_name == "telegram":
         if len(text) > LIMIT:
             problems.append(f"the message is {len(text)} characters and the bound is {LIMIT}")

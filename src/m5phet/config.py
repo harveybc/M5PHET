@@ -52,6 +52,11 @@ CORE_ENVIRONMENT = {
     "causal": {"studies_dir": "CAUSAL_INFERENCE_STATE_DIR", "state_refs": "CAUSAL_INFERENCE_STATE_REFS"},
 }
 
+#: WP31 -- JSON `areas.<area>.quality.report` -> the variable the quality reader falls back to, so an operator whose
+#: configuration is the env file declares the measurement exactly as one with a JSON file does
+QUALITY_ENVIRONMENT = {"forecasting": "M5PHET_FORECASTING_QUALITY_REPORT",
+                       "unsupervised": "M5PHET_UNSUPERVISED_QUALITY_REPORT"}
+
 #: the interpreter's own variables, which `m5phet.interpret.Interpreter` reads. The last two are the abstention rule:
 #: they are exported like the rest because the environment is a valid configuration here, so an operator who never
 #: writes a JSON file can still declare the threshold and the report it is cited from.
@@ -59,7 +64,8 @@ INTERPRETER_ENVIRONMENT = {"command": "M5PHET_INTERPRETER_COMMAND", "model": "M5
                            "timeout_seconds": "M5PHET_INTERPRETER_TIMEOUT",
                            "min_confidence": "M5PHET_INTERPRETER_MIN_CONFIDENCE",
                            "abstention_source": "M5PHET_INTERPRETER_ABSTENTION_SOURCE",
-                           "reliability_report": "M5PHET_INTERPRETER_RELIABILITY_REPORT"}
+                           "reliability_report": "M5PHET_INTERPRETER_RELIABILITY_REPORT",
+                           "route_reliability_report": "M5PHET_ROUTE_RELIABILITY_REPORT"}
 
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 _IPV4 = re.compile(r"(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])")
@@ -202,6 +208,13 @@ class Configuration:
     def output(self, name):
         return dict(self.area(name).get("output") or {})
 
+    def quality(self, name):
+        """WP31: `areas.<area>.quality` -- where the evaluation report that MEASURED this area is read from.
+
+        Only forecasting and unsupervised take one: classification publishes its provider's own record
+        (`NEWS_SIGNAL_QUALITY`), and causal and rl refuse the quantity by name rather than declare a report for it."""
+        return dict(self.area(name).get("quality") or {})
+
     @property
     def interpreter(self):
         return dict(self.data.get("interpreter") or {})
@@ -230,6 +243,10 @@ class Configuration:
             value = self.interpreter.get(key)
             if value is not None:
                 exported[variable] = str(value)
+        for area, variable in QUALITY_ENVIRONMENT.items():
+            declared = self.quality(area).get("report")
+            if declared is not None:
+                exported[variable] = str(declared)
         return exported
 
     def apply(self, environ=None):

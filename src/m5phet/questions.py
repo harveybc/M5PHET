@@ -121,7 +121,24 @@ def _check_fields(question, spec):
     return None
 
 
-def run_task(payload, registry, *, data=None):
+def area_quality(area, provider, configuration=None, environ=None):
+    """WP31: what is known about how well this area answers, for the answer to carry.
+
+    Read, never computed: the provider's own `capabilities()['quality']` for classification, the evaluation report an
+    operator declared for forecasting and unsupervised, and the refusal `m5phet_evaluation` owns for causal and rl.
+    A provider whose capabilities cannot be read is not a reason to publish nothing: the area still says
+    NOT_MEASURED, which is the same statement with a different cause and is recorded as such."""
+    from . import quality as quality_module
+    capabilities = None
+    if provider is not None and callable(getattr(provider, "capabilities", None)):
+        try:
+            capabilities = provider.capabilities()
+        except Exception:                                               # noqa: BLE001
+            capabilities = None
+    return quality_module.for_area(area, capabilities, configuration, environ)
+
+
+def run_task(payload, registry, *, data=None, configuration=None, environ=None):
     """Answer every question of one envelope, each on its own. Nothing here invents a value for a refused question."""
     started = time.perf_counter()
     task = validate_task(payload)
@@ -134,6 +151,7 @@ def run_task(payload, registry, *, data=None):
         for name, question in task["questions"].items():
             response["answers"][name] = refusal(NO_PROVIDER, f"no installed provider declares area {area!r}",
                                                 question["type"])
+        response["quality"] = area_quality(area, None, configuration, environ)
         response["latency_ms"] = (time.perf_counter() - started) * 1000
         return response
     response["provider"] = provider.name
@@ -186,6 +204,10 @@ def run_task(payload, registry, *, data=None):
     response["answers"] = {name: answers[name] for name in task["questions"]}     # the caller's order, always
     response["answered"] = sum(1 for a in response["answers"].values() if a.get("status") == "OK")
     response["refused"] = len(response["answers"]) - response["answered"]
+    # WP31: what is known about how well this area answers travels WITH the answers. A reader of one answer -- in the
+    # web, over the API, through MCP, in a Telegram message -- sees the measurement or sees that there is none,
+    # instead of having to know that a report exists somewhere.
+    response["quality"] = area_quality(area, provider, configuration, environ)
     response["latency_ms"] = (time.perf_counter() - started) * 1000
     return response
 
@@ -206,7 +228,8 @@ def catalog(registry, configuration=None):
         try:
             provider = provider_for(registry, area)
         except TaskError as error:
-            out[area] = {"provider": None, "error": str(error), "question_types": {}, "chooser": chooser}
+            out[area] = {"provider": None, "error": str(error), "question_types": {}, "chooser": chooser,
+                         "quality": area_quality(area, None, configuration)}
             continue
         out[area] = {"provider": provider.name if provider else None,
                      "question_types": declared_types(provider) if provider else {},
@@ -222,7 +245,10 @@ def catalog(registry, configuration=None):
                      # attached and came back PROVIDER_ERROR after ten seconds).
                      "data_requirement": declared_data_requirement(provider) if provider else UNKNOWN_DATA_REQUIREMENT,
                      # the rule a model's choice about THIS area is held to, so nobody has to ask the file
-                     "chooser": copy.deepcopy(chooser) if isinstance(chooser, dict) else chooser}
+                     "chooser": copy.deepcopy(chooser) if isinstance(chooser, dict) else chooser,
+                     # WP31: and what is known about how well this area answers, published beside what it can be
+                     # asked. A consumer reading the catalog sees the measurement before it asks anything
+                     "quality": area_quality(area, provider, configuration)}
     return out
 
 

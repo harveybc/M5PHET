@@ -342,8 +342,42 @@ python3 tools/verify_outputs.py  --report /tmp/e.json --out /tmp/o.json
 
 `verify_outputs.py` renders every stored envelope with every installed procedure
 and fails if any of them states a number the answers do not carry, exceeds the
-Telegram bound, drops the closing line, or returns a refusal code its area's
-header does not declare.
+Telegram bound, drops the closing line, returns a refusal code its area's header
+does not declare, or — since WP31 — states an area's measured quality on
+anything other than exactly one line.
+
+### How well does this area answer? (WP31)
+
+Every answer and every catalog entry carries a `quality` block, and both shipped
+procedures render one line of it: a macro-F1 with its calibration, a held-out
+error with its skill against a named naive reference (and the interval's
+coverage where an interval was returned), the internal indices of a fitted
+reference, a refusal by name where the quantity does not exist
+(`causal_accuracy`, `policy_profitability`), or `NOT_MEASURED`. Every figure
+travels with its corpus, its protocol digest and its seal.
+
+Nothing here computes any of it. The numbers are read from what the providers
+publish (`capabilities()['quality']`) and from the `m5phet-evaluation-report/1`
+documents `evaluation/` writes, named by `areas.<area>.quality.report`. A report
+of another family is refused; a forecast report is published only when a
+configured bundle's manifest names its digest, so a number measured on another
+fitted state is never presented as this engine's — and the line names the state
+that was scored. And the line is held to the narration guard like every other
+figure: it passes because the answer carries the quality, not because quality is
+exempt.
+
+### How often is the router right? (WP30)
+
+`orchestrate.route` — where the model writes a whole envelope instead of
+choosing a declared value — is measured by `tools/measure_route.py` on the
+sentences whose correct envelope the harnesses already know, and published as
+`route.reliability` in `/api/catalog` beside the interpreter's. `/api/catalog`'s
+`abstention.paths` says which language-model paths the rule covers: `decide`
+yes, `interpret` only where the plugin reports a confidence, `route` **not at
+all** — no shipped plugin reports one for a free-text envelope, so that path is
+`CONFIDENCE_NOT_REPORTED` and what guards it is `check_proposal`, which refuses
+an unserved area, an undeclared question type, a governed value the engine does
+not have or a column the data lacks, by name, before anything runs.
 
 ## The JSON configuration (`m5phet.config.v1`)
 
