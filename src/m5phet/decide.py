@@ -70,6 +70,25 @@ OPTIONS_MISMATCH = "OPTIONS_MISMATCH"
 #: `decision_state` was handed rows instead of a description
 ROWS_IN_STATE = "ROWS_IN_STATE"
 
+# --- WP23: the outcome, and the refusals that keep it honest ------------------------------------------------------------
+#: the schema of the record that links one decision to one closure-table row
+OUTCOME_SCHEMA = "m5phet.decision_outcome.v1"
+#: the row was not judged comparable by the table's own generator, so its rank ranks nothing
+NOT_COMPARABLE = "NOT_COMPARABLE"
+#: the row carries no rank, and the rank is the label; without it there is nothing to link
+NOT_RANKED = "NOT_RANKED"
+#: the decision record is not there, or is not a `m5phet.decision.v1` record at all
+DECISION_NOT_FOUND = "DECISION_NOT_FOUND"
+#: the record's bytes no longer hash to the name it is filed under: it was altered after it was written
+DIGEST_MISMATCH = "DIGEST_MISMATCH"
+#: the object handed in is not a row as `evaluation/compare_stages.py` emits it
+MALFORMED_TABLE_ROW = "MALFORMED_TABLE_ROW"
+
+#: the verdict `evaluation/compare_stages.py` writes into a row it found commensurable with the reference stage
+COMPARABLE = "COMPARABLE"
+#: the fields an outcome reads out of the row. Everything else in the row is bound by `table_row_sha256` instead.
+TABLE_ROW_FIELDS = ("stage", "status", "comparability", "rank")
+
 
 class DecisionError(ValueError):
     """A state cannot be rendered, or a record cannot be written or read back. Raised; never returned as a decision."""
@@ -381,3 +400,183 @@ def load(path):
         raise DecisionError(f"digest mismatch: {path.name} holds a record whose digest is {recomputed}; the record "
                             f"has been altered since it was written")
     return decision
+
+
+# --- the outcome: a decision linked to the row that judged it (WP23) -------------------------------------------------------
+
+def outcome(record_path, table_row, *, out_dir):
+    """Link one decision record to ONE closure-table row, and write the link as a content-addressed outcome record.
+
+    **A person's opinion is never a label; only a table row is.** That sentence is the whole rule of this function, and
+    every refusal below is a way of enforcing it. A decision record is a hypothesis: Laya chose an option out of a
+    declared set, with uncalibrated probabilities, having seen a description and no rows. It becomes evidence about
+    Laya only when the configuration it led to was fitted and *measured*, and the measurement was found commensurable
+    with the alternatives it is ranked against. Nothing else — not the author's judgement that the choice looked
+    sensible, not the plausibility of the label, not a reviewer's agreement — may be written into an outcome, because
+    a corpus built from those would train the checkpoint on the opinions of whoever assembled it.
+
+    `table_row` is a row exactly as `evaluation/compare_stages.py` emits it: the mapping carrying `stage`, `status`,
+    `comparability`, `rank`, `metric`, `model_error`, the `naive` reference and `skill`. The outcome copies four of
+    those fields and binds all the rest with `table_row_sha256`, the digest of the row's canonical JSON — so the
+    numbers cannot be quoted out of the outcome, and cannot be changed behind it either.
+
+    Refusals, each by name, nothing written for any of them:
+
+    * `NOT_COMPARABLE` — the row's `comparability` is not `COMPARABLE`. A rank among stages measured on different
+      holdouts, or against a different metric, is an ordering of incommensurable numbers;
+    * `NOT_RANKED` — the row carries no rank. The rank *is* the label;
+    * `DECISION_NOT_FOUND` — the path holds no readable `m5phet.decision.v1` record;
+    * `DIGEST_MISMATCH` — the record's bytes no longer hash to the name it is filed under;
+    * `MALFORMED_TABLE_ROW` — the object is not a closure-table row.
+
+    `best_ranked_option` is the option key of the stage ranked first among the stages that share this decision's
+    `kind` and `question`. One call sees one row, so it can be settled here only when this row **is** that stage:
+    when `rank == 1` the field is written and equals `chosen`; otherwise it is absent, and
+    `evaluation/decision_calibration.py` settles it for the group by reading every outcome that shares the kind and
+    the question — refusing the group when two stages tie at rank 1 under different keys, because then no single
+    option was ranked first.
+
+    Returns `{"status": "OK", "outcome": <record>, "record_path": str}` or a typed refusal, in the shape `ask` uses.
+    """
+    problem = _check_table_row(table_row)
+    if problem is not None:
+        return refusal(MALFORMED_TABLE_ROW, problem)
+
+    decision, code, why = _load_decision(record_path)
+    if decision is None:
+        return refusal(code, why)
+
+    comparability = table_row.get("comparability")
+    if comparability != COMPARABLE:
+        return refusal(NOT_COMPARABLE, f"the closure-table row for stage {table_row.get('stage')!r} is "
+                                       f"{comparability!r}, not {COMPARABLE!r}; a decision is labelled by a measured "
+                                       f"row that was found commensurable with the stages it is ranked against, and "
+                                       f"by nothing else")
+    rank = table_row.get("rank")
+    if not isinstance(rank, int) or isinstance(rank, bool):
+        return refusal(NOT_RANKED, f"the closure-table row for stage {table_row.get('stage')!r} carries rank "
+                                   f"{rank!r}; the rank is the label, so a row without one labels nothing")
+
+    linked = {"schema": OUTCOME_SCHEMA,
+              "decision_sha256": decision_sha256(decision),
+              "kind": decision["kind"],
+              "question": decision["question"],
+              "chosen": decision["chosen"],
+              "options": [list(pair) for pair in decision["options"]],
+              # verbatim from the decision: the argmax and the probability it claimed are what WP23 calibrates, and a
+              # report that had to re-open the decision record to find them could be run against a different one
+              "probabilities": copy.deepcopy(decision["probabilities"]),
+              "table_row_sha256": table_row_sha256(table_row),
+              "stage": str(table_row["stage"]),
+              "rank": rank,
+              "comparability": comparability}
+    if rank == 1:
+        linked["best_ranked_option"] = decision["chosen"]
+
+    validate_outcome(linked)
+    return {"status": "OK", "outcome": linked, "record_path": str(record_outcome(linked, out_dir))}
+
+
+def _check_table_row(table_row):
+    """`None` when this is a closure-table row, else why it is not. Nothing here judges the numbers in it."""
+    if not isinstance(table_row, dict):
+        return f"a closure-table row is a mapping, not {type(table_row).__name__}"
+    missing = [field for field in TABLE_ROW_FIELDS if field not in table_row]
+    if missing:
+        return (f"a row as evaluation/compare_stages.py emits it carries {list(TABLE_ROW_FIELDS)}; this one is "
+                f"missing {missing}")
+    return None
+
+
+def _load_decision(path):
+    """`(decision, None, None)`, or `(None, code, why)` naming which of the two record failures happened."""
+    path = Path(os.path.expanduser(str(path)))
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        return None, DECISION_NOT_FOUND, f"{path} cannot be read as a decision record: {error}"
+    try:
+        decision = json.loads(raw.decode("utf-8"))
+        validate_decision(decision)
+    except (ValueError, UnicodeDecodeError) as error:
+        return None, DECISION_NOT_FOUND, f"{path} is not a {DECISION_SCHEMA} record: {error}"
+    recomputed = decision_sha256(decision)
+    if hashlib.sha256(raw).hexdigest() != recomputed:
+        return None, DIGEST_MISMATCH, (f"{path} is not in canonical form: its bytes and its content do not hash to "
+                                       f"the same digest")
+    if path.stem != recomputed:
+        return None, DIGEST_MISMATCH, (f"{path.name} holds a record whose digest is {recomputed}; it has been altered "
+                                       f"since it was written, and an altered decision cannot be given an outcome")
+    return decision, None, None
+
+
+def table_row_sha256(table_row):
+    """The digest of the row's canonical JSON — every field of it, including the numbers the outcome does not copy."""
+    return hashlib.sha256(json.dumps(table_row, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+                                     default=str).encode("utf-8")).hexdigest()
+
+
+def outcome_sha256(linked):
+    return hashlib.sha256(canonical_bytes(linked)).hexdigest()
+
+
+def validate_outcome(linked):
+    """Raise unless this is a complete outcome record: a real decision, a comparable row, and a rank."""
+    if not isinstance(linked, dict):
+        raise DecisionError("an outcome record is a mapping")
+    if linked.get("schema") != OUTCOME_SCHEMA:
+        raise DecisionError(f"schema {linked.get('schema')!r} is not {OUTCOME_SCHEMA!r}")
+    required = {"schema", "decision_sha256", "kind", "question", "chosen", "options", "probabilities",
+                "table_row_sha256", "stage", "rank", "comparability"}
+    extra = set(linked) - required - {"best_ranked_option"}
+    if extra or required - set(linked):
+        raise DecisionError(f"a {OUTCOME_SCHEMA} record carries {sorted(required)} and optionally "
+                            f"`best_ranked_option`; this one carries {sorted(linked)}")
+    for field in ("decision_sha256", "kind", "question", "chosen", "table_row_sha256", "stage", "comparability"):
+        if not isinstance(linked[field], str) or not linked[field].strip():
+            raise DecisionError(f"`{field}` must be a non-empty string")
+    if linked["comparability"] != COMPARABLE:
+        raise DecisionError(f"{NOT_COMPARABLE}: an outcome exists only for a {COMPARABLE} row")
+    if not isinstance(linked["rank"], int) or isinstance(linked["rank"], bool) or linked["rank"] < 1:
+        raise DecisionError(f"{NOT_RANKED}: a rank is a position, the first being 1; {linked['rank']!r} is not one")
+    options = linked["options"]
+    if not isinstance(options, list) or len(options) < 2:
+        raise DecisionError("an outcome carries the option set the decision was chosen from, at least two entries")
+    keys = [pair[0] for pair in options]
+    if linked["chosen"] not in keys:
+        raise DecisionError(f"{CHOICE_OUTSIDE_OPTIONS}: {linked['chosen']!r} is not one of {keys}")
+    probabilities = linked["probabilities"]
+    if not isinstance(probabilities, dict) or not probabilities or set(probabilities) - set(keys):
+        raise DecisionError("an outcome carries the decision's uncalibrated probabilities over its declared options")
+    best = linked.get("best_ranked_option")
+    if best is not None and (linked["rank"] != 1 or best != linked["chosen"]):
+        raise DecisionError("`best_ranked_option` is written only by the stage ranked first, and is then its own "
+                            "chosen key; any other value would be a claim this row cannot make")
+    return linked
+
+
+def record_outcome(linked, directory):
+    """Write one outcome as a content-addressed JSON file `<sha256>.json` and return its path."""
+    validate_outcome(linked)
+    payload = canonical_bytes(linked)
+    folder = Path(os.path.expanduser(str(directory)))
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{outcome_sha256(linked)}.json"
+    path.write_bytes(payload)
+    return path
+
+
+def load_outcome(path):
+    """Read an outcome back and verify that its content still hashes to the name it is filed under."""
+    path = Path(os.path.expanduser(str(path)))
+    raw = path.read_bytes()
+    try:
+        linked = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as error:
+        raise DecisionError(f"{path} is not a readable outcome record: {error}") from None
+    validate_outcome(linked)
+    recomputed = outcome_sha256(linked)
+    if hashlib.sha256(raw).hexdigest() != recomputed or path.stem != recomputed:
+        raise DecisionError(f"digest mismatch: {path.name} holds an outcome whose digest is {recomputed}; the record "
+                            f"has been altered since it was written")
+    return linked
