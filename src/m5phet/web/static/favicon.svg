@@ -2,23 +2,20 @@
   <title id="t">M5PHET</title>
   <desc id="d">Line art: a downward triangle with rounded corners (the triad: decentralization, self-awareness, evolution) enclosing a circle (the link between everything) that holds a five-petal flower seen from above (the five machine-learning disciplines), with one stamen per petal.</desc>
   <style>.l{fill:none;stroke:#17694e;stroke-linejoin:round;stroke-linecap:round}.dot{fill:#17694e;stroke:none}</style>
-  <!-- the triad: one stroke, rounded corners -->
-  <polygon class="l" points="30,52 210,52 120,207.9" stroke-width="7"/>
-  <!-- the circle that links everything: the incircle of the triad -->
-  <circle class="l" cx="120.00" cy="103.96" r="51.96" stroke-width="4.5"/>
-  <!-- the five disciplines: five petals from above, no stem, no leaves; one stamen each -->
+  <path class="l" d="M 57.71,52.00 L 182.29,52.00 A 16.0,16.0 0 0 1 196.14,76.00 L 133.86,183.88 A 16.0,16.0 0 0 1 106.14,183.88 L 43.86,76.00 A 16.0,16.0 0 0 1 57.71,52.00 Z" stroke-width="7"/>
+  <circle class="l" cx="120.00" cy="103.96" r="51.96" stroke-width="4"/>
   <g class="l" stroke-width="4">
-        <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(0)"/>
-    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(72)"/>
-    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(144)"/>
-    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(216)"/>
-    <path d="M 0,-9 C 13,-13 24,-30 15,-43 C 9,-51 -9,-51 -15,-43 C -24,-30 -13,-13 0,-9 Z" transform="translate(120.00 103.96) rotate(288)"/>
+        <path d="M 0,-7 C 17,-9 29,-25 20,-40 C 13,-50 -13,-50 -20,-40 C -29,-25 -17,-9 0,-7 Z" transform="translate(120.00 103.96) rotate(0) scale(0.86)"/>
+    <path d="M 0,-7 C 17,-9 29,-25 20,-40 C 13,-50 -13,-50 -20,-40 C -29,-25 -17,-9 0,-7 Z" transform="translate(120.00 103.96) rotate(72) scale(0.86)"/>
+    <path d="M 0,-7 C 17,-9 29,-25 20,-40 C 13,-50 -13,-50 -20,-40 C -29,-25 -17,-9 0,-7 Z" transform="translate(120.00 103.96) rotate(144) scale(0.86)"/>
+    <path d="M 0,-7 C 17,-9 29,-25 20,-40 C 13,-50 -13,-50 -20,-40 C -29,-25 -17,-9 0,-7 Z" transform="translate(120.00 103.96) rotate(216) scale(0.86)"/>
+    <path d="M 0,-7 C 17,-9 29,-25 20,-40 C 13,-50 -13,-50 -20,-40 C -29,-25 -17,-9 0,-7 Z" transform="translate(120.00 103.96) rotate(288) scale(0.86)"/>
   </g>
-  <g class="l" stroke-width="3">
-        <line x1="120.00" y1="94.96" x2="120.00" y2="80.96"/><circle cx="120.00" cy="80.96" r="2.6" class="dot"/>
-    <line x1="128.56" y1="101.18" x2="141.87" y2="96.85"/><circle cx="141.87" cy="96.85" r="2.6" class="dot"/>
-    <line x1="125.29" y1="111.24" x2="133.52" y2="122.57"/><circle cx="133.52" cy="122.57" r="2.6" class="dot"/>
-    <line x1="114.71" y1="111.24" x2="106.48" y2="122.57"/><circle cx="106.48" cy="122.57" r="2.6" class="dot"/>
-    <line x1="111.44" y1="101.18" x2="98.13" y2="96.85"/><circle cx="98.13" cy="96.85" r="2.6" class="dot"/>
+  <g class="l" stroke-width="2.8">
+        <line x1="120.00" y1="96.96" x2="120.00" y2="84.96"/><circle class="dot" cx="120.00" cy="84.96" r="2.4"/>
+    <line x1="126.66" y1="101.80" x2="138.07" y2="98.09"/><circle class="dot" cx="138.07" cy="98.09" r="2.4"/>
+    <line x1="124.11" y1="109.62" x2="131.17" y2="119.33"/><circle class="dot" cx="131.17" cy="119.33" r="2.4"/>
+    <line x1="115.89" y1="109.62" x2="108.83" y2="119.33"/><circle class="dot" cx="108.83" cy="119.33" r="2.4"/>
+    <line x1="113.34" y1="101.80" x2="101.93" y2="98.09"/><circle class="dot" cx="101.93" cy="98.09" r="2.4"/>
   </g>
 </svg>
