@@ -1,0 +1,21 @@
+$ hermes mcp list
+
+  MCP Servers:
+
+  Name             Transport                      Tools        Status    
+  ──────────────── ────────────────────────────── ──────────── ──────────
+  m5phet           /home/harveybc/Documents/...   all          ✓ enabled
+
+
+$ hermes mcp test m5phet
+
+  Testing 'm5phet'...
+  Transport: stdio → /home/harveybc/Documents/GitHub/M5PHET/tools/mcp_hermes.sh
+  Auth: none
+  ✓ Connected (1463ms)
+  ✓ Tools discovered: 3
+
+    m5phet_catalog                       List the areas M5PHET serves in this installation and t...
+    m5phet_execute_ml_task               Run one typed envelope against the installed engines. E...
+    m5phet_propose_task                  Turn a sentence and the SHAPE of the attached data into...
+
