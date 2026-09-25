@@ -11,10 +11,6 @@ number keeps its unit, provenance and refusal reason.**
 primitives · time-series forecasting · hierarchical regimes · causal inference · EconML · local projections · event
 study · reinforcement learning · economic calendar · point-in-time data · DOIN · decentralized AI.*
 
-The logo is the design. The **triangle** is the triad — decentralization, self-awareness, evolution. The **circle** it
-encloses is the link that runs through everything and can be used in every stance. The **five-petal flower** inside,
-seen from above, is the five disciplines, one stamen each.
-
 ---
 
 ## What this is, and what it is not
