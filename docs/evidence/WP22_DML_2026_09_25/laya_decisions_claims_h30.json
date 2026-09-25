@@ -1,0 +1,232 @@
+{
+  "state_text": "decision_kind: event_window_profile\nconstant_columns:\n  - hour_bucket\ncorr_surprise_log_return: -0.023\ncorr_surprise_pre_event_vol: -0.008\ncorr_surprise_realized_vol: 0.035\nevent: United States | Initial Jobless Claims\nhorizon_min: 30\nidentification: NOT_IDENTIFIED\nkind: event_window_profile\nlog_return_kurtosis: 7.121\nlog_return_std: 0.001\npre_event_vol_skew: 9.667\nrealized_vol_skew: 9.707\nregime: REGIME_REFERENCE_NOT_READABLE\nreleases_fitted: 361\nreleases_held_out: 91\nsurprise_kurtosis: 3.961\nsurprise_skew: 0.874\nsurprise_std: 0.915",
+  "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+  "state_characters": 539,
+  "table": "united_states_initial_jobless_claims__30",
+  "event_type": "United States | Initial Jobless Claims",
+  "horizon_minutes": 30,
+  "asked": "one question per envelope: the provider's token budget is per envelope",
+  "min_confidence": "NOT_APPLIED: m5phet.decide.ask carries no min_confidence argument on this branch and satoshi/wp20-abstention-20260925 holds no commit past master, so the measured 0.8 threshold from the WP09 report could not be applied; every choice below was taken at whatever probability the checkpoint reported, and below 0.8 that checkpoint is at chance",
+  "decisions": {
+    "estimator": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "estimator",
+        "options": [
+          [
+            "LinearDML",
+            "linear final model, HC1 interval"
+          ],
+          [
+            "CausalForestDML",
+            "causal forest, bootstrap-of-little-bags interval"
+          ],
+          [
+            "SparseLinearDML",
+            "debiased lasso final model"
+          ],
+          [
+            "DML",
+            "linear final model, bootstrap"
+          ]
+        ],
+        "chosen": "DML",
+        "probabilities": {
+          "LinearDML": 0.2568,
+          "CausalForestDML": 0.1164,
+          "SparseLinearDML": 0.2296,
+          "DML": 0.3972
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:50:16.311876+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/fe1cfed4602665079f1935db58dc25d1deef745ebf962c763da2c148ce87b693.json"
+    },
+    "model_y": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "model_y",
+        "options": [
+          [
+            "lasso",
+            "L1 linear"
+          ],
+          [
+            "ridge",
+            "L2 linear"
+          ],
+          [
+            "gradient_boosting",
+            "boosted trees"
+          ],
+          [
+            "random_forest",
+            "random forest"
+          ]
+        ],
+        "chosen": "lasso",
+        "probabilities": {
+          "lasso": 0.3223,
+          "ridge": 0.2503,
+          "gradient_boosting": 0.2711,
+          "random_forest": 0.1563
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:50:31.734681+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/74921c7cc7bbd536db8c396e7ed813f77675f05758a80bf818aa5e9eba14b26c.json"
+    },
+    "model_t": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "model_t",
+        "options": [
+          [
+            "lasso",
+            "L1 linear"
+          ],
+          [
+            "ridge",
+            "L2 linear"
+          ],
+          [
+            "gradient_boosting",
+            "boosted trees"
+          ],
+          [
+            "random_forest",
+            "random forest"
+          ]
+        ],
+        "chosen": "lasso",
+        "probabilities": {
+          "lasso": 0.3231,
+          "ridge": 0.2576,
+          "gradient_boosting": 0.2693,
+          "random_forest": 0.1499
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:50:50.079669+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/aa05fa61610d3549c1608828aa1bc2868e3622586c9d45c8f5bcefec070f8d90.json"
+    },
+    "window_hours": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "window_hours",
+        "options": [
+          [
+            "6",
+            "six hours"
+          ],
+          [
+            "12",
+            "twelve hours"
+          ],
+          [
+            "24",
+            "twenty-four hours"
+          ]
+        ],
+        "chosen": "12",
+        "probabilities": {
+          "6": 0.3541,
+          "12": 0.3677,
+          "24": 0.2782
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:51:10.019029+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/50cbc0c79f9febba2f9c939d9441f7441663f04882b9c28805a908158c8d19fc.json"
+    },
+    "horizons": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "horizons",
+        "options": [
+          [
+            "30_240",
+            "+30 and +240 minutes"
+          ],
+          [
+            "short",
+            "+5, +15, +30"
+          ],
+          [
+            "all",
+            "+5, +15, +30, +60, +240"
+          ]
+        ],
+        "chosen": "short",
+        "probabilities": {
+          "30_240": 0.3072,
+          "short": 0.5643,
+          "all": 0.1284
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:51:34.814008+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/d8f628d3515f43a6f133d9ae16945a439fa3fdef48e22532991f8333fc22abb6.json"
+    },
+    "modifier": {
+      "status": "OK",
+      "decision": {
+        "schema": "m5phet.decision.v1",
+        "kind": "causal_study",
+        "state_sha256": "7fa0b16c5cbe2dc1ea107aaf22f114e745c87089e9367e616958dcca07ffbe53",
+        "question": "modifier",
+        "options": [
+          [
+            "pre_event_vol_high",
+            "pre-event volatility, high or low"
+          ],
+          [
+            "surprise_positive",
+            "the surprise's sign"
+          ]
+        ],
+        "chosen": "pre_event_vol_high",
+        "probabilities": {
+          "pre_event_vol_high": 0.739,
+          "surprise_positive": 0.261
+        },
+        "probability_decimals": 4,
+        "checkpoint": "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89",
+        "backend": "laya",
+        "as_of": "2026-09-25T09:51:50.496660+00:00",
+        "execution_authorized": false
+      },
+      "record_path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22dml/decisions/1cd7ffb86896a6d776653b077b2b332c906c1e21996cba6f301d28ca437d0d51.json"
+    }
+  }
+}

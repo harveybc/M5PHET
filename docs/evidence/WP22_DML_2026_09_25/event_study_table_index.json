@@ -1,0 +1,276 @@
+{
+  "schema": "m5phet.event_study_table.v1",
+  "provenance": "DEVELOPMENT_ASSUMED_CLOCK",
+  "publication_clock": {
+    "mode": "ASSUMED_SCHEDULED_PUBLICATION_LOCALIZED",
+    "tolerance_seconds": 60,
+    "declared_by": "operator, over a clock MEASURED from the archive",
+    "calendar_clock": {
+      "path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22e/calendar_clock.json",
+      "sha256": "6ed7344b9396f366259d351f16c1a50c32e46828110f3eb5207bd36285d368a3",
+      "schema": "m5phet.calendar_clock.v1",
+      "periods": 11,
+      "periods_determined": 8,
+      "offsets": [
+        "UTC-04:00",
+        "UTC-05:00"
+      ]
+    },
+    "identification_caveat": "the surprise's publication instant is still assumed equal to the SCHEDULED instant -- nobody observed when anything was published -- but that scheduled wall clock is no longer read as UTC: it is localized by the per-period UTC offsets measured in the clock document named here, and a row in a period the measurement could not determine is excluded CLOCK_PERIOD_UNDETERMINED rather than localized by a guess. Results are DEVELOPMENT and NOT identified: a correct anchor for an assumed clock is still an assumed clock",
+    "consensus": "the consensus is taken as published tolerance_seconds before the localized scheduled instant, under the same declared assumption; no consensus publication timestamp was observed either"
+  },
+  "identification": "NOT_IDENTIFIED",
+  "identification_reading": "this document is a table of numbers, not a study. The verdict is carried from the rows document's own publication clock so that no study fitted from this table can be read without it; nothing here identifies anything",
+  "rows_document": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/wp22e/event_rows_localized.json",
+  "bars": {
+    "path": "/tmp/claude-1000/-home-harveybc-Documents-GitHub-predictor/94c1b43d-d764-48d5-885f-68470ae06b5f/scratchpad/eurusd_5m_2011_2021.csv",
+    "sha256": "27a2c901f9d48c4d8497b2c48cdcc68c4e3f67e536ba2776a4cab3e607f1c622",
+    "columns": [
+      "timestamp",
+      "close"
+    ],
+    "time_column": "timestamp",
+    "price_column": "close",
+    "time_format": "iso8601",
+    "rows": 771554,
+    "step_seconds": 300,
+    "bars_off_the_modal_step": 671,
+    "first": "2010-12-26T17:00:00+00:00",
+    "last": "2021-04-30T16:55:00+00:00",
+    "timezone": "UTC",
+    "timezone_declared": false
+  },
+  "treatment": "surprise",
+  "treatment_kind": "continuous",
+  "outcomes": [
+    "log_return",
+    "realized_vol"
+  ],
+  "columns": [
+    "event_key",
+    "published_at",
+    "surprise",
+    "log_return",
+    "realized_vol",
+    "pre_event_realized_vol",
+    "other_surprises_before",
+    "day_of_week",
+    "hour_of_day",
+    "surprise_positive",
+    "pre_event_vol_high",
+    "hour_bucket"
+  ],
+  "column_readings": {
+    "surprise": "the standardized release surprise (actual - consensus) / scale, continuous; the treatment",
+    "log_return": "the log return from the release instant to the horizon",
+    "realized_vol": "the realized variance over the horizon, the sum of squared bar log returns",
+    "pre_event_realized_vol": "the realized variance over the declared pre-event span, before the release",
+    "other_surprises_before": "the sum of the standardized surprises of the other releases inside the declared window with NEGATIVE offsets only; a release at a positive offset landed after this one and is not pre-release information",
+    "day_of_week": "the UTC weekday of the release instant, Monday 0",
+    "hour_of_day": "the UTC hour of the release instant",
+    "surprise_positive": "1 when the standardized surprise is strictly positive, else 0",
+    "pre_event_vol_high": "1 above the median pre-event realized variance of this table's FITTING rows, else 0; the cut is in `pre_event_vol_cut` and the held-out rows were cut at it",
+    "hour_bucket": "which declared UTC hour bucket the release fell in",
+    "regime": "the leaf cluster of the fitted unsupervised reference, when it can assign these rows"
+  },
+  "hour_bucket_edges": [
+    0,
+    8,
+    14
+  ],
+  "window_hours": 24.0,
+  "window_hours_declared_by_the_rows": 24.0,
+  "holdout_fraction": 0.2,
+  "holdout_rule": "local_projections._split_by_time: the last fraction of each event type's RELEASES by publication instant, so the same release is held out at every horizon and these are the same held-out events the projections document names",
+  "regime": {
+    "status": "ABSENT",
+    "refusal": "REGIME_REFERENCE_NOT_READABLE",
+    "why": "the fitted reference at /home/harveybc/.local/state/m5phet/examples/regimes/reference.joblib could not be loaded in this environment (ValueError: fitted-state dependency versions differ; use the original environment); a regime label is not invented to stand in for one a reference could not give"
+  },
+  "counts": {
+    "tables": 4,
+    "fit_rows": 1434,
+    "holdout_rows": 358,
+    "dropped_by_reason": {
+      "surprise": 0,
+      "log_return": 0,
+      "realized_vol": 0,
+      "pre_event_realized_vol": 0
+    }
+  },
+  "fitted": "NOTHING: this job writes the table a study is fitted FROM; no effect is estimated here",
+  "environment": {
+    "python": "3.12.7"
+  },
+  "execution_authorized": false,
+  "tables": [
+    {
+      "event_type": "United States | Crude Oil Inventories",
+      "horizon_minutes": 30,
+      "slug": "united_states_crude_oil_inventories__30",
+      "pre_event_vol_cut": 6.12798307566653e-07,
+      "counts": {
+        "fit_rows": 361,
+        "holdout_rows": 91,
+        "fit_releases": 361,
+        "holdout_releases": 91,
+        "dropped_by_reason": {
+          "surprise": 0,
+          "log_return": 0,
+          "realized_vol": 0,
+          "pre_event_realized_vol": 0
+        }
+      },
+      "engine_fit": {
+        "usable": true
+      },
+      "roles_offered": {
+        "day_of_week": "confounder",
+        "log_return": "outcome",
+        "other_surprises_before": "confounder",
+        "pre_event_realized_vol": "confounder",
+        "pre_event_vol_high": "modifier",
+        "realized_vol": "outcome",
+        "surprise": "treatment",
+        "surprise_positive": "modifier"
+      },
+      "roles_withheld": {
+        "hour_bucket": {
+          "role": "modifier",
+          "refusal": "CONSTANT_IN_THE_TABLE",
+          "why": "hour_bucket takes the single value 2 over the 361 fitting rows of this table; a constant column adjusts for nothing, makes an adjustment design rank deficient and cannot carry a level an effect is read at"
+        }
+      },
+      "files": {
+        "fit": "united_states_crude_oil_inventories__30__fit.csv",
+        "holdout": "united_states_crude_oil_inventories__30__holdout.csv"
+      }
+    },
+    {
+      "event_type": "United States | Crude Oil Inventories",
+      "horizon_minutes": 240,
+      "slug": "united_states_crude_oil_inventories__240",
+      "pre_event_vol_cut": 6.148492212880217e-07,
+      "counts": {
+        "fit_rows": 354,
+        "holdout_rows": 86,
+        "fit_releases": 354,
+        "holdout_releases": 86,
+        "dropped_by_reason": {
+          "surprise": 0,
+          "log_return": 0,
+          "realized_vol": 0,
+          "pre_event_realized_vol": 0
+        }
+      },
+      "engine_fit": {
+        "usable": true
+      },
+      "roles_offered": {
+        "day_of_week": "confounder",
+        "log_return": "outcome",
+        "other_surprises_before": "confounder",
+        "pre_event_realized_vol": "confounder",
+        "pre_event_vol_high": "modifier",
+        "realized_vol": "outcome",
+        "surprise": "treatment",
+        "surprise_positive": "modifier"
+      },
+      "roles_withheld": {
+        "hour_bucket": {
+          "role": "modifier",
+          "refusal": "CONSTANT_IN_THE_TABLE",
+          "why": "hour_bucket takes the single value 2 over the 354 fitting rows of this table; a constant column adjusts for nothing, makes an adjustment design rank deficient and cannot carry a level an effect is read at"
+        }
+      },
+      "files": {
+        "fit": "united_states_crude_oil_inventories__240__fit.csv",
+        "holdout": "united_states_crude_oil_inventories__240__holdout.csv"
+      }
+    },
+    {
+      "event_type": "United States | Initial Jobless Claims",
+      "horizon_minutes": 30,
+      "slug": "united_states_initial_jobless_claims__30",
+      "pre_event_vol_cut": 8.009726955622559e-07,
+      "counts": {
+        "fit_rows": 361,
+        "holdout_rows": 91,
+        "fit_releases": 361,
+        "holdout_releases": 91,
+        "dropped_by_reason": {
+          "surprise": 0,
+          "log_return": 0,
+          "realized_vol": 0,
+          "pre_event_realized_vol": 0
+        }
+      },
+      "engine_fit": {
+        "usable": true
+      },
+      "roles_offered": {
+        "day_of_week": "confounder",
+        "log_return": "outcome",
+        "other_surprises_before": "confounder",
+        "pre_event_realized_vol": "confounder",
+        "pre_event_vol_high": "modifier",
+        "realized_vol": "outcome",
+        "surprise": "treatment",
+        "surprise_positive": "modifier"
+      },
+      "roles_withheld": {
+        "hour_bucket": {
+          "role": "modifier",
+          "refusal": "CONSTANT_IN_THE_TABLE",
+          "why": "hour_bucket takes the single value 1 over the 361 fitting rows of this table; a constant column adjusts for nothing, makes an adjustment design rank deficient and cannot carry a level an effect is read at"
+        }
+      },
+      "files": {
+        "fit": "united_states_initial_jobless_claims__30__fit.csv",
+        "holdout": "united_states_initial_jobless_claims__30__holdout.csv"
+      }
+    },
+    {
+      "event_type": "United States | Initial Jobless Claims",
+      "horizon_minutes": 240,
+      "slug": "united_states_initial_jobless_claims__240",
+      "pre_event_vol_cut": 8.045359295489058e-07,
+      "counts": {
+        "fit_rows": 358,
+        "holdout_rows": 90,
+        "fit_releases": 358,
+        "holdout_releases": 90,
+        "dropped_by_reason": {
+          "surprise": 0,
+          "log_return": 0,
+          "realized_vol": 0,
+          "pre_event_realized_vol": 0
+        }
+      },
+      "engine_fit": {
+        "usable": true
+      },
+      "roles_offered": {
+        "day_of_week": "confounder",
+        "log_return": "outcome",
+        "other_surprises_before": "confounder",
+        "pre_event_realized_vol": "confounder",
+        "pre_event_vol_high": "modifier",
+        "realized_vol": "outcome",
+        "surprise": "treatment",
+        "surprise_positive": "modifier"
+      },
+      "roles_withheld": {
+        "hour_bucket": {
+          "role": "modifier",
+          "refusal": "CONSTANT_IN_THE_TABLE",
+          "why": "hour_bucket takes the single value 1 over the 358 fitting rows of this table; a constant column adjusts for nothing, makes an adjustment design rank deficient and cannot carry a level an effect is read at"
+        }
+      },
+      "files": {
+        "fit": "united_states_initial_jobless_claims__240__fit.csv",
+        "holdout": "united_states_initial_jobless_claims__240__holdout.csv"
+      }
+    }
+  ]
+}
