@@ -438,8 +438,15 @@ def interpret(prompt, slots, *, interpreter=None, configuration=None, environ=No
                         f"rule cannot be applied to it. Nothing was chosen. Name the value yourself -- this model has "
                         f"{_vocabulary(slots, names)} -- or configure an interpreter that reports a confidence")}
 
+    # An interpreter is anything that can choose among declared values. The newer protocol reports how sure it was;
+    # the older one -- and any implementation outside this package, including a test double -- only proposes. Asking
+    # for a method an object does not declare is the mistake this framework exists to refuse, so the older protocol is
+    # used as it is and its silence is declared, never read as a confidence.
     try:
-        proposed, confidences = interpreter.propose_with_confidence(prompt, pending)
+        if hasattr(interpreter, "propose_with_confidence"):
+            proposed, confidences = interpreter.propose_with_confidence(prompt, pending)
+        else:
+            proposed, confidences = interpreter.propose(prompt, pending), {}
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         return {**report, "status": STATUS_MISSING,
                 "why": f"the interpreter could not be consulted ({error}); name the missing values in your question"}
