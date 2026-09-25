@@ -1,6 +1,8 @@
 {
   "group": "predictor.plugins",
-  "multi_branch": [],
+  "multi_branch": [
+    "fused_branches"
+  ],
   "note": "a MULTI_BRANCH verdict says the model builds, not that it is any good; a NOT_PROBED plugin is not offered as an option, because an unknown capability is not a declared one",
   "probe": {
     "attempts": [
@@ -192,6 +194,13 @@
       "target": "predictor_plugins.direction.predictor_plugin_direction_transformer:Plugin",
       "verdict": "SINGLE_BRANCH_ONLY",
       "why": "the one-tensor control built a model with 1 input(s) while every two-branch attempt failed: list_of_shapes: ValueError: Invalid dtype: tuple | tuple_of_shapes: ValueError: Invalid dtype: tuple | mapping_of_shapes: ValueError: Cannot convert '('group_0', 'group_1')' to a shape. Found invalid entry 'group_0' of type '<class 'str'>'. "
+    },
+    "fused_branches": {
+      "entry_point": "fused_branches",
+      "inputs": 2,
+      "target": "predictor_plugins.fused_branches:Plugin",
+      "verdict": "MULTI_BRANCH",
+      "why": "built a model with 2 inputs from a list_of_shapes of two branches"
     },
     "lstm": {
       "entry_point": "lstm",
