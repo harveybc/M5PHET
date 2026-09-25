@@ -9,7 +9,7 @@ import shlex
 import subprocess
 from datetime import datetime, timezone
 
-from m5phet import config as configuration_module
+from m5phet import config as configuration_module, datasets as dataset_catalog
 from m5phet.interpret import STATUS_OK, build as build_interpreter, interpret
 from m5phet.orchestrate import narrate, route
 from m5phet.outputs import select as select_output
@@ -111,6 +111,14 @@ class Engine:
         # `interpreter` block goes to the plugin unchanged; with no JSON file it is empty and the `command` plugin
         # reads M5PHET_INTERPRETER_COMMAND exactly as before.
         self.interpreter = build_interpreter(self.configuration.interpreter, environ=self.environ)
+        # WP15: the catalog of what the data lake holds, read once. It carries descriptions and never rows, so a
+        # sentence may NAME a dataset instead of attaching a file. An installation with no catalog gets an empty one
+        # and every sentence is routed exactly as it was before.
+        try:
+            self.datasets = dataset_catalog.load_catalog(configuration=self.configuration, environ=self.environ)
+        except dataset_catalog.CatalogError as error:
+            self.datasets = {"schema": dataset_catalog.CATALOG_SCHEMA, "datasets": [], "aliases": {}}
+            self.discovery["refused"]["dataset_catalog"] = str(error)
         if self.remote:
             self.remote_capabilities()
 
@@ -175,10 +183,16 @@ class Engine:
         return question_catalog(self.registry)
 
     def propose_task(self, prompt, attachments):
-        """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first."""
+        """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first.
+
+        With nothing attached, the sentence may name a dataset of the data lake; the proposal then carries
+        `dataset: {id, source, rows, columns, source_of_choice}` -- plus, when more than one dataset fitted the
+        words, the `dataset_choice` decision record Laya made -- and the person reviews which data will be read and
+        who chose it, before anything runs."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
-        return route(prompt, payload, self.registry, interpreter=self.interpreter)
+        return route(prompt, payload, self.registry, interpreter=self.interpreter, datasets=self.datasets,
+                     decider=self)
 
     def output(self, area):
         """The procedure configured for this area: `areas.<area>.output.plugin`, `default` when nothing is bound."""
@@ -192,10 +206,31 @@ class Engine:
         return {area: {"plugin": self.output(area).name, **self.output(area).header(area)}
                 for area in configuration_module.AREAS}
 
+    def resolved_rows(self, prompt, task):
+        """The rows of the dataset this envelope names, or None when it names none.
+
+        The envelope carries the id the proposal resolved (`state.dataset`), so what runs reads what the person
+        reviewed; a hand-written envelope may name one the same way, and a sentence with no envelope id is resolved
+        from its own words. A governed resource is refused by name here -- it is never served from an ungoverned
+        copy -- and that refusal is what the person is shown."""
+        state = task.get("state") if isinstance(task, dict) else None
+        subject = state if isinstance(state, dict) and state.get("dataset") else prompt
+        # no decider at execution: the choice was made and recorded when the person reviewed the proposal, and its
+        # id travels in `state.dataset`. A run is never the place to ask Laya again for a different dataset.
+        resolution = dataset_catalog.resolve(subject, self.datasets, None)
+        if resolution["status"] != dataset_catalog.OK:
+            return None, resolution
+        return dataset_catalog.load_rows(resolution["dataset"]), resolution
+
     def execute_task(self, prompt, task, attachments, language=None):
         """Run an envelope the person accepted (or wrote), then narrate its answers without touching a number."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
+        dataset = None
+        if payload is None and (self.datasets or {}).get("datasets"):
+            rows, resolution = self.resolved_rows(prompt, task)
+            if rows is not None:
+                payload, dataset = rows, dataset_catalog.proposal_view(resolution)
         if self.remote and isinstance(task, dict) and task.get("area") == "classification":
             # the real checkpoint lives on the private worker; the envelope goes there on the same contract and comes
             # back bound to the request it answered, exactly as the single-question path does
@@ -213,7 +248,7 @@ class Engine:
         narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area, task=task,
                             plugin=self.output(area))
         return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
-                "execution_authorized": False}
+                "dataset": dataset, "execution_authorized": False}
 
     def execute(self, prompt, config, attachments, *, dry_run=False):
         """Resolve a sentence into the typed request its selected engine will run, and run it.
