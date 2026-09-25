@@ -15,7 +15,9 @@ fi
 export NEWS_SIGNAL_GPU_UUID="$GPU_UUID" CUDA_VISIBLE_DEVICES="$GPU_UUID" NEWS_SIGNAL_DEVICE=cuda:0
 mkdir -p "$HOME/.local/state/m5phet"
 exec 9>"$HOME/.local/state/m5phet/chat-gpu.lock"
-if ! flock -n 9; then
+# One call at a time on the GPU. A second caller waits its turn for up to 60 s instead of being refused on arrival:
+# two workbench instances verifying at once used to make one of them fail its whole classification lane.
+if ! flock -w 60 9; then
     printf '%s\n' '{"transport_error":"Chat worker is occupied"}'
     exit 2
 fi

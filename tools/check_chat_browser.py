@@ -29,11 +29,20 @@ def main():
             page.get_by_role("button", name="Nuevo chat", exact=True).click()
             page.get_by_role("button", name="Noticia · Clasificación", exact=True).click()
             page.get_by_role("button", name="Enviar pregunta", exact=True).click()
+            # the sentence path's window (Retsu 2026-09-24 §8.2): the resolved typed request is shown and nothing has run
+            page.locator("#envelope-panel").wait_for(state="visible", timeout=20000)
+            shown = page.locator("#envelope").input_value()
+            assert '"provider_ref"' in shown and '"operation": "infer"' in shown, shown[:300]
+            assert page.locator("#envelope-status").inner_text() == "SIN EJECUTAR"
+            assert page.locator(".message.assistant").count() == 0, "a preview must not create a message"
+            page.screenshot(path=str(args.out / "preview.png"), full_page=True)
+            page.get_by_role("button", name="Ejecutar petición", exact=True).click()
             page.locator('.message.assistant').wait_for(timeout=20000)
             page.locator('.running').wait_for(state='detached', timeout=180000)
             assert page.locator(".message.assistant .tag").first.inner_text() == "OK", page.locator(".message.assistant").inner_text()
             page.screenshot(path=str(args.out / "result.png"), full_page=True)
             before = page.locator(".result-label").inner_text()
+            assert page.locator(".result-asked").count() == 1, "the exact scored instruction must be shown"
             page.reload()
             page.wait_for_selector(".result-label")
             assert page.locator(".result-label").inner_text() == before

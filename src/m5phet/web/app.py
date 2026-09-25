@@ -200,6 +200,14 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
         attachments = [store.file(cid, fid) for fid in body.file_ids]
         return engine.propose_task(body.prompt, attachments)
 
+    @app.post("/api/chats/{cid}/preview")
+    def preview(cid: str, body: ProposeTask):
+        # the sentence path's window: the typed request as it would run, and which words or model resolved each field.
+        # Nothing runs and nothing is recorded; the person sends the same sentence to run it.
+        chat = store.get(cid)
+        attachments = [store.file(cid, fid) for fid in body.file_ids]
+        return engine.execute(body.prompt, chat["config"], attachments, dry_run=True)
+
     def execute_task(mid, job, task, language):
         prompt, _config, attachments, snapshot = job
         started = time.monotonic()

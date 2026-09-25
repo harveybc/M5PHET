@@ -25,3 +25,8 @@ button.secondary{padding:.45rem .9rem;border-radius:.5rem;border:1px solid var(-
 .narration{margin-top:.6rem;padding:.5rem .7rem;background:color-mix(in srgb,var(--accent,#1b6b4a) 6%,transparent);border-radius:.5rem}
 .narration-source{display:block;font-size:.72rem;opacity:.65;margin-top:.25rem}
 .narration-why{display:block;font-size:.72rem;color:var(--warn-text,#8a5a00);margin-top:.2rem}
+
+/* the sentence path's window: the person sees what was understood before it runs */
+.review-toggle{display:inline-flex;align-items:center;gap:.35rem;font-size:.8rem;color:var(--muted,#6b7280);cursor:pointer;margin-right:.5rem}
+.review-toggle input{accent-color:var(--accent,#2563eb)}
+.envelope-problems li.interp{list-style:none;color:var(--muted,#6b7280)}

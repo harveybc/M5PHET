@@ -223,3 +223,52 @@ def test_the_router_is_told_what_each_value_means_and_which_pairs_are_fitted():
     assert out["status"] == "OK"
     shown = fixed.asked[0]
     assert "una hora" in shown and "fitted_combinations" in shown and "direction_long" in shown
+
+
+# --- Retsu's counterexamples (RETSU_TO_SATOSHI_AUDIT_M5PHET_ENVELOPE_2026_09_24, §5): a quantity said in words, and a
+# --- percent alias applied to a unit that is not a probability, both walked through the digit-only guard ----------------
+
+KW = {"p": {"type": "point_forecast", "status": "OK", "values": [0.5412255525588989], "unit": "kW"}}
+
+
+def test_a_quantity_said_in_words_is_not_a_faithful_narration():
+    for text in ("La potencia será casi el doble de la anterior: 0.5412 kW.",
+                 "La mitad de lo habitual, 0.5412 kW.",
+                 "Roughly twice the usual load, 0.5412 kW.",
+                 "Half of yesterday's 0.5412 kW."):
+        assert not narration_is_faithful(text, KW), text
+
+
+def test_a_percent_alias_needs_a_probability_to_stand_on():
+    # 0.5412 kW is power, not a share of anything; "54%" is a sentence about nothing the answers carry
+    assert not narration_is_faithful("La previsión equivale a un 54% (0.5412 kW).", KW)
+    assert not narration_is_faithful("Consumption at 54.12% of capacity, 0.5412 kW.", KW)
+    # the same alias over a declared probability is still accepted
+    probs = {"c": {"type": "choice", "status": "OK", "label": "euro_area",
+                   "uncalibrated_probabilities": {"euro_area": 0.9666, "other": 0.0334}}}
+    assert narration_is_faithful("euro_area con 96.66%", probs)
+    assert narration_is_faithful("euro_area at 97% (0.9666)", probs)
+
+
+def test_a_claim_of_profit_or_an_order_is_not_a_faithful_narration_of_a_critic_value():
+    rl = {"v": {"type": "value_estimation", "status": "OK", "expected_return": 3.7995848655700684,
+                "uncertainty_bounds": [3.7995848655700684, 4.006697177886963]},
+          "a": {"type": "next_action", "status": "OK", "action": [0.05912280082702637],
+                "unit": "target position fraction of the policy's own action scale"}}
+    # every digit here is in the answers; the damage is in the verb (Retsu §5)
+    assert not narration_is_faithful("Es ganancia realizada de 3.7995848655700684.", rl)
+    assert not narration_is_faithful("Place a buy order for 0.05912280082702637 lots.", rl)
+    assert not narration_is_faithful("Compra: la acción 0.0591 es una orden de compra.", rl)
+    # the RL narration Retsu left standing: a negation of those words is not a claim of them
+    assert narration_is_faithful("La acción 0.05912280082702637 es una fracción de posición, no una orden; el retorno "
+                                 "3.7995848655700684 es bajo la recompensa de entrenamiento, no una ganancia.", rl)
+    assert narration_is_faithful("Not an order and not a profit: the critic value is 3.7995848655700684.", rl)
+
+
+def test_the_guard_says_why_it_discarded():
+    from m5phet.orchestrate import narration_problems
+    problems = narration_problems("Casi el doble, un 54%, ganancia de 0.5412 kW.", KW)
+    assert any("doble" in p for p in problems)
+    assert any("54%" in p or "percent" in p for p in problems)
+    assert any("ganancia" in p for p in problems)
+    assert narration_problems("La previsión es 0.5412 kW; el intervalo no se pudo calcular.", KW) == []

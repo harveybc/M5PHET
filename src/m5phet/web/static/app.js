@@ -67,6 +67,8 @@ function renderMessage(m){
       for(const [name,answer] of Object.entries(result.outputs||{})){
         const p=answer.payload||{};
         if(p.label){body.append(el('div',p.label,'result-label'));const probs=p.uncalibrated_probabilities||p.probabilities;
+          const asked=detail.request?.inputs?.question_spec?.question||detail.request?.question_spec?.question;
+          if(asked)body.append(el('div','Instrucción puntuada por el modelo: «'+asked+'» · otra redacción es otra entrada y da otro número','result-asked'));
           if(probs){for(const [label,v] of Object.entries(probs)){
             const row=el('div',undefined,'prob-row'),track=el('div',undefined,'prob-track'),fill=el('div',undefined,'prob-fill');
             fill.style.width=Math.max(0,Math.min(100,v*100))+'%';track.append(fill);row.append(el('span',label),track,el('span',(v*100).toFixed(2)+'%','prob-value'));body.append(row);
@@ -143,9 +145,45 @@ async function proposeEnvelope(prompt){
   showEnvelope(proposal);
   if(current.title==='Nuevo chat')await api('/chats/'+id,{method:'PATCH',body:{title:prompt.slice(0,80)}});
 }
-$('envelope-discard').onclick=hideEnvelope;
+/* The sentence path has the same window as the envelope path: before anything runs, the person sees the typed request
+   the sentence was resolved into and which words or which model fixed each parameter. Off only by the person's own
+   choice, remembered per browser. */
+let pendingPreview=null;
+$('review-toggle').checked=localStorage.getItem('m5phet-review')!=='0';
+$('review-toggle').onchange=()=>localStorage.setItem('m5phet-review',$('review-toggle').checked?'1':'0');
+function showPreview(preview){
+  pendingPreview=preview;
+  $('envelope-panel').hidden=false;
+  $('envelope-title').textContent='Petición resuelta desde su frase (proveedor · estado · parámetros). Nada se ha ejecutado.';
+  $('envelope').value=JSON.stringify(preview.request||{},null,2);$('envelope').readOnly=true;
+  const status=$('envelope-status');status.textContent='SIN EJECUTAR';status.className='tag warn';
+  const list=$('envelope-problems');list.replaceChildren();
+  const interp=preview.interpretation;
+  if(interp&&interp.sources){
+    for(const [field,source] of Object.entries(interp.sources)){
+      const value=interp.parameters?interp.parameters[field]:undefined;
+      list.append(el('li',field+' = '+String(value)+(source==='INTERPRETER'?' · elegido por el modelo intérprete ('+(interp.interpreter?.model||interp.interpreter?.command||'')+') entre los valores declarados':' · fijado por sus propias palabras'),'interp'));
+    }
+  }else list.append(el('li','Ningún parámetro se resolvió por intérprete; la petición se construyó solo desde la configuración del chat y su texto.','interp'));
+  $('envelope-run').textContent='Ejecutar petición';$('envelope-run').disabled=false;
+}
+function hidePreview(){pendingPreview=null;$('envelope').readOnly=false;$('envelope-title').textContent='Sobre propuesto (área · estado · preguntas). Puede editarlo antes de ejecutar.';$('envelope-run').textContent='Ejecutar sobre';hideEnvelope();}
+async function sendSentence(prompt){
+  const id=current.id;
+  await api(`/chats/${id}/messages`,{method:'POST',body:{prompt,file_ids:selected,client_id:crypto.randomUUID()}});
+  if(current.title==='Nuevo chat')await api('/chats/'+id,{method:'PATCH',body:{title:prompt.slice(0,80)}});
+  $('prompt').value='';localStorage.removeItem('m5phet-draft-'+id);current=await api('/chats/'+id);render();await list();$('messages').scrollTop=$('messages').scrollHeight;watch();
+}
+$('envelope-discard').onclick=hidePreview;
 $('envelope-run').onclick=async()=>{
   if(!current||busy||uploading)return;
+  if(pendingPreview){
+    notify();$('envelope-run').disabled=true;$('send').disabled=true;
+    try{await sendSentence($('prompt').value.trim());hidePreview();}
+    catch(error){notify(error.message);$('envelope-run').disabled=false;}
+    finally{$('send').disabled=false;}
+    return;
+  }
   let task;try{task=JSON.parse($('envelope').value);}catch(err){notify('El sobre no es JSON válido: '+err.message);return;}
   notify();$('envelope-run').disabled=true;$('send').disabled=true;
   try{
@@ -159,12 +197,14 @@ $('composer').onsubmit=async e=>{
   e.preventDefault();const prompt=$('prompt').value.trim();if(!prompt||busy||uploading)return;
   notify();$('send').disabled=true;
   if(taskMode){try{await proposeEnvelope(prompt);}catch(error){notify(error.message);}finally{$('send').disabled=false;}return;}
-  try{
-    const id=current.id;
-    await api(`/chats/${id}/messages`,{method:'POST',body:{prompt,file_ids:selected,client_id:crypto.randomUUID()}});
-    if(current.title==='Nuevo chat')await api('/chats/'+id,{method:'PATCH',body:{title:prompt.slice(0,80)}});
-    $('prompt').value='';localStorage.removeItem('m5phet-draft-'+id);current=await api('/chats/'+id);render();await list();$('messages').scrollTop=$('messages').scrollHeight;watch();
-  }catch(error){notify(error.message);$('send').disabled=false;}
+  if($('review-toggle').checked){
+    try{const preview=await api(`/chats/${current.id}/preview`,{method:'POST',body:{prompt,file_ids:selected}});showPreview(preview);}
+    catch(error){notify(error.message);}
+    finally{$('send').disabled=false;}
+    return;
+  }
+  try{await sendSentence(prompt);}
+  catch(error){notify(error.message);$('send').disabled=false;}
 };
 $('prompt').oninput=()=>{saveDraft();$('prompt').style.height='auto';$('prompt').style.height=Math.min(180,$('prompt').scrollHeight)+'px';};
 $('prompt').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').requestSubmit();}};

@@ -217,53 +217,93 @@ def route(prompt, data, registry, *, interpreter=None):
 # --- the narration -----------------------------------------------------------------------------------------------------
 
 _NUMBER = re.compile(r"-?\d+(?:[.,]\d+)?")
+_PERCENT = re.compile(r"(-?\d+(?:[.,]\d+)?)\s*(?:%|por ciento|percent\b)")
+#: a key under which a number in [0, 1] is a share of something, so that "97%" is one of its renderings
+_PROBABILITY_KEY = re.compile(r"probabilit|confidence|share|proportion|p_value|silhouette_share", re.IGNORECASE)
+#: quantities said in words: no digit appears, so a digit-only guard never saw them (Retsu, 2026-09-24)
+_RELATIVE_QUANTITY = re.compile(
+    r"\b(?:casi\s+)?(?:el\s+|la\s+|un\s+|una\s+)?"
+    r"(?:doble|dobla|duplica|mitad|triple|triplica|cu[aá]druple|tercio|cuarto|quinto|"
+    r"twice|double|doubles|half|halves|triple|threefold|thrice|quarter|third|fourfold|tenfold)\b", re.IGNORECASE)
+#: verbs and nouns that turn a reading into an instruction or a result; the answers never carry them
+_ACTION_CLAIM = re.compile(
+    r"\b(?:ganancias?|beneficios?|rentabilidad|utilidad(?:es)?|p[eé]rdidas?|realizad[ao]s?|"
+    r"[oó]rden(?:es)?|compra[rs]?|vende[rs]?|venta|lotes?|posici[oó]n\s+enviable|"
+    r"profits?|profitable|loss(?:es)?|realised|realized|orders?|buy|buys|sell|sells|lots?|execute[sd]?)\b",
+    re.IGNORECASE)
+_NEGATION = re.compile(r"\b(?:no|not|nunca|never|ni|nor|tampoco|neither|sin|without|isn't|aren't|does\s+not|"
+                       r"do\s+not|is\s+not|are\s+not)\b", re.IGNORECASE)
+_SENTENCE = re.compile(r"[.;:\n]+")
 
 
 def _numbers_in(obj):
-    """Every number the answers carry, as strings in several renderings, so a narration can be checked against them."""
-    found = set()
+    """Every number the answers carry, as strings in several renderings, so a narration can be checked against them.
 
-    def walk(value):
+    Returns two sets: plain renderings of every number, and percent renderings of those numbers that live under a key
+    naming a probability or a share. 0.5412 kW gains no "54"; 0.9666 under `uncalibrated_probabilities` gains "96.66"."""
+    plain, percent = set(), set()
+
+    def walk(value, key=""):
         if isinstance(value, bool):
             return
         if isinstance(value, (int, float)):
-            found.add(str(value))
-            found.add(f"{value:.2f}")
-            found.add(f"{value:.4f}")
-            found.add(f"{value:.1f}")
-            if isinstance(value, float) and 0 <= value <= 1:
-                found.add(f"{value * 100:.1f}")
-                found.add(f"{value * 100:.0f}")
-                found.add(f"{value * 100:.2f}")
+            plain.update({str(value), f"{value:.2f}", f"{value:.4f}", f"{value:.1f}"})
+            if isinstance(value, float) and 0 <= value <= 1 and _PROBABILITY_KEY.search(key):
+                percent.update({f"{value * 100:.1f}", f"{value * 100:.0f}", f"{value * 100:.2f}"})
         elif isinstance(value, dict):
-            for v in value.values():
-                walk(v)
+            for k, v in value.items():
+                walk(v, f"{key}.{k}" if _PROBABILITY_KEY.search(key) else str(k))
         elif isinstance(value, list):
             for v in value:
-                walk(v)
+                walk(v, key)
         elif isinstance(value, str):
-            for token in _NUMBER.findall(value):
-                found.add(token)
+            plain.update(_NUMBER.findall(value))
 
     walk(obj)
-    return found
+    return plain, percent
+
+
+def _matches(token, allowed):
+    cleaned = token.replace(",", ".")
+    if cleaned in allowed or cleaned.lstrip("-") in allowed:
+        return True
+    try:
+        value = float(cleaned)
+    except ValueError:
+        return False
+    return any(abs(float(a) - value) < 1e-9 for a in allowed if _NUMBER.fullmatch(a))
+
+
+def narration_problems(text, answers):
+    """Why a narration is not a faithful reading of the answers; empty when it is.
+
+    Three checks, all deterministic. Every digit in the text must be a number the answers carry. A percent sign may only
+    follow a rendering of a declared probability, never of a power or a price. A quantity said in words ("el doble",
+    "half") and a claim of profit, loss or an order are refused outright unless the sentence they sit in negates them,
+    because the answers carry no such thing and a digit-only check cannot see either."""
+    plain, percent = _numbers_in(answers)
+    problems = []
+    for match in _PERCENT.finditer(text):
+        if not _matches(match.group(1), percent):
+            problems.append(f"'{match.group(0).strip()}' is a percent of nothing the answers carry as a probability")
+    stripped = _PERCENT.sub(" ", text)
+    for token in _NUMBER.findall(stripped):
+        if not _matches(token, plain):
+            problems.append(f"'{token}' is a figure the answers do not carry")
+    for sentence in _SENTENCE.split(text):
+        negated = bool(_NEGATION.search(sentence))
+        for match in _RELATIVE_QUANTITY.finditer(sentence):
+            problems.append(f"'{match.group(0).strip()}' is a quantity said in words; the answers carry no ratio")
+        if not negated:
+            for match in _ACTION_CLAIM.finditer(sentence):
+                problems.append(f"'{match.group(0)}' claims a profit, a loss or an order; the answers carry none")
+    return problems
 
 
 def narration_is_faithful(text, answers):
-    """True when every number in the text is one the answers carry. A narration may leave figures out; it may not add."""
-    allowed = _numbers_in(answers)
-    for token in _NUMBER.findall(text):
-        cleaned = token.replace(",", ".")
-        if cleaned in allowed or cleaned.lstrip("-") in allowed:
-            continue
-        try:
-            value = float(cleaned)
-        except ValueError:
-            return False
-        if any(abs(float(a) - value) < 1e-9 for a in allowed if _NUMBER.fullmatch(a)):
-            continue
-        return False
-    return True
+    """True when every number in the text is one the answers carry and no claim goes beyond them. A narration may leave
+    figures out; it may not add, scale or act on them."""
+    return not narration_problems(text, answers)
 
 
 def render(response):
@@ -305,8 +345,10 @@ def narrate(prompt, response, *, interpreter=None, language="es"):
     except Exception:                                                   # noqa: BLE001
         return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
                 "why": "the interpreter could not be consulted"}
-    if text and narration_is_faithful(text, answers):
+    problems = narration_problems(text, answers) if text else ["the interpreter returned nothing"]
+    if not problems:
         return {"text": text, "source": "INTERPRETER", "faithful": True, "interpreter": interpreter.identity()}
     return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
-            "why": "the interpreter's narration introduced a figure the answers do not carry; it was discarded",
-            "discarded": text[:400] if text else None}
+            "why": "the interpreter's narration introduced a figure or a claim the answers do not carry; it was "
+                   "discarded: " + "; ".join(problems[:4]),
+            "discarded": text[:4000] if text else None}

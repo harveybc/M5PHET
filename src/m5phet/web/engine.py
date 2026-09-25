@@ -96,17 +96,29 @@ class Engine:
         self.remote_caps = None
         self.interpreter = Interpreter()
         if self.remote:
+            self.remote_capabilities()
+
+    def remote_capabilities(self):
+        """The worker's declared capabilities, asked for again until they are known.
+
+        They were once read at start-up only: an instance that started while another held the worker's lock kept the
+        in-process fixture's state for the rest of its life and every classification it sent to the worker was refused
+        as "not a state this provider holds" (verification of 2026-09-24, two instances started together). A failed
+        describe is recorded and retried on the next need; a successful one is kept."""
+        if self.remote and self.remote_caps is None:
             try:
                 self.remote_caps = self._remote({"action": "describe"}).get("capabilities")
+                self.discovery["refused"].pop("laya_worker", None)
             except (ValueError, OSError, subprocess.SubprocessError) as error:
                 self.discovery["refused"]["laya_worker"] = str(error)
+        return self.remote_caps
 
     def _remote(self, command):
         if not self.remote_command or self.remote.startswith("-"):
             raise ValueError("Administrator worker command is not configured")
         argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=7", self.remote,
                 shlex.join(shlex.split(self.remote_command))]
-        done = subprocess.run(argv, input=json.dumps(command), text=True, capture_output=True, timeout=180)
+        done = subprocess.run(argv, input=json.dumps(command), text=True, capture_output=True, timeout=240)
         try:
             result = strict_json(done.stdout)
         except (ValueError, TypeError):
@@ -116,7 +128,8 @@ class Engine:
         return result
 
     def catalog(self):
-        providers = [{"name": name, "capabilities": self.remote_caps if name == "laya_news" and self.remote_caps else self.registry.capabilities(name)}
+        remote_caps = self.remote_capabilities()
+        providers = [{"name": name, "capabilities": remote_caps if name == "laya_news" and remote_caps else self.registry.capabilities(name)}
                               for name in self.registry.names()]
         examples = []
         for name in self.registry.names():
@@ -163,13 +176,22 @@ class Engine:
         return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
                 "execution_authorized": False}
 
-    def execute(self, prompt, config, attachments):
+    def execute(self, prompt, config, attachments, *, dry_run=False):
+        """Resolve a sentence into the typed request its selected engine will run, and run it.
+
+        With `dry_run` the request is built exactly as it would be run -- words matched, interpreter consulted, adapter
+        applied -- and returned unrun, so the person reviews what was understood before anything executes. That is the
+        same review the envelope path offers; without it the sentence path would be the only door with no window."""
         config = validate_config(config)
         interpretation = None
         provider = self.registry.get(config["provider"])
         if provider is None:
             raise ValueError(f"Provider '{config['provider']}' is not installed; no fallback was used")
-        caps = self.remote_caps if config["provider"] == "laya_news" and self.remote_caps else self.registry.capabilities(config["provider"])
+        remote_caps = self.remote_capabilities() if config["provider"] == "laya_news" else None
+        if self.remote and config["provider"] == "laya_news" and not remote_caps:
+            raise ValueError("The classification worker did not describe itself: "
+                             + str(self.discovery["refused"].get("laya_worker", "no reason recorded")))
+        caps = remote_caps if remote_caps else self.registry.capabilities(config["provider"])
         as_of = config["as_of"] or datetime.now(timezone.utc).isoformat()
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         if config["input"] == "typed_request":
@@ -239,6 +261,10 @@ class Engine:
             for field, selected in (("provider_ref", "provider"), ("family", "family"), ("output_kind", "output_kind")):
                 if request.get(field) != config[selected]:
                     raise ValueError(f"Question adapter changed selected {field}")
+        if dry_run:
+            return {"request": request, "interpretation": interpretation, "config": config,
+                    "profile": "LOCAL_UNGOVERNED", "execution_authorized": False, "ran": False,
+                    "reading": "what the sentence was resolved into; nothing has run"}
         if self.remote and config["provider"] == "laya_news":
             result = self._remote({"action": "infer", "request": request})
             if result.get("request_sha256") != request_digest(request) or result.get("execution_authorized") is not False:

@@ -201,6 +201,67 @@ def test_remote_result_cannot_change_binding(monkeypatch):
     registry.register(LayaNewsProvider(environ={"NEWS_SIGNAL_BACKEND": "fixture"}))
     engine = Engine(registry=registry)
     engine.remote = "configured-worker"
-    monkeypatch.setattr(engine, "_remote", lambda request: {"status": "OK", "request_sha256": "wrong", "execution_authorized": False})
+    caps = registry.capabilities("laya_news")
+
+    def remote(request):
+        if request["action"] == "describe":
+            return {"capabilities": caps}
+        return {"status": "OK", "request_sha256": "wrong", "execution_authorized": False}
+    monkeypatch.setattr(engine, "_remote", remote)
     with pytest.raises(ValueError, match="not bound"):
         engine.execute("Question?", DEFAULT_CONFIG | {"context": "A test news paragraph."}, [])
+
+
+def test_a_worker_that_was_busy_at_start_up_is_asked_again_and_never_replaced_by_the_fixture(monkeypatch):
+    """Two instances started together on 2026-09-24: one found the worker locked at start-up, kept the in-process
+    fixture's state for good, and every classification it sent to the worker was refused as a state it does not hold."""
+    pytest.importorskip("news_signal")
+    from news_signal.provider import LayaNewsProvider
+    from m5phet.web.engine import DEFAULT_CONFIG
+    registry = Registry()
+    registry.register(LayaNewsProvider(environ={"NEWS_SIGNAL_BACKEND": "fixture"}))
+    engine = Engine(registry=registry)
+    engine.remote = "configured-worker"
+    worker_caps = registry.capabilities("laya_news") | {"known_states": ["laya-checkpoint:" + "b" * 64]}
+    attempts = []
+
+    def remote(request):
+        attempts.append(request["action"])
+        if request["action"] == "describe":
+            if attempts.count("describe") <= 2:
+                raise ValueError("Chat worker is occupied")
+            return {"capabilities": worker_caps}
+        raise AssertionError("no inference expected in this test")
+    monkeypatch.setattr(engine, "_remote", remote)
+    assert engine.remote_capabilities() is None and "occupied" in engine.discovery["refused"]["laya_worker"]
+    # nothing is sent to the worker under the fixture's state while the worker has not described itself
+    with pytest.raises(ValueError, match="did not describe itself"):
+        engine.execute("Question?", DEFAULT_CONFIG | {"context": "A test news paragraph."}, [], dry_run=True)
+    # the next need asks again, and the worker's own states are what the catalog and the requests use from then on
+    assert engine.remote_capabilities() == worker_caps and "laya_worker" not in engine.discovery["refused"]
+    shown = [p for p in engine.catalog()["providers"] if p["name"] == "laya_news"][0]
+    assert shown["capabilities"]["known_states"] == worker_caps["known_states"]
+    preview = engine.execute("Question?", DEFAULT_CONFIG | {"context": "A test news paragraph."}, [], dry_run=True)
+    assert preview["request"]["fitted_state_ref"] == worker_caps["known_states"][0]
+
+
+def test_the_sentence_path_can_be_previewed_before_it_runs(setup):
+    """Retsu (2026-09-24, §8.2): the sentence path had no window; only the envelope path let the person review first.
+    A preview builds the typed request exactly as it would run and records nothing."""
+    c, provider, _ = setup
+    row = chat(c)
+    cfg = row["config"] | {"input": "typed_request", "provider": "recording", "state": "test-state"}
+    assert c.patch(f'/api/chats/{row["id"]}', json={"config": cfg}).status_code == 200
+    request = {"schema_version": "m5phet.task.draft2", "request_id": "native-2", "task_id": "test",
+               "operation": "infer", "family": "classification", "output_kind": "typed_questions",
+               "provider_ref": "recording", "fitted_state_ref": "test-state", "as_of": "2026-09-24T10:00:00Z",
+               "output_schema": {"questions": ["answer"]}, "inputs": {"value": 4}}
+    r = c.post(f'/api/chats/{row["id"]}/preview', json={"prompt": json.dumps(request), "file_ids": []})
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    assert preview["request"] == request and preview["ran"] is False and preview["execution_authorized"] is False
+    assert provider.calls == [], "a preview runs nothing"
+    assert c.get(f'/api/chats/{row["id"]}').json()["messages"] == [], "a preview records nothing"
+    # a sentence the engine cannot resolve is refused in the preview, with the reason, and still records nothing
+    bad = c.post(f'/api/chats/{row["id"]}/preview', json={"prompt": "not a typed request", "file_ids": []})
+    assert bad.status_code == 422 and provider.calls == []
