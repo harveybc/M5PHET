@@ -10,8 +10,9 @@ import subprocess
 from datetime import datetime, timezone
 
 from m5phet import config as configuration_module
-from m5phet.interpret import STATUS_OK, Interpreter, interpret
+from m5phet.interpret import STATUS_OK, build as build_interpreter, interpret
 from m5phet.orchestrate import narrate, route
+from m5phet.outputs import select as select_output
 from m5phet.questions import catalog as question_catalog, run_task
 from m5phet.runtime import Registry, request_digest, run
 
@@ -106,9 +107,10 @@ class Engine:
         self.remote = classification.get("worker") or self.environ.get("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
         self.remote_command = classification.get("command") or self.environ.get("M5PHET_CHAT_LAYA_COMMAND", "")
         self.remote_caps = None
-        interpreter = self.configuration.interpreter
-        self.interpreter = Interpreter(command=interpreter.get("command"), model=interpreter.get("model"),
-                                       environ=self.environ)
+        # WP03: which interpreter implementation reads a sentence is a configuration choice, not an import. The
+        # `interpreter` block goes to the plugin unchanged; with no JSON file it is empty and the `command` plugin
+        # reads M5PHET_INTERPRETER_COMMAND exactly as before.
+        self.interpreter = build_interpreter(self.configuration.interpreter, environ=self.environ)
         if self.remote:
             self.remote_capabilities()
 
@@ -178,7 +180,19 @@ class Engine:
         payload = data[0] if len(data) == 1 else (data if data else None)
         return route(prompt, payload, self.registry, interpreter=self.interpreter)
 
-    def execute_task(self, prompt, task, attachments, language="es"):
+    def output(self, area):
+        """The procedure configured for this area: `areas.<area>.output.plugin`, `default` when nothing is bound."""
+        return select_output(area, self.configuration.output(area) if area else {})
+
+    def output_headers(self):
+        """What each area RETURNS, per its configured procedure: output kind, unit fields, statuses, refusal codes.
+
+        This is the half of the output component that does not depend on the screen: an integrator reads it and knows
+        the shape of an answer before asking anything."""
+        return {area: {"plugin": self.output(area).name, **self.output(area).header(area)}
+                for area in configuration_module.AREAS}
+
+    def execute_task(self, prompt, task, attachments, language=None):
         """Run an envelope the person accepted (or wrote), then narrate its answers without touching a number."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
@@ -192,7 +206,12 @@ class Engine:
                 raise ValueError("Worker result is not bound to this envelope or declares execution authority")
         else:
             response = run_task(task, self.registry, data=payload)
-        narration = narrate(prompt, response, interpreter=self.interpreter, language=language)
+        # WP04: which procedure renders the answers is the area's configuration, not this method's business. The
+        # plugin's text is checked against the answers exactly as a model's narration is, in `narrate`.
+        area = task.get("area") if isinstance(task, dict) else None
+        language = language or (self.configuration.output(area).get("language") if area else None) or "es"
+        narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area,
+                            plugin=self.output(area))
         return {"task": task, "response": response, "narration": narration, "profile": "LOCAL_UNGOVERNED",
                 "execution_authorized": False}
 
