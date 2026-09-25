@@ -192,7 +192,7 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None)
     @app.get("/api/tasks/catalog")
     def task_catalog():
         return {"areas": engine.task_catalog(), "interpreter": engine.interpreter.identity(),
-                "execution_authorized": False}
+                "outputs": engine.output_headers(), "execution_authorized": False}
 
     @app.post("/api/chats/{cid}/tasks/propose")
     def propose(cid: str, body: ProposeTask):

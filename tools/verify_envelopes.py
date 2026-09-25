@@ -151,7 +151,12 @@ def main(argv=None):
         narration = detail.get("narration") or {}
         report["envelopes"].append({"area": spec["area"], "message_status": message.get("status"),
                                     "questions": rows, "narration_source": narration.get("source"),
+                                    "narration_plugin": narration.get("output_plugin"),
                                     "narration": (message.get("content") or "")[:300],
+                                    # the answers verbatim, so `tools/verify_outputs.py` can render THESE -- the ones
+                                    # the engines really returned -- instead of a shape someone typed into a test
+                                    "answers": answers, "answered": response.get("answered"),
+                                    "refused": response.get("refused"),
                                     "execution_authorized": detail.get("execution_authorized")})
     ok_total = 0
     for env in report["envelopes"]:

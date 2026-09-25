@@ -2,11 +2,13 @@
   "$comment": "Copy to ~/.config/m5phet/m5phet.json and edit. It binds, per area, the provider and the core settings its engine needs, plus the interpreter and the surfaces. It replaces nothing: without this file the operator's chat.env is the configuration. Where this file binds a value it wins; everything it does not bind stays as the environment left it. A host is NEVER written here: write $M5PHET_CHAT_LAYA_WORKER and keep the value in your own environment. Unknown keys, unset $VARIABLES and host literals are refused, not ignored.",
   "schema": "m5phet.config.v1",
   "interpreter": {
+    "$comment": "plugin is one of: command (a program called as COMMAND -z PROMPT), ollama (a local server; add \"model\": \"llama3.2:3b\" and leave base_url out for the loopback one), openai_compatible (a remote chat/completions endpoint; it refuses to run without \"consent\": \"cloud_ok\", and reads its bearer token from the variable named in api_key_env, never from this file).",
     "plugin": "command",
     "command": "hermes --ignore-user-config -m deepseek-v4-flash --provider opencode-go",
     "model": "deepseek-v4-flash (OpenCode Go)",
     "timeout_seconds": 90
   },
+  "$comment_output": "Each area's output.plugin names the procedure that writes what the person reads: default (the workbench's lines, then the interpreter's checked sentence) or telegram (one plain-text message, one line per answer, always ending with execution_authorized: false). A plugin cannot introduce a figure: its text is checked against the answers exactly as a model's narration is.",
   "areas": {
     "classification": {
       "provider": "laya_news",

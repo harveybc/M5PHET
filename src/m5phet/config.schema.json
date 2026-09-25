@@ -7,6 +7,7 @@
   "properties": {
     "schema": {"const": "m5phet.config.v1"},
     "$comment": {"type": "string", "maxLength": 4000},
+    "$comment_output": {"type": "string", "maxLength": 4000},
     "interpreter": {
       "type": "object",
       "additionalProperties": false,

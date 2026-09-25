@@ -23,6 +23,7 @@ import json
 import re
 
 from .interpret import build as build_interpreter
+from .outputs import NOT_NARRATED, default as default_output, narratable, response_view, select as select_output
 from .questions import AREAS, TaskError, catalog as question_catalog, validate_task
 
 MAX_PROMPT = 4000
@@ -300,13 +301,8 @@ def narration_problems(text, answers):
     return problems
 
 
-NOT_NARRATED = ("sdk_answer", "provenance")
-
-
-def narratable(answers):
-    """The answers as the person should read them: every field except the backend's verbatim object and the digests."""
-    return {name: ({k: v for k, v in answer.items() if k not in NOT_NARRATED} if isinstance(answer, dict) else answer)
-            for name, answer in answers.items()}
+# `NOT_NARRATED` and `narratable` moved to `m5phet.outputs` at WP04, where every procedure and the guard read the same
+# view of an answer; they stay importable from here because that is where the rest of the package already asks.
 
 
 def narration_is_faithful(text, answers):
@@ -316,32 +312,48 @@ def narration_is_faithful(text, answers):
 
 
 def render(response):
-    """A deterministic sentence per answer. Plain, and always faithful by construction."""
-    lines = []
-    for name, answer in (response.get("answers") or {}).items():
-        if answer.get("status") == "REFUSED":
-            lines.append(f"{name}: not answered -- {answer.get('why')}")
-            continue
-        fields = {k: v for k, v in answer.items() if k not in ("type", "status", "execution_authorized", "sdk_answer")}
-        summary = ", ".join(f"{k}={_short(v)}" for k, v in list(fields.items())[:6])
-        lines.append(f"{name} ({answer.get('type')}): {summary}")
-    lines.append(f"{response.get('answered', 0)} answered, {response.get('refused', 0)} refused; nothing here is an "
-                 f"instruction to act.")
-    return "\n".join(lines)
+    """A deterministic sentence per answer. Plain, and always faithful by construction.
+
+    The rendering itself lives in the `default` output plugin (WP04); this is where the rest of the package reaches
+    it, and it is what the narration guard falls back to when a model -- or a plugin -- says more than the answers do.
+    A value too long to print is cut in a way that never leaves half a number behind."""
+    return default_output.text(response)
 
 
-def _short(value):
-    text = json.dumps(value, ensure_ascii=False, default=str)
-    return text if len(text) <= 80 else text[:77] + "..."
+def narrate(prompt, response, *, interpreter=None, language="es", area=None, plugin=None):
+    """What the person reads: the configured output procedure's text, checked against the answers it was given.
 
+    Two things happen here and both are guarded by the same rule. The area's output plugin (WP04) renders the answers
+    -- the workbench's deterministic lines, a Telegram message, tomorrow something nobody has written yet -- and that
+    text is checked against the answers before anyone sees it, because a plugin can be wrong or hostile exactly as a
+    model can, and neither may introduce a figure. Then, for a procedure that declares `narrates`, the configured
+    interpreter is asked for a sentence about the same answers, and it is kept only if every number in it is one the
+    answers carry.
 
-def narrate(prompt, response, *, interpreter=None, language="es"):
-    """A sentence about the answers, checked against them. Falls back to the deterministic rendering rather than let a
-    number through that the engines did not produce."""
+    Whenever either fails, the deterministic rendering stands. There is no path from "this text is not faithful" to
+    showing it anyway."""
     interpreter = interpreter if interpreter is not None else build_interpreter()
+    plugin = plugin if plugin is not None else select_output(area if area is not None else response.get("area"))
     fallback = render(response)
+    plugin_name = getattr(plugin, "name", type(plugin).__name__)
+    rendered = plugin.render(area if area is not None else response.get("area"), response, language)
+    produced = rendered.get("text") or ""
+    # a plugin is held to the narration guard, not trusted by being installed: the answers as the person reads them,
+    # their names and the envelope's own counts are everything a rendering may state
+    lying = narration_problems(produced, response_view(response))
+    if lying:
+        return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
+                "output_plugin": plugin_name, "table": None, "json": rendered.get("json"),
+                "why": f"the output plugin {plugin_name!r} produced a figure or a claim the answers do not carry; it "
+                       "was discarded: " + "; ".join(lying[:4]),
+                "discarded": produced[:4000] or None}
+    if not getattr(plugin, "narrates", False):
+        return {"text": produced, "source": "PLUGIN", "faithful": True, "interpreter": interpreter.identity(),
+                "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json")}
+    fallback = produced or fallback
     if not interpreter.available:
-        return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity()}
+        return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
+                "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json")}
     # The narrator reads what the person is meant to read. `sdk_answer` (the backend's verbatim object, kept for
     # parity checks) and `provenance` (digests) are not that: a raw SDK field named "confidence" was narrated as
     # "confianza 0.3403" once, a number the answers deliberately do not surface. The guard checks the same view.
@@ -356,11 +368,14 @@ def narrate(prompt, response, *, interpreter=None, language="es"):
         text = interpreter._ask(instruction).strip()
     except Exception:                                                   # noqa: BLE001
         return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
+                "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json"),
                 "why": "the interpreter could not be consulted"}
     problems = narration_problems(text, answers) if text else ["the interpreter returned nothing"]
     if not problems:
-        return {"text": text, "source": "INTERPRETER", "faithful": True, "interpreter": interpreter.identity()}
+        return {"text": text, "source": "INTERPRETER", "faithful": True, "interpreter": interpreter.identity(),
+                "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json")}
     return {"text": fallback, "source": "DETERMINISTIC", "faithful": True, "interpreter": interpreter.identity(),
+            "output_plugin": plugin_name, "table": rendered.get("table"), "json": rendered.get("json"),
             "why": "the interpreter's narration introduced a figure or a claim the answers do not carry; it was "
                    "discarded: " + "; ".join(problems[:4]),
             "discarded": text[:4000] if text else None}
