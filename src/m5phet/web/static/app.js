@@ -93,6 +93,9 @@ function renderMessage(m){
       if(Object.values(interp.sources).includes('INTERPRETER')&&interp.interpreter){
         row.append(el('span',interp.interpreter.model||interp.interpreter.command||'intérprete','interp-model'));
       }
+      /* La regla bajo la que vale una elección del modelo, al lado de las fichas: quien lee la respuesta ve el
+         umbral y de qué medición sale, o que no hay ninguno. */
+      row.append(abstentionChip(interp.abstention));
       body.append(row);
     }
     const meta=el('div',undefined,'result-meta');
@@ -148,6 +151,22 @@ function datasetLine(dataset){
   }
   return 'Ningún dato adjunto. Si el motor de esta área necesita datos, la ejecución se rechaza: abra un ejemplo, adjunte un archivo con el botón + o nombre un conjunto del data lake.';
 }
+/* La regla de abstención declarada por esta instalación: el umbral y la medición de la que se cita, o que no hay
+   ninguna. Nunca se inventa un número aquí; se muestra el que el catálogo publica y, si la declaración no resuelve,
+   se muestra su rechazo con su nombre. */
+function abstentionChip(rule){
+  const declared=rule||(catalog&&catalog.abstention&&catalog.abstention.interpreter&&catalog.abstention.interpreter.rule);
+  const tip=(node,text)=>{node.title=text;return node;};
+  if(!declared||declared==='NOT_CONFIGURED')
+    return tip(el('span','sin umbral declarado','tag'),'Esta instalación no declara interpreter.min_confidence: una elección del modelo no se compara con ninguna medición.');
+  if(declared.refusal)
+    return tip(el('span',declared.refusal,'tag warn'),declared.why||'');
+  const min=declared.min_confidence!==undefined?declared.min_confidence:declared.threshold,src=declared.source||{};
+  const sha=String(src.report_sha256||declared.report_sha256||'').slice(0,12);
+  return tip(el('span','umbral '+min,'tag ok'),
+             'Una elección del modelo sólo cuenta a partir de '+min+', medido en la etapa '+(src.stage||declared.stage||'?')
+             +' (informe sha256 '+sha+'…, protocolo '+String(src.protocol||'?').slice(0,12)+'…, sello '+String(src.seal||'?').slice(0,12)+'…).');
+}
 function showEnvelope(proposal){
   $('envelope-panel').hidden=false;
   $('envelope').value=JSON.stringify(proposal.task||proposal.proposal||{},null,2);
@@ -171,6 +190,25 @@ let pendingPreview=null;
 $('review-toggle').checked=localStorage.getItem('m5phet-review')!=='0';
 $('review-toggle').onchange=()=>localStorage.setItem('m5phet-review',$('review-toggle').checked?'1':'0');
 function showPreview(preview){
+  /* El intérprete puede NO elegir: o eligió por debajo del umbral medido, o el plugin configurado no informa
+     ninguna confianza y la regla no puede aplicarse. Eso no es un error de la aplicación sino una negativa a
+     elegir, y se muestra como tal: qué parámetro quedó sin resolver y qué valores declara el motor. */
+  if(preview&&preview.status==='REFUSED'){
+    pendingPreview=null;
+    $('envelope-panel').hidden=false;
+    $('envelope-title').textContent='El intérprete no eligió. Nada se ha ejecutado.';
+    $('envelope').value='';$('envelope').readOnly=true;
+    const status=$('envelope-status');status.textContent=preview.refusal||'REFUSED';status.className='tag warn';
+    const list=$('envelope-problems');list.replaceChildren();
+    list.append(el('li',preview.why||'','interp'));
+    for(const [field,values] of Object.entries(preview.declared||{}))
+      list.append(el('li','Escriba el valor usted: '+field+' admite '+JSON.stringify(values),'interp'));
+    const rule=el('div',undefined,'result-interp');
+    rule.append(el('span','Regla declarada:','interp-label'),abstentionChip());
+    list.append(rule);
+    $('envelope-run').textContent='Ejecutar petición';$('envelope-run').disabled=true;
+    return;
+  }
   pendingPreview=preview;
   $('envelope-panel').hidden=false;
   $('envelope-title').textContent='Petición resuelta desde su frase (proveedor · estado · parámetros). Nada se ha ejecutado.';
@@ -184,6 +222,9 @@ function showPreview(preview){
       list.append(el('li',field+' = '+String(value)+(source==='INTERPRETER'?' · elegido por el modelo intérprete ('+(interp.interpreter?.model||interp.interpreter?.command||'')+') entre los valores declarados':' · fijado por sus propias palabras'),'interp'));
     }
   }else list.append(el('li','Ningún parámetro se resolvió por intérprete; la petición se construyó solo desde la configuración del chat y su texto.','interp'));
+  const rule=el('div',undefined,'result-interp');
+  rule.append(el('span','Regla declarada:','interp-label'),abstentionChip(interp&&interp.abstention));
+  list.append(rule);
   list.append(el('li',datasetLine(),'interp'));
   $('envelope-run').textContent='Ejecutar petición';$('envelope-run').disabled=false;
 }

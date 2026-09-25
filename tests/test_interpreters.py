@@ -303,3 +303,76 @@ def test_the_engine_builds_the_plugin_the_json_names(tmp_path, monkeypatch):
 def _empty_registry():
     from m5phet.runtime import Registry
     return Registry()
+
+
+# --- the only plugin that can say how sure the model was ------------------------------------------------------------
+
+def tokenised(text, logprob=-0.01, overrides=None):
+    """`(content, logprobs.content)` for a reply split one CHARACTER per token, so a span is unambiguous in a test.
+
+    A real endpoint's tokens are longer; nothing in `confidences_from_logprobs` depends on their length, only on the
+    tokens concatenating to the content the same reply carried."""
+    overrides = overrides or {}
+    tokens = []
+    for index, character in enumerate(text):
+        tokens.append({"token": character, "logprob": overrides.get(index, logprob)})
+    return text, tokens
+
+
+def test_the_openai_plugin_asks_for_logprobs_and_reports_the_confidence_they_carry(server):
+    import math
+    reply = '{"target": "Global_active_power", "horizon": 60}'
+    content, tokens = tokenised(reply)
+    server.reply = {"choices": [{"message": {"content": content}, "logprobs": {"content": tokens}}]}
+    plugin = OpenAICompatibleInterpreter({"consent": CONSENT, "base_url": server.base_url, "model": "m",
+                                          "api_key_env": "K"}, environ={"K": "secret"})
+    assert plugin.reports_confidence is True and plugin.identity()["reports_confidence"] is True
+    proposed, confidences = plugin.propose_with_confidence("predict household power one hour ahead", FORECAST)
+    assert server.seen["body"]["logprobs"] is True
+    assert proposed == {"target": "Global_active_power", "horizon": 60}
+    # exactly the endpoint's own number: exp(sum of the logprobs of the tokens spelling the value), nothing else
+    assert confidences["target"] == pytest.approx(math.exp(-0.01 * len('"Global_active_power"')))
+    assert confidences["horizon"] == pytest.approx(math.exp(-0.01 * len("60")))
+
+
+def test_a_value_the_model_was_unsure_of_carries_the_lower_confidence(server):
+    reply = '{"target": "Global_active_power", "horizon": 60}'
+    # the two characters of the horizon are the reply's last two before the closing brace
+    content, tokens = tokenised(reply, overrides={reply.index("60"): -2.0, reply.index("60") + 1: -1.5})
+    server.reply = {"choices": [{"message": {"content": content}, "logprobs": {"content": tokens}}]}
+    plugin = OpenAICompatibleInterpreter({"consent": CONSENT, "base_url": server.base_url, "model": "m",
+                                          "api_key_env": "K"}, environ={"K": "secret"})
+    _proposed, confidences = plugin.propose_with_confidence("q", FORECAST)
+    assert confidences["horizon"] < 0.1 < confidences["target"]
+
+
+def test_an_endpoint_that_returns_no_logprobs_reports_nothing_rather_than_a_one(server):
+    """The whole point: a confidence nobody measured is never manufactured to satisfy a threshold somebody did."""
+    server.reply = {"choices": [{"message": {"content": '{"target": "Global_active_power", "horizon": 60}'}}]}
+    plugin = OpenAICompatibleInterpreter({"consent": CONSENT, "base_url": server.base_url, "model": "m",
+                                          "api_key_env": "K"}, environ={"K": "secret"})
+    _proposed, confidences = plugin.propose_with_confidence("q", FORECAST)
+    assert confidences is None
+
+
+def test_an_endpoint_configured_without_logprobs_declares_that_it_reports_none(server):
+    plugin = OpenAICompatibleInterpreter({"consent": CONSENT, "base_url": server.base_url, "model": "m",
+                                          "api_key_env": "K", "logprobs": False}, environ={"K": "secret"})
+    assert plugin.reports_confidence is False
+    assert "logprobs" not in plugin.body("q")
+
+
+def test_the_plain_ask_of_the_openai_plugin_still_returns_the_text_it_always_did(server):
+    server.reply = {"choices": [{"message": {"content": "  a sentence about the answers  "}}]}
+    plugin = OpenAICompatibleInterpreter({"consent": CONSENT, "base_url": server.base_url, "model": "m",
+                                          "api_key_env": "K"}, environ={"K": "secret"})
+    assert plugin._ask("narrate this") == "a sentence about the answers"
+
+
+def test_the_two_local_plugins_report_no_confidence_and_say_so(tmp_path, server):
+    path, _log = fake_command(tmp_path, '{"target": "Global_active_power"}')
+    command = CommandInterpreter({"command": f"{path}"}, environ={})
+    assert command.reports_confidence is False and command.identity()["reports_confidence"] is False
+    assert command.propose_with_confidence("q", FORECAST) == ({"target": "Global_active_power"}, None)
+    ollama = OllamaInterpreter({"model": "llama3.2:3b", "base_url": server.base_url}, environ={})
+    assert ollama.reports_confidence is False and ollama.identity()["reports_confidence"] is False

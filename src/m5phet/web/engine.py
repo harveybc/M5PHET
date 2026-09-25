@@ -10,7 +10,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from m5phet import config as configuration_module, datasets as dataset_catalog
-from m5phet.interpret import STATUS_OK, build as build_interpreter, interpret
+from m5phet.interpret import ABSTENTION_STATUSES, STATUS_OK, build as build_interpreter, interpret
 from m5phet.orchestrate import narrate, route
 from m5phet.outputs import select as select_output
 from m5phet.questions import catalog as question_catalog, run_task
@@ -170,7 +170,13 @@ class Engine:
                                           "options": [["euro_area", "Euro area"], ["united_states", "United States"], ["other", "Another economy"]]}})
         return {"providers": providers, "examples": examples, "discovery": self.discovery,
                 "defaults": DEFAULT_CONFIG, "profile": "LOCAL_UNGOVERNED", "execution_authorized": False,
-                "interpreter": self.interpreter.identity(),
+                # the interpreter's identity AND how often it was measured to read a sentence correctly -- or
+                # NOT_MEASURED, which is what every M5PHET report said about it until 2026-09-25 without saying so
+                "interpreter": {**self.interpreter.identity(),
+                                "reliability": self.interpreter_reliability()},
+                # the rule a language model's choices are held to here, published so that anything reading this
+                # catalog -- the web, an MCP client, a Telegram skill -- can see it before it trusts an answer
+                "abstention": self.abstention(),
                 # which of the two configurations is in force: the JSON file, or the operator's environment
                 "config_source": self.config_source,
                 "config": {"areas": {area: {"provider": self.configuration.provider(area),
@@ -178,9 +184,39 @@ class Engine:
                                      for area in configuration_module.AREAS if self.configuration.provider(area)},
                            "surfaces": self.configuration.surfaces}}
 
+    def interpreter_reliability(self):
+        """`interpreter.reliability` as the catalog publishes it: a cited measurement of THIS interpreter, or
+        `NOT_MEASURED`. Declared by `interpreter.reliability_report`; see `m5phet.interpret.declared_reliability`."""
+        from m5phet import interpret as interpret_module
+        return interpret_module.declared_reliability(self.configuration, self.environ, interpreter=self.interpreter)
+
+    def abstention(self):
+        """The declared rule, for the interpreter and for every area's chooser -- or `NOT_CONFIGURED`.
+
+        Two consumers, one declaration. The `chooser` half is what `m5phet.decide` applies when Laya picks an area's
+        configuration; the `interpreter` half is the same number applied to the interpreter's own choice of a
+        parameter, and it carries whether the configured plugin can be held to it at all. A plugin that reports no
+        confidence is published as `CONFIDENCE_NOT_REPORTED`: the rule exists, it cannot be applied here, and neither
+        the catalog nor the sentence path pretends otherwise."""
+        from m5phet import decide, interpret as interpret_module
+        rule = decide.declared_rule(self.configuration, self.environ)
+        identity = self.interpreter.identity()
+        reports = bool(identity.get("reports_confidence"))
+        interpreter_view = {"rule": rule,
+                            "confidence": (interpret_module.CONFIDENCE_REPORTED if reports
+                                           else interpret_module.CONFIDENCE_NOT_REPORTED),
+                            "plugin": identity.get("plugin")}
+        if not reports:
+            interpreter_view["why"] = (f"the {identity.get('plugin')!r} interpreter returns text; it reports no "
+                                       f"confidence for the values it chooses among the declared ones. With a "
+                                       f"threshold declared, a sentence whose parameters only a model could settle is "
+                                       f"refused as CONFIDENCE_NOT_REPORTED rather than passed as if the rule had run")
+        return {"interpreter": interpreter_view,
+                "areas": {area: rule for area in configuration_module.AREAS}}
+
     # --- the question envelope: one shape for every area ----------------------------------------------------------------
     def task_catalog(self):
-        return question_catalog(self.registry)
+        return question_catalog(self.registry, self.configuration)
 
     def propose_task(self, prompt, attachments):
         """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first.
@@ -332,7 +368,21 @@ class Engine:
             if callable(slots):
                 declared = slots()
                 if declared:
-                    resolution = interpret(prompt, declared, interpreter=self.interpreter)
+                    resolution = interpret(prompt, declared, interpreter=self.interpreter,
+                                           configuration=self.configuration, environ=self.environ)
+                    if resolution["status"] in ABSTENTION_STATUSES:
+                        # not an error: a refusal to CHOOSE. The person is shown which parameter went unresolved and
+                        # what the declared values are, in the same review window the resolved request would have
+                        # used, so the next step is theirs (name the value) and not a stack trace.
+                        if dry_run:
+                            return {"request": None, "interpretation": resolution, "config": config,
+                                    "status": "REFUSED", "refusal": resolution["status"],
+                                    "unresolved": resolution.get("unresolved") or [],
+                                    "declared": resolution.get("declared") or {},
+                                    "why": resolution["why"], "profile": "LOCAL_UNGOVERNED",
+                                    "execution_authorized": False, "ran": False,
+                                    "reading": "the interpreter did not choose; nothing was resolved and nothing ran"}
+                        raise ValueError(f"{resolution['status']}: {resolution['why']}")
                     if resolution["status"] != STATUS_OK:
                         raise ValueError(resolution["why"])
                     interpretation = resolution

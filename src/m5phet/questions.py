@@ -190,15 +190,23 @@ def run_task(payload, registry, *, data=None):
     return response
 
 
-def catalog(registry):
+def catalog(registry, configuration=None):
     """What can be asked, per area: the provider and the question types it declares. This is what an orchestrator is given
-    to choose from; it is also exactly what a person may write by hand."""
+    to choose from; it is also exactly what a person may write by hand.
+
+    Each area also carries its `chooser`: the abstention rule that applies when a language model picks this area's
+    configuration -- the threshold, the report it is cited from, and the bins at or above it -- or `NOT_CONFIGURED`.
+    It is published for the same reason the question types are: a consumer, the web or an MCP client or a Telegram
+    skill, must be able to see the rule an answer was produced under BEFORE it decides how much to trust the answer.
+    A declared rule that does not resolve is published as its refusal, not hidden."""
+    from . import decide                      # `decide` sits on top of this module; the rule is reached at call time
+    chooser = decide.declared_rule(configuration)
     out = {}
     for area in AREAS:
         try:
             provider = provider_for(registry, area)
         except TaskError as error:
-            out[area] = {"provider": None, "error": str(error), "question_types": {}}
+            out[area] = {"provider": None, "error": str(error), "question_types": {}, "chooser": chooser}
             continue
         out[area] = {"provider": provider.name if provider else None,
                      "question_types": declared_types(provider) if provider else {},
@@ -212,7 +220,9 @@ def catalog(registry):
                      # that guesses this refuses the wrong things; a framework that ignores it lets a person run an
                      # envelope the engine can only refuse (2026-09-24: a household forecast ran with nothing
                      # attached and came back PROVIDER_ERROR after ten seconds).
-                     "data_requirement": declared_data_requirement(provider) if provider else UNKNOWN_DATA_REQUIREMENT}
+                     "data_requirement": declared_data_requirement(provider) if provider else UNKNOWN_DATA_REQUIREMENT,
+                     # the rule a model's choice about THIS area is held to, so nobody has to ask the file
+                     "chooser": copy.deepcopy(chooser) if isinstance(chooser, dict) else chooser}
     return out
 
 
