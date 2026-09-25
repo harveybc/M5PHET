@@ -126,6 +126,16 @@ ABSTENTION_SOURCE_UNREADABLE = "ABSTENTION_SOURCE_UNREADABLE"
 THRESHOLD_NOT_MEASURED = "THRESHOLD_NOT_MEASURED"
 #: an abstention is not a choice, so it never becomes a training label
 ABSTENTION_HAS_NO_OUTCOME = "ABSTENTION_HAS_NO_OUTCOME"
+#: a report was cited and no threshold declared with it. It gates nothing, and a rule that gates nothing while looking
+#: like one is worse than none: an operator reading the file would believe the choices are being checked
+ABSTENTION_SOURCE_WITHOUT_THRESHOLD = "ABSTENTION_SOURCE_WITHOUT_THRESHOLD"
+#: what the catalog says when this installation declares no rule at all. Not a refusal -- a fact about the file
+NOT_CONFIGURED = "NOT_CONFIGURED"
+
+#: the environment variables the rule is read from when there is no JSON file. `m5phet.config` exports the JSON keys
+#: into exactly these, so the two ways of configuring say the same thing and neither is privileged.
+MIN_CONFIDENCE_VARIABLE = "M5PHET_INTERPRETER_MIN_CONFIDENCE"
+ABSTENTION_SOURCE_VARIABLE = "M5PHET_INTERPRETER_ABSTENTION_SOURCE"
 
 # --- WP23: the outcome, and the refusals that keep it honest ------------------------------------------------------------
 #: the schema of the record that links one decision to one closure-table row
@@ -245,6 +255,80 @@ def abstention_threshold(min_confidence, abstention_source):
             "bins_at_or_above": above}, None
 
 
+def configured_abstention(configuration=None, environ=None):
+    """`(min_confidence, abstention_source)` as this INSTALLATION declares them, or `(None, None)`.
+
+    The rule stopped being an argument a caller might remember to pass on 2026-09-25, because that is what it had been:
+    `ask(..., min_confidence=0.8)` gated the one study whose author had read WP09, and every other call -- the dataset
+    chooser, the pipeline's four questions, the trading decisions -- asked the same checkpoint with no gate at all. A
+    measurement that only applies where somebody remembered it is not a rule about the model, it is a habit.
+
+    So it is read from `interpreter.min_confidence` / `interpreter.abstention_source` in `~/.config/m5phet/m5phet.json`,
+    falling back to the variables `m5phet.config` exports them into. Nothing is validated here; whatever is declared is
+    handed to `abstention_threshold`, which refuses an unmeasured number exactly as it refuses one a caller invented.
+    Configuration is where a threshold is DECLARED, never where it is excused."""
+    env = os.environ if environ is None else environ
+    settings = {}
+    if configuration is not None:
+        block = getattr(configuration, "interpreter", configuration)     # a `Configuration`, or the block itself
+        settings = dict(block or {})
+    else:
+        from . import config as configuration_module
+        try:
+            settings = dict(configuration_module.load(environ=env).interpreter)
+        except configuration_module.ConfigError:
+            settings = {}                   # a file that cannot be read is refused where it is loaded, not silently here
+    minimum = settings.get("min_confidence")
+    if minimum is None and MIN_CONFIDENCE_VARIABLE in env:
+        raw = env[MIN_CONFIDENCE_VARIABLE].strip()
+        try:
+            minimum = float(raw)
+        except ValueError:
+            minimum = raw                   # not a number: `abstention_threshold` names it UNCITED_THRESHOLD
+    source = settings.get("abstention_source") or env.get(ABSTENTION_SOURCE_VARIABLE) or None
+    return minimum, source
+
+
+def declared_threshold(configuration=None, environ=None):
+    """`(citation, unresolved)` for the configured rule, `(None, None)` when this installation declares none."""
+    minimum, source = configured_abstention(configuration, environ)
+    if minimum is None and source is None:
+        return None, None
+    if minimum is None:
+        return None, (ABSTENTION_SOURCE_WITHOUT_THRESHOLD,
+                      f"{source} is cited as the measurement behind an abstention threshold and no threshold is "
+                      f"declared (`interpreter.min_confidence`); a citation with no number gates nothing, and a "
+                      f"configuration that looks like a rule and is not one is worse than no rule")
+    return abstention_threshold(minimum, source)
+
+
+def citation_view(citation):
+    """What a consumer is told about a resolved rule: the number and where it was measured. Never the local path.
+
+    `/api/catalog` is read by the web, by an MCP client and by a Telegram skill, so it carries the report's digest,
+    stage, protocol and seal -- enough to identify the measurement and recompute the threshold from it -- and not the
+    place on this machine where the file happens to sit."""
+    return {"min_confidence": citation["min_confidence"],
+            "source": {"report_sha256": citation["sha256"], "stage": citation["stage"],
+                       "protocol": citation["protocol_digest"], "seal": citation["corpus_seal"],
+                       "bins_at_or_above": copy.deepcopy(citation["bins_at_or_above"]),
+                       "measured_rows_at_or_above": citation["measured_rows_at_or_above"],
+                       "measured_accuracy_at_or_above": citation["measured_accuracy_at_or_above"]}}
+
+
+def declared_rule(configuration=None, environ=None):
+    """The catalog's view of this installation's rule: `NOT_CONFIGURED`, the citation, or the refusal it resolves to.
+
+    A refusal is published rather than swallowed, because an operator who wrote a threshold the cited report cannot see
+    has a machine that refuses every choice, and the catalog is where he finds out why without reading a traceback."""
+    citation, unresolved = declared_threshold(configuration, environ)
+    if unresolved is not None:
+        return {"refusal": unresolved[0], "why": unresolved[1]}
+    if citation is None:
+        return NOT_CONFIGURED
+    return citation_view(citation)
+
+
 def _abstains(probabilities, citation):
     """`(top_option, top_probability)` when the answer's argmax is below the cited threshold, else `None`.
 
@@ -336,7 +420,7 @@ def _scalar(value, decimals):
 # --- asking ------------------------------------------------------------------------------------------------------------
 
 def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_dir=None, min_confidence=None,
-        abstention_source=None):
+        abstention_source=None, configuration=None):
     """Ask Laya to choose among DECLARED options for one state, and return one entry per question.
 
     `engine_or_registry` is either an `m5phet.web.engine.Engine` -- preferred, because a classification envelope then
@@ -358,6 +442,14 @@ def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_d
     with `abstention_source`, the path to the report that MEASURED this checkpoint at this confidence; a threshold
     with no citation refuses every question as `UNCITED_THRESHOLD` and nothing is asked. See `abstention_threshold`.
 
+    **A caller who passes neither gets the INSTALLATION's rule**, read from `interpreter.min_confidence` and
+    `interpreter.abstention_source` (`configured_abstention`). That is the whole point of putting it in configuration:
+    the gate applies to the dataset chooser, the pipeline's questions and anything written next, not only where an
+    author happened to remember it. Configuration declares the rule; it does not excuse it -- a threshold with no
+    citation refuses from the file exactly as it refuses from an argument. Pass `configuration` to override what is
+    read (a `Configuration`, or the `interpreter` block itself); an installation that declares nothing gates nothing,
+    which is how every caller behaved before.
+
     Returns `{name: entry}`. An entry is either `{"status": "OK", "decision": <record>, "record_path": str|None}` or a
     typed refusal (`{"status": "REFUSED", "refusal": ..., "why": ...}`). A refusal the provider itself raised --
     `TOKEN_BUDGET_EXCEEDED` among them -- is passed through verbatim, so its name survives this layer. An abstention
@@ -371,7 +463,10 @@ def ask(engine_or_registry, state_text, questions, *, as_of=None, kind, record_d
         raise DecisionError("an `abstention_source` with no `min_confidence` gates nothing; pass the threshold it "
                             "was cited for, or neither")
     stamped = as_of if as_of is not None else datetime.now(timezone.utc).isoformat()
-    citation, unresolved = abstention_threshold(min_confidence, abstention_source)
+    if min_confidence is None and abstention_source is None:
+        citation, unresolved = declared_threshold(configuration)
+    else:
+        citation, unresolved = abstention_threshold(min_confidence, abstention_source)
 
     if unresolved is not None:
         # nothing is asked: a gate nobody measured would decide which answers count, and that decision would be the

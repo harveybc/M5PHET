@@ -65,6 +65,28 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 32768
+        },
+        "min_confidence": {
+          "$comment": "The abstention threshold applied to a language model's own choices (WP09/WP20). It is NOT a preference: it is cited from the report named in abstention_source, must be one of that report's reliability bin edges, and a threshold with no source refuses every question as UNCITED_THRESHOLD.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "abstention_source": {
+          "$comment": "Path to the m5phet-evaluation-report/1 document that MEASURED this checkpoint's confidence against how often it is right. Without it min_confidence is a number nobody measured and is refused.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "logprobs": {
+          "$comment": "openai_compatible only: ask the endpoint for a logprob per token, which is the only way any shipped plugin can report how sure the model was of a value it chose. Default true; false declares that this endpoint reports no confidence, and the catalog then says CONFIDENCE_NOT_REPORTED for it.",
+          "type": "boolean"
+        },
+        "reliability_report": {
+          "$comment": "Path to the m5phet_interpreter_reliability.v1 report written by tools/measure_interpreter.py for THIS interpreter. /api/catalog publishes its rate, counts and protocol as interpreter.reliability; with nothing declared it says NOT_MEASURED, and a report measured on another plugin or model is refused rather than published beside this one's identity.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         }
       }
     },

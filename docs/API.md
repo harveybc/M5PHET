@@ -112,6 +112,54 @@ deliberately **not** published. `execution_authorized` is `false`.
 curl -s $BASE/api/catalog "${auth[@]}" | jq '{config_source, providers: [.providers[].name], examples: [.examples[].title]}'
 ```
 
+`interpreter` carries the plugin, the model, whether it can report a confidence — and **`reliability`**: how often
+that interpreter was measured to resolve a sentence into the right declared values, with its protocol and its n, or
+`"NOT_MEASURED"`.
+
+```json
+{"interpreter": {"plugin": "command", "model": "...", "reports_confidence": false,
+                 "reliability": {"reliability": 0.8333, "reliability_when_it_chose": 0.9434,
+                                 "n": {"sentences": 12, "runs": 60, "runs_per_sentence": 5},
+                                 "verdicts": {"CORRECT": 50, "WRONG_VALUE": 3, "DECLINED": 7,
+                                              "OUTSIDE_DECLARED": 0, "INTERPRETER_FAILED": 0},
+                                 "protocol": "...", "corpus": "...", "measured_at": "...",
+                                 "measured_interpreter": {...}, "report_sha256": "..."}}}
+```
+
+It is declared by `interpreter.reliability_report` (or `M5PHET_INTERPRETER_RELIABILITY_REPORT`), naming a
+`m5phet_interpreter_reliability.v1` document written by `tools/measure_interpreter.py`. A report that measured a
+different plugin or model is refused (`RELIABILITY_MEASURED_ON_ANOTHER_INTERPRETER`) rather than published beside
+this interpreter's identity; a report carrying only the product path is refused too, because the deterministic pass
+resolving a sentence is not evidence about the model.
+
+It also answers **`abstention`** — the rule a language model's choices are held to on this installation, so a consumer
+can see it before it trusts an answer:
+
+```json
+{"abstention": {
+   "interpreter": {"rule": {"min_confidence": 0.8,
+                            "source": {"report_sha256": "...", "stage": "laya_zero_shot",
+                                       "protocol": "...", "seal": "...",
+                                       "bins_at_or_above": [{"bin": [0.8, 0.9], "count": 24, "accuracy": 0.708}, ...],
+                                       "measured_rows_at_or_above": 55, "measured_accuracy_at_or_above": 0.8727}},
+                  "confidence": "CONFIDENCE_NOT_REPORTED", "plugin": "command", "why": "..."},
+   "areas": {"classification": {...}, "forecasting": {...}}}}
+```
+
+`rule` is `"NOT_CONFIGURED"` when the installation declares none (`interpreter.min_confidence` /
+`interpreter.abstention_source` in `m5phet.json`, or `M5PHET_INTERPRETER_MIN_CONFIDENCE` /
+`M5PHET_INTERPRETER_ABSTENTION_SOURCE`), and `{"refusal": "UNCITED_THRESHOLD" | "THRESHOLD_NOT_MEASURED" |
+"ABSTENTION_SOURCE_UNREADABLE" | "ABSTENTION_SOURCE_WITHOUT_THRESHOLD", "why": "..."}` when a declaration does not
+resolve against the report it cites. A threshold with no citation is refused, not applied: the number has to come from
+a measurement of this checkpoint, and `min_confidence` must be one of the cited report's reliability bin edges. The
+local path of the report is **not** published; its digest, stage, protocol and seal are.
+
+`confidence` says whether the configured interpreter can be held to the rule at all. `command` and `ollama` return
+text and report no probability, so they are `CONFIDENCE_NOT_REPORTED`; `openai_compatible` reads the endpoint's
+logprobs and is `CONFIDENCE_REPORTED`. With a rule declared and a plugin that reports nothing, a sentence whose
+parameters only a model could settle is **refused** (`CONFIDENCE_NOT_REPORTED`) rather than resolved as though the
+gate had run.
+
 ### `GET /api/tasks/catalog` — what can be asked, per area
 
 ```json
@@ -125,7 +173,9 @@ curl -s $BASE/api/catalog "${auth[@]}" | jq '{config_source, providers: [.provid
 ```
 
 `parameters` are the values the fitted engine actually has: a column name from your table is **not** a substitute for
-one. `outputs` is the output header — read it and you know the shape of an answer before asking anything.
+one. `outputs` is the output header — read it and you know the shape of an answer before asking anything. Each area
+also carries `chooser`: the same abstention rule as `/api/catalog`'s `abstention`, in the place a router reads, or
+`"NOT_CONFIGURED"`.
 
 ```bash
 curl -s $BASE/api/tasks/catalog "${auth[@]}" | jq '.areas | map_values(.question_types | keys)'
@@ -204,6 +254,12 @@ FID=$(curl -s $BASE/api/chats/$CID/files "${auth[@]}" -F 'file=@bars.csv' | jq -
 
 Body `{"prompt": "...", "file_ids": ["..."]}`. Answers the typed request **as it would run**, which words or which
 interpreter resolved each field, the settings used, and `ran: false`. Nothing executes and nothing is recorded.
+
+When an abstention rule is declared and the interpreter did not choose, this endpoint answers a **refusal to choose**
+rather than an error: `{"status": "REFUSED", "refusal": "LOW_CONFIDENCE_ABSTAINED" | "CONFIDENCE_NOT_REPORTED",
+"request": null, "ran": false, "unresolved": ["target"], "declared": {"target": [...]}, "why": "..."}` — which
+parameter went unresolved, and what the engine's declared values for it are, so the person can name one. Sending the
+same sentence to run it refuses by the same name.
 
 ```bash
 curl -s $BASE/api/chats/$CID/preview "${auth[@]}" -H 'Content-Type: application/json' \

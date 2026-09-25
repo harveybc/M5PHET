@@ -52,9 +52,14 @@ CORE_ENVIRONMENT = {
     "causal": {"studies_dir": "CAUSAL_INFERENCE_STATE_DIR", "state_refs": "CAUSAL_INFERENCE_STATE_REFS"},
 }
 
-#: the interpreter's own variables, which `m5phet.interpret.Interpreter` reads
+#: the interpreter's own variables, which `m5phet.interpret.Interpreter` reads. The last two are the abstention rule:
+#: they are exported like the rest because the environment is a valid configuration here, so an operator who never
+#: writes a JSON file can still declare the threshold and the report it is cited from.
 INTERPRETER_ENVIRONMENT = {"command": "M5PHET_INTERPRETER_COMMAND", "model": "M5PHET_INTERPRETER_MODEL",
-                           "timeout_seconds": "M5PHET_INTERPRETER_TIMEOUT"}
+                           "timeout_seconds": "M5PHET_INTERPRETER_TIMEOUT",
+                           "min_confidence": "M5PHET_INTERPRETER_MIN_CONFIDENCE",
+                           "abstention_source": "M5PHET_INTERPRETER_ABSTENTION_SOURCE",
+                           "reliability_report": "M5PHET_INTERPRETER_RELIABILITY_REPORT"}
 
 _VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 _IPV4 = re.compile(r"(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![\d.])")
