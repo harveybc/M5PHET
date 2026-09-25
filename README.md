@@ -2,7 +2,7 @@
 
 # M5PHET
 
-Typed machine-learning framework. M5PHET gives five task families —
+System 1 Typed machine-learning framework. M5PHET gives five task families —
 classification, forecasting, representation, reinforcement learning and causal
 inference — one request/answer contract, so a workflow can ask a question in
 ordinary words, see the typed request it resolved into, run it against an
