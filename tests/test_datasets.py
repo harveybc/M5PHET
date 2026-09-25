@@ -318,7 +318,82 @@ def test_a_fitted_experiment_s_panel_is_described_counted_and_refused_by_name(tm
     assert stored["scale"] == "FITTED_EXPERIMENT_PANEL" and stored["rows"] == 50400
     with pytest.raises(datasets.RowsNotUsable) as raised:
         datasets.load_rows(stored)
-    assert datasets.SCALE_REFUSAL in str(raised.value) and "window_from_rows" in str(raised.value)
+    assert datasets.SCALE_REFUSAL in str(raised.value) and "declares no scaler" in str(raised.value)
+
+
+def standardized_resource(tmp_path, name="panel_v1", columns=None, seed=7, dtype="float64"):
+    """A foundation-shaped resource whose panel is standardized with the scaler its own manifest declares."""
+    numpy = pytest.importorskip("numpy")
+    columns = columns or ["Voltage", "Global_intensity", "Global_active_power"]
+    generator = numpy.random.default_rng(seed)
+    raw = generator.normal(loc=[241.0, 4.0, 0.93], scale=[2.2, 3.8, 0.91], size=(80, len(columns)))
+    mean, sd = raw.mean(0), raw.std(0)
+    folder = write_resource(tmp_path, name, {"input_columns": columns, "target_channel": len(columns) - 1,
+                                             "window": 4, "horizon": 4,
+                                             "scaler": {"mean": mean.tolist(), "sd": sd.tolist(),
+                                                        "fitted_on": "train windows only"}})
+    numpy.savez(folder / "DATA.npz", Xs=((raw - mean) / sd).astype(dtype), Y=raw[:, -1].astype("float64"))
+    return datasets.entry(datasets.build_catalog([tmp_path]), name), raw, columns
+
+
+def test_a_panel_standardized_by_its_own_declared_scaler_is_inverted_back_to_original_units(tmp_path):
+    """WP16 takes RAW rows and applies the bundle's own scaler. A panel stored already standardized, with the very
+    scaler that standardized it declared in its manifest, is therefore inverted here -- exactly, not approximately."""
+    stored, raw, columns = standardized_resource(tmp_path)
+    assert stored["scale"] == "STANDARDIZED_BY_DECLARED_SCALER"
+    rows = datasets.load_rows(stored)
+    assert len(rows) == len(raw) and list(rows[0]) == columns
+    worst = max(abs(rows[i][name] - raw[i][j])
+                for i in range(len(raw)) for j, name in enumerate(columns))
+    assert worst < 1e-12, f"the round trip must be exact; the worst column differs by {worst}"
+
+
+def test_a_panel_stored_as_float32_round_trips_to_the_precision_float32_kept(tmp_path):
+    """The real panels are float32, so the inverse recovers what the file HOLDS, not more. The arithmetic is exact
+    in float64; what it cannot restore is the precision the experiment discarded when it stored the panel."""
+    pytest.importorskip("numpy")
+    stored, raw, columns = standardized_resource(tmp_path, name="panel32_v1", dtype="float32")
+    rows = datasets.load_rows(stored)
+    worst = max(abs(rows[i][name] - raw[i][j]) / max(abs(raw[i][j]), 1.0)
+                for i in range(len(raw)) for j, name in enumerate(columns))
+    assert worst < 1e-6, f"float32 storage allows ~1e-7 relative; this is {worst}"
+
+
+def test_the_receipt_says_where_the_rows_came_from_and_which_column_the_target_is(tmp_path):
+    stored, _raw, columns = standardized_resource(tmp_path)
+    receipt = datasets.rows_receipt(stored)
+    assert receipt["rows_origin"] == "inverse_standardized_from_manifest_scaler"
+    assert len(receipt["scaler_sha256"]) == 64
+    assert receipt["target_from"] == "inverted_input_column" and receipt["target_column"] == columns[-1]
+    assert "Y" not in json.dumps(receipt) or "not" in receipt["why"], "the label array is not offered as a column"
+
+
+def test_the_scaler_digest_is_of_the_declared_statistics_and_travels_without_them(tmp_path):
+    stored, _raw, _columns = standardized_resource(tmp_path)
+    assert len(stored["scaler_sha256"]) == 64
+    assert "mean" not in json.dumps(stored), "the catalog carries the digest of the scaler, not its numbers"
+
+
+def test_a_panel_with_no_declared_scaler_still_refuses_because_its_scale_is_unknown(tmp_path):
+    numpy = pytest.importorskip("numpy")
+    folder = write_resource(tmp_path, "unscaled_v1", {"input_columns": ["a", "b"], "target_channel": 1})
+    numpy.savez(folder / "DATA.npz", Xs=numpy.zeros((9, 2), dtype="float32"))
+    stored = datasets.entry(datasets.build_catalog([tmp_path]), "unscaled_v1")
+    assert stored["scale"] == "FITTED_EXPERIMENT_PANEL" and stored["scaler_sha256"] is None
+    with pytest.raises(datasets.RowsNotUsable) as raised:
+        datasets.load_rows(stored)
+    assert datasets.SCALE_REFUSAL in str(raised.value)
+
+
+def test_a_scaler_that_does_not_line_up_with_the_columns_is_not_a_scaler(tmp_path):
+    numpy = pytest.importorskip("numpy")
+    folder = write_resource(tmp_path, "mismatched_v1", {"input_columns": ["a", "b", "c"],
+                                                        "scaler": {"mean": [0.0, 1.0], "sd": [1.0, 1.0]}})
+    numpy.savez(folder / "DATA.npz", Xs=numpy.zeros((9, 3), dtype="float32"))
+    stored = datasets.entry(datasets.build_catalog([tmp_path]), "mismatched_v1")
+    assert stored["scale"] == "FITTED_EXPERIMENT_PANEL", "two statistics cannot invert three columns"
+    with pytest.raises(datasets.RowsNotUsable):
+        datasets.load_rows(stored)
 
 
 def test_a_table_resource_is_read_exactly_as_an_attached_file_is(roots):

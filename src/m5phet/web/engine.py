@@ -231,6 +231,11 @@ class Engine:
             rows, resolution = self.resolved_rows(prompt, task)
             if rows is not None:
                 payload, dataset = rows, dataset_catalog.proposal_view(resolution)
+                # how the inputs came to be what the engine was handed, recorded beside the answer
+                receipt = dataset_catalog.rows_receipt(resolution["dataset"])
+                receipt["rows_sha256"] = dataset_catalog.rows_sha256(rows)
+                receipt["rows_handed_over"] = len(rows)
+                dataset["rows_receipt"] = receipt
         if self.remote and isinstance(task, dict) and task.get("area") == "classification":
             # the real checkpoint lives on the private worker; the envelope goes there on the same contract and comes
             # back bound to the request it answered, exactly as the single-question path does

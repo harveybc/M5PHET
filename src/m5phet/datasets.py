@@ -36,7 +36,9 @@ credential; it refuses instead of downgrading to an ungoverned read, which is th
 
 import argparse
 import csv
+import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -72,11 +74,19 @@ DECISION_INSTRUCTIONS = "Which dataset fits the problem described?"
 DEFAULT_RECORD_DIR = "~/.local/state/m5phet/decisions"
 
 #: a panel a fitted experiment wrote is not a table of readings: `Xs` of `e1_household_dev_pilot_v1` is the slice
-#: ALREADY standardized by the scaler its own manifest declares (mean 0, sd 1), while its labels stay in kW. Handing
-#: it to an engine as raw rows makes that engine scale it a second time, and the first run of this path answered
-#: "21.49 kW" for a household whose declared mean is 0.93 kW. So the rows of such a panel are refused by name until
-#: WP16's `window_from_rows` -- which loads the bundle's OWN scaler and checks its digest -- exists to read them.
+#: ALREADY standardized, while its labels stay in kW. Handing it to an engine as raw rows makes that engine scale it
+#: a second time, and the first run of this path answered "21.49 kW" for a household whose declared mean is 0.93 kW.
+#:
+#: There are two such panels and they are not the same case. When the manifest DECLARES the scaler that standardized
+#: it -- mean and sd, one per input column -- the transformation is known and invertible, so the rows are returned in
+#: original units (`raw = Xs * sd + mean`, in float64) and WP16's `window_from_rows` applies the BUNDLE's own scaler
+#: to them and checks its digest, which is the check that matters. When no scaler is declared, the scale is simply
+#: unknown and the rows are refused by this name; guessing it would be the same mistake with more steps.
 SCALE_REFUSAL = "ROWS_SCALE_NOT_DECLARED"
+
+#: what `rows_receipt` says about rows that were inverted, so an answer records how its inputs came to be
+INVERTED_ORIGIN = "inverse_standardized_from_manifest_scaler"
+STORED_ORIGIN = "as_stored"
 
 #: governed access is NOT implemented here. A governed dataset resolves; its rows are refused by this name.
 GOVERNED_REFUSAL = "GOVERNED_ACCESS_NOT_CONFIGURED"
@@ -261,16 +271,47 @@ def _count_and_columns(path):
     raise CatalogError(f"{path.name}: this package reads .csv, .parquet and .npz")
 
 
-def _scale_of(path):
+def _declared_scaler(manifest, columns):
+    """The scaler the manifest declares, when it lines up with the input columns; otherwise None.
+
+    A scaler with fewer statistics than columns cannot invert them, and a zero sd cannot be divided back out. Both
+    leave the panel's scale unknown, which is a refusal and never an approximation."""
+    scaler = manifest.get("scaler")
+    if not isinstance(scaler, dict) or not columns:
+        return None
+    mean, sd = scaler.get("mean"), scaler.get("sd")
+    if not isinstance(mean, list) or not isinstance(sd, list):
+        return None
+    if len(mean) != len(columns) or len(sd) != len(columns):
+        return None
+    try:
+        mean = [float(v) for v in mean]
+        sd = [float(v) for v in sd]
+    except (TypeError, ValueError):
+        return None
+    if any(not math.isfinite(v) for v in mean + sd) or any(v == 0.0 for v in sd):
+        return None
+    return {"mean": mean, "sd": sd}
+
+
+def scaler_sha256(scaler):
+    """The digest of the declared statistics, so the catalog can name a scaler without carrying its numbers."""
+    canonical = json.dumps({"mean": scaler["mean"], "sd": scaler["sd"]}, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _scale_of(path, scaler=None):
     """What this package can SAY about the units of a resource's stored file, which is not the same as knowing them.
 
-    A `.npz` is a fitted experiment's panel: its arrays are whatever that experiment scaled them to, and the manifest
-    declares the scaler it used. A `.csv` or `.parquet` is a table, like a file a person attaches -- undeclared, and
-    read exactly as such. Nothing here measures a column; measuring would mean reading rows the catalog must not
-    hold."""
+    A `.npz` is a fitted experiment's panel: its arrays are whatever that experiment scaled them to. When the
+    manifest declares that scaler the transformation is known and invertible; when it does not, the scale is unknown.
+    A `.csv` or `.parquet` is a table, like a file a person attaches -- undeclared, and read exactly as such. Nothing
+    here measures a column; measuring would mean reading rows the catalog must not hold."""
     if path is None:
         return "UNKNOWN"
-    return "FITTED_EXPERIMENT_PANEL" if path.suffix.lower() == ".npz" else "UNDECLARED"
+    if path.suffix.lower() != ".npz":
+        return "UNDECLARED"
+    return "STANDARDIZED_BY_DECLARED_SCALER" if scaler else "FITTED_EXPERIMENT_PANEL"
 
 
 def resource_entry(folder):
@@ -292,12 +333,16 @@ def resource_entry(folder):
         counted, read_columns = _count_and_columns(path)
         rows = counted
         columns = columns or read_columns
+    scaler = _declared_scaler(manifest, columns)
     return {"id": folder.name, "name": folder.name.replace("_", " "),
             "description": _describe(manifest, columns), "columns": columns, "rows": rows,
-            "scale": _scale_of(path), "step_seconds": _manifest_step_seconds(manifest),
+            "scale": _scale_of(path, scaler), "scaler_sha256": scaler_sha256(scaler) if scaler else None,
+            "target_channel": manifest.get("target_channel") if isinstance(manifest.get("target_channel"), int)
+            else None,
+            "step_seconds": _manifest_step_seconds(manifest),
             "provenance": str(manifest.get("data_access") or manifest.get("derived_from") or "FOUNDATION_MANIFEST"),
             "governed": _is_governed(manifest), "source": "foundation",
-            "path_or_ref": str(path) if path is not None else str(folder)}
+            "manifest_ref": str(manifest_path), "path_or_ref": str(path) if path is not None else str(folder)}
 
 
 def file_entry(name, data):
@@ -306,7 +351,7 @@ def file_entry(name, data):
     profile = dataset_profile(data)
     return {"id": "file:" + name, "name": name, "description": f"attached to this question; {profile['kind']}",
             "columns": list(profile.get("columns") or []), "rows": profile.get("rows", 0), "scale": "UNDECLARED",
-            "step_seconds": None,
+            "scaler_sha256": None, "target_channel": None, "manifest_ref": None, "step_seconds": None,
             "provenance": "ATTACHED_BY_THE_PERSON", "governed": False, "source": "file", "path_or_ref": name}
 
 
@@ -517,6 +562,7 @@ def proposal_view(resolution):
     view = {"id": found["id"], "source": found["source"], "rows": found["rows"], "columns": list(found["columns"]),
             "governed": found["governed"], "scale": found.get("scale", "UNKNOWN"),
             "source_of_choice": resolution.get("source_of_choice")}
+    view["rows_receipt"] = rows_receipt(found)
     if resolution.get("decision") is not None:
         # the record beside the proposal: what Laya was shown (by digest), what it could choose from, what it chose
         # and with which uncalibrated probabilities. The state TEXT is not here; its digest binds the record to it.
@@ -546,12 +592,13 @@ def load_rows(found):
         raise CatalogError(f"{found['id']}: its declared file {path} is not there; refresh the catalog")
     if found.get("scale") == "FITTED_EXPERIMENT_PANEL":
         raise RowsNotUsable(
-            f"{SCALE_REFUSAL}: {found['id']!r} stores its panel as a fitted experiment's arrays ({path.name}), "
-            "already scaled by the scaler its own manifest declares, while its labels stay in the engine's units. "
-            "Handing those rows to an engine would have it scale them a second time and answer a number in no "
-            "scale at all. Reading such a panel is WP16's `window_from_rows`, which loads the bundle's own scaler "
-            "and checks its digest; until that is installed the run is refused rather than answered wrongly. A "
-            "resource stored as .csv or .parquet is read here as an attached file is.")
+            f"{SCALE_REFUSAL}: {found['id']!r} stores its panel as a fitted experiment's arrays ({path.name}) and "
+            "its manifest declares no scaler for them, so what units those numbers are in is unknown. Handing them "
+            "to an engine would have it scale them again and answer a number in no scale at all. A panel whose "
+            "manifest DOES declare its scaler is inverted to original units and read; a resource stored as .csv or "
+            ".parquet is read as an attached file is. This one is refused rather than guessed.")
+    if found.get("scale") == "STANDARDIZED_BY_DECLARED_SCALER":
+        return _inverted_rows(found, path)
     suffix = path.suffix.lower()
     columns = list(found.get("columns") or [])
     if suffix == ".csv":
@@ -578,6 +625,92 @@ def load_rows(found):
             raise CatalogError(f"{found['id']}: reading parquet needs pandas with a parquet engine; none is installed")
         return pandas.read_parquet(path).to_dict("records")
     raise CatalogError(f"{found['id']}: this package reads .csv, .parquet and .npz, not {path.suffix!r}")
+
+
+def _panel(archive, columns):
+    """The 2-D array of a fitted experiment's archive that matches the declared columns, or None."""
+    chosen = None
+    for key in archive.files:
+        values = archive[key]
+        if values.ndim == 2 and values.shape[1] == len(columns):
+            if chosen is None or values.shape[0] > chosen.shape[0]:
+                chosen = values
+    return chosen
+
+
+def _inverted_rows(found, path):
+    """`raw = Xs * sd + mean` in float64: the panel back in the units it was recorded in.
+
+    This is the only arithmetic this module does to anybody's data, and it is the exact inverse of the one the
+    manifest declares. WP16's `window_from_rows` then applies the BUNDLE's own scaler to these rows and checks its
+    digest -- if the two scalers are not the same one it refuses `SCALER_DIGEST_MISMATCH`, which is its check to
+    make and not this module's to pre-empt."""
+    import numpy
+    scaler = _manifest_scaler(found)
+    if scaler is None:
+        raise CatalogError(f"{found['id']}: its manifest no longer declares the scaler the catalog was built from; "
+                           "refresh the catalog")
+    columns = list(found.get("columns") or [])
+    with numpy.load(path, allow_pickle=False) as archive:
+        panel = _panel(archive, columns)
+        if panel is None:
+            raise CatalogError(f"{found['id']}: {path.name} holds no 2-D array matching its {len(columns)} "
+                               "declared columns")
+        raw = panel.astype(numpy.float64) * numpy.asarray(scaler["sd"]) + numpy.asarray(scaler["mean"])
+    return [dict(zip(columns, (float(v) for v in row))) for row in raw]
+
+
+def _manifest_scaler(found):
+    """The declared statistics, re-read from the manifest: the catalog carries their digest, never their numbers."""
+    reference = found.get("manifest_ref")
+    if not reference or not Path(str(reference)).is_file():
+        return None
+    try:
+        manifest = json.loads(Path(str(reference)).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    scaler = _declared_scaler(manifest, list(found.get("columns") or []))
+    if scaler is None or scaler_sha256(scaler) != found.get("scaler_sha256"):
+        return None
+    return scaler
+
+
+def rows_sha256(rows):
+    """The digest of the rows actually handed to an engine, in the order they were handed over.
+
+    The envelope path binds an answer to its request digest, not to a population digest, so without this an answer
+    from a resolved dataset would record which dataset it read and not WHICH ROWS. It is computed only where the
+    rows already exist -- at execution -- and never at proposal time, where reading them would be reading data to
+    describe it.
+
+    Non-finite cells are rendered as their JSON literals rather than refused: this panel carries one non-finite row
+    in 50,400, and a digest of what was handed over must cover it. Whether such a row can be USED is the engine's
+    own check (`NON_NUMERIC`, on the window it takes), not this digest's business."""
+    canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def rows_receipt(found):
+    """How this dataset's rows come to be what the engine is handed. It travels with the proposal and the answer.
+
+    It is computed from the catalog alone: no row is read to produce it, and it says which column the target is,
+    because that is the one question a reader of the answer will have. The label array `Y` of these resources is the
+    value at the HORIZON, not at the row, and no manifest declares it as a co-temporal column -- so it is never
+    offered as one, and the target is the inverted input column the manifest's `target_channel` points at."""
+    if not found:
+        return None
+    if found.get("scale") != "STANDARDIZED_BY_DECLARED_SCALER":
+        return {"rows_origin": STORED_ORIGIN, "scaler_sha256": None,
+                "why": "the rows are handed to the engine as the file stores them"}
+    columns = list(found.get("columns") or [])
+    channel = found.get("target_channel")
+    target = columns[channel] if isinstance(channel, int) and 0 <= channel < len(columns) else None
+    return {"rows_origin": INVERTED_ORIGIN, "scaler_sha256": found.get("scaler_sha256"),
+            "target_from": "inverted_input_column", "target_column": target,
+            "why": ("the panel is stored standardized by the scaler its manifest declares; it is inverted to "
+                    "original units (raw = Xs * sd + mean, float64) and the engine applies its own scaler to that. "
+                    "The label array Y is the value at the horizon, not at the row, and no manifest declares it as "
+                    "a co-temporal column, so it is not offered as one")}
 
 
 # --- the command line ---------------------------------------------------------------------------------------------
