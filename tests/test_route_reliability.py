@@ -268,3 +268,98 @@ def test_the_catalog_says_which_paths_the_abstention_rule_covers_and_which_it_do
 def _empty_configuration():
     from m5phet.config import Configuration
     return Configuration(data=None, path=None, environ={})
+
+
+# --- RB04: what "retains the complete endpoint outcome" has to mean to be true ----------------------------------------
+
+#: the shape the propose endpoint really returns, with the two bulky fields and the one that matters
+ENDPOINT_RESPONSE = {
+    "status": "OK", "why": None, "confidence": "CONFIDENCE_NOT_REPORTED",
+    "proposal": {"area": "forecasting", "state": {}, "questions": {"p": {"type": "point_forecast", "horizon": 1}}},
+    "task": {"area": "forecasting", "state": {}, "questions": {"p": {"type": "point_forecast", "horizon": 1}}},
+    "problems": [],
+    "completion": {"pass": "route_completion.v1", "offered": ["interval"], "choice": "none",
+                   "outcome": "NOTHING_FURTHER_ASKED", "added": None, "why": None, "problems": [],
+                   "fields_offered": {}, "fields_chosen": {}},
+    "dataset": None, "dataset_resolution": None, "gate": "the gate text", "interpreter": {"plugin": "command"},
+    "catalog": {"forecasting": {"a very": "large object repeated on every run"}},
+    "profile": {"kind": "table", "columns": ["a"], "rows": 1},
+}
+
+
+def test_one_run_retains_the_whole_response_and_not_a_reconstruction_of_it(monkeypatch):
+    """The defect this closes. `44130ae` retained `one_run`'s return value and called it the complete endpoint
+    outcome; `one_run` was already a hand-listed subset of the response, so everything it did not name was still
+    lost -- and what it did not name by name was `completion`, the record of whether a second ask was recovered. A
+    measurement of the completion pass that discards the completion record measures the pass blind.
+
+    Musashi's own retention test monkeypatches `one_run` away, which is precisely why this was invisible to it, so
+    this test drives the real `one_run` against a fake transport instead."""
+    monkeypatch.setattr(measure_route, "call", lambda *a, **kw: dict(ENDPOINT_RESPONSE))
+    got = measure_route.one_run("http://unused", "chat", [], "pronostica", 1)
+    kept = got["response"]
+    for field, value in ENDPOINT_RESPONSE.items():
+        if field in ("catalog", "profile"):
+            continue
+        assert kept[field] == value, field
+    assert got["completion"] == ENDPOINT_RESPONSE["completion"]
+
+
+def test_only_the_catalog_and_the_profile_are_dropped_from_the_retained_response(monkeypatch):
+    """The counterexample that keeps the exclusion honest: it is a list of two, not a filter that grows. The catalog
+    is identical on every run and already published once at the top of the report; the profile describes the
+    attachment, not the routing."""
+    monkeypatch.setattr(measure_route, "call", lambda *a, **kw: dict(ENDPOINT_RESPONSE))
+    kept = measure_route.one_run("http://unused", "chat", [], "pronostica", 1)["response"]
+    assert set(ENDPOINT_RESPONSE) - set(kept) == {"catalog", "profile"}
+
+
+def test_an_unexpected_new_response_field_is_retained_rather_than_silently_dropped(monkeypatch):
+    """A field the endpoint grows tomorrow reaches the report without anybody editing this tool, which is the whole
+    difference between keeping a response and re-listing one."""
+    monkeypatch.setattr(measure_route, "call",
+                        lambda *a, **kw: dict(ENDPOINT_RESPONSE, something_added_later={"n": 1}))
+    kept = measure_route.one_run("http://unused", "chat", [], "pronostica", 1)["response"]
+    assert kept["something_added_later"] == {"n": 1}
+
+
+def test_a_transport_failure_is_still_a_named_refusal_and_not_a_traceback(monkeypatch):
+    def explode(*_a, **_kw):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(measure_route, "call", explode)
+    got = measure_route.one_run("http://unused", "chat", [], "pronostica", 1)
+    assert got["status"] == REFUSED and "connection refused" in got["why"]
+
+
+def test_each_scored_result_carries_the_completion_record_beside_its_verdict(monkeypatch):
+    """A reader of a WRONG_TYPE row must be able to see WHY the second ask was not recovered -- never offered,
+    offered and declined, or added and refused -- without unpacking the retained response."""
+    monkeypatch.setattr(measure_route, "CASES", [CASE])
+    monkeypatch.setattr(measure_route, "call", lambda *a, **kw: {"examples": [{
+        "title": "household-power", "config": {"provider": "predictor_forecast"}}]})
+    monkeypatch.setattr(measure_route, "prepare", lambda *a: ("chat", []))
+    recorded = outcome()
+    recorded["seconds"] = 0.01
+    recorded["completion"] = ENDPOINT_RESPONSE["completion"]
+    monkeypatch.setattr(measure_route, "one_run", lambda *a: recorded)
+    report = measure_route.measure("http://unused", 1, 1)
+    result = report["sentences"][0]["results"][0]
+    assert result["completion"]["outcome"] == "NOTHING_FURTHER_ASKED"
+    assert report["corpus_scope"] == {"scoped": False, "selected": 1, "of": 1}
+
+
+def test_a_scoped_run_says_so_and_an_unscoped_one_says_so_too(monkeypatch):
+    """The preserved RR05 guard, asserted here as well: the subset report cannot be read as the whole rate."""
+    monkeypatch.setattr(measure_route, "CASES", [CASE, dict(CASE, prompt="otra frase")])
+    monkeypatch.setattr(measure_route, "call", lambda *a, **kw: {"examples": [{
+        "title": "household-power", "config": {"provider": "predictor_forecast"}}]})
+    monkeypatch.setattr(measure_route, "prepare", lambda *a: ("chat", []))
+    recorded = outcome()
+    recorded["seconds"] = 0.01
+    monkeypatch.setattr(measure_route, "one_run", lambda *a: recorded)
+    scoped = measure_route.measure("http://unused", 1, 1, only=["otra frase"])
+    assert scoped["corpus_scope"]["scoped"] is True and scoped["corpus_scope"]["selected"] == 1
+    assert scoped["corpus_scope"]["of"] == 2 and "not this router's reliability" in scoped["corpus_scope"]["reading"]
+    with pytest.raises(ValueError, match="selected none"):
+        measure_route.measure("http://unused", 1, 1, only=["nothing matches this"])

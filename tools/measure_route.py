@@ -308,9 +308,22 @@ def one_run(base, cid, file_ids, prompt, timeout):
     except (urllib.error.URLError, OSError) as error:
         return {"status": "REFUSED", "why": f"{type(error).__name__}: {error}", "proposal": None, "task": None,
                 "problems": [], "seconds": round(time.monotonic() - started, 2)}
+    # RB04: `44130ae` set out to retain "the complete endpoint outcome" so a later rescoring is possible, and
+    # retained THIS dict -- which was already a filtered reconstruction of the response. Everything the endpoint
+    # returned and this function did not name was still lost, and the field lost by name was `completion`: the record
+    # the RR05 pass writes saying whether a second ask was recovered, dropped, or never offered. A measurement of the
+    # completion pass that cannot see the completion record measures the pass with its own evidence discarded. The
+    # response is kept whole under `response`, the fields the scorer reads stay where they were, and `completion` is
+    # lifted out because every reader of this report wants it.
+    #
+    # `catalog` and `profile` are dropped from the retained copy on purpose: the catalog is the same large object on
+    # every one of the runs and is already published once at the top of the report, and the profile describes the
+    # attachment, not the routing. Nothing else is filtered.
+    response = {key: value for key, value in out.items() if key not in ("catalog", "profile")}
     return {"status": out.get("status"), "why": out.get("why"), "proposal": out.get("proposal"),
             "task": out.get("task"), "problems": out.get("problems") or [],
-            "confidence": out.get("confidence"),
+            "confidence": out.get("confidence"), "completion": out.get("completion"),
+            "response": response,
             "seconds": round(time.monotonic() - started, 2)}
 
 
@@ -324,7 +337,8 @@ PROTOCOL = ("each sentence of tools/measure_route.py CASES is routed N times thr
             "the engines' declared vocabularies -- never from a model's answer. "
             "Scorer v2 checks every explicit governed-value occurrence in state and questions, including aliases; "
             "integer fields never truncate fractional values or accept booleans. "
-            "Every result retains the proposal endpoint outcome for independent rescoring.")
+            "Every result retains the WHOLE proposal endpoint response (minus the catalog, published once above, "
+            "and the attachment profile) plus the route completion record, for independent rescoring.")
 
 #: counted from CASES and never written by hand. The first run of this harness (2026-09-25) published "18 sentences"
 #: from a hand-written string while its own summary counted 19; a corpus size that can disagree with the corpus is a
@@ -424,6 +438,9 @@ def measure(base, runs, timeout, checkpoint=None, only=None):
             verdicts.append(verdict)
             results.append({"verdict": verdict, "detail": detail, "status": outcome.get("status"),
                             "seconds": outcome.get("seconds"), "why": outcome.get("why"),
+                            # RB04: the completion record beside the verdict, so a reader of a WRONG_TYPE row can see
+                            # whether the second ask was never offered, offered and declined, or added and refused
+                            "completion": outcome.get("completion"),
                             "outcome": outcome})
         distinct = sorted({json.dumps({"area": r["detail"].get("area"), "types": r["detail"].get("types"),
                                        "values": r["detail"].get("values")}, sort_keys=True, ensure_ascii=False)
