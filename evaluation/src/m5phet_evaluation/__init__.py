@@ -24,12 +24,13 @@ the same thing.
 from .freeze import CorpusSeal, read_seal, require_intact, seal_corpus
 from .protocol import (AUTHOR_WRITTEN_SMOKE, FAMILIES, LABEL_PROVENANCES, EvaluationError, EvaluationProtocol,
                        NotEvaluable, PopulationMismatch, ProtocolError, SealBroken)
-from .report import UNDERPOWERED, EvaluationReport, build_report
+from .report import NO_DECISION_TAKEN, UNDERPOWERED, EvaluationReport, build_report
 from .scoring import (ABSTAINED, REFUSED_METRICS, MetricSet, causal_accuracy, policy_profitability, regime_accuracy,
                       score_causal, score_classification, score_forecast, score_policy, score_regimes)
 
 __all__ = [
-    "ABSTAINED", "AUTHOR_WRITTEN_SMOKE", "FAMILIES", "LABEL_PROVENANCES", "REFUSED_METRICS", "UNDERPOWERED",
+    "ABSTAINED", "AUTHOR_WRITTEN_SMOKE", "FAMILIES", "LABEL_PROVENANCES", "NO_DECISION_TAKEN",
+    "REFUSED_METRICS", "UNDERPOWERED",
     "CorpusSeal", "EvaluationError", "EvaluationProtocol", "EvaluationReport", "MetricSet", "NotEvaluable",
     "PopulationMismatch", "ProtocolError", "SealBroken", "build_report", "causal_accuracy", "policy_profitability",
     "read_seal", "regime_accuracy", "require_intact", "seal_corpus", "score_causal", "score_classification",

@@ -51,6 +51,15 @@ QUALITY_MEASURED_ON_ANOTHER_FAMILY = "QUALITY_MEASURED_ON_ANOTHER_FAMILY"
 QUALITY_MEASURED_ON_ANOTHER_STATE = "QUALITY_MEASURED_ON_ANOTHER_STATE"
 #: the provider's own quality record refused itself (an incomplete record, an unknown schema). Its words are kept
 QUALITY_RECORD_REFUSED = "QUALITY_RECORD_REFUSED"
+#: RR05: the regimes report is well formed, declares its protocol and its seal, and the reference it measured put
+#: every scored row in ONE cluster. Its internal indices are then `INDEX_NOT_DEFINED` by arithmetic, and what is left
+#: in `values` is a stability -- an agreement between two assignments, which is reproducibility and not a quality. A
+#: block that published `MEASURED` over that would let a reader believe this area carries a quality number when its
+#: own report says the opposite, so the block is a refusal that names the collapse and keeps the counts.
+QUALITY_REFERENCE_COLLAPSED = "QUALITY_REFERENCE_COLLAPSED"
+
+#: an unsupervised assignment needs at least this many non-empty clusters for an internal index to exist at all
+MINIMUM_CLUSTERS = 2
 
 #: the areas whose quality is a REFUSAL, and the name of the refusal the evaluation package owns. The reason itself is
 #: never written here: `m5phet_evaluation.scoring.REFUSED_METRICS` is the single place it is worded, so it cannot be
@@ -199,6 +208,46 @@ def bundle_evaluations(bundle_dir):
     return found
 
 
+#: the served reference assigns every scored row to one cluster
+COLLAPSED = "COLLAPSED"
+#: it assigns them to at least MINIMUM_CLUSTERS
+POPULATED = "POPULATED"
+#: the report does not say how many clusters the scored rows reached. Unknown is never read as two
+CLUSTER_COUNT_NOT_DECLARED = "CLUSTER_COUNT_NOT_DECLARED"
+
+
+def reference_collapse(report):
+    """Whether the reference this regimes report measured has a second populated cluster at all.
+
+    Read from the report's own counts and its own `clusters` block; nothing is recomputed and no assignment is redone.
+    `2026-09-25`'s served household reference is the case this exists for: 10 080 holdout rows, `clusters_assigned` 1,
+    `largest_share` 1.0, both internal indices `INDEX_NOT_DEFINED` -- and, in the reference's stored paths,
+    2 015 of its 2 016 reference rows in one cluster and exactly 1 in the other, which is a complete-linkage singleton
+    and not a regime. A reader is told that, rather than being handed the stability number that survived."""
+    clusters = report.get("clusters") if isinstance(report.get("clusters"), dict) else {}
+    counts = (_metric_set(report, "regimes_internal_indices") or {}).get("counts") or {}
+    assigned = counts.get("clusters_assigned")
+    if assigned is None:
+        labels = clusters.get("labels")
+        assigned = len(labels) if isinstance(labels, list) else None
+    scored = counts.get("scored_rows") or report.get("sealed_row_count")
+    detail = {"clusters_assigned": assigned, "scored_rows": scored,
+              "largest_share": clusters.get("largest_share"), "minimum_clusters": MINIMUM_CLUSTERS}
+    if not isinstance(assigned, int):
+        return {**detail, "status": CLUSTER_COUNT_NOT_DECLARED,
+                "why": ("the report does not declare how many clusters its scored rows reached, so whether the "
+                        "reference has a second populated cluster is unknown -- and unknown is not two")}
+    if assigned >= MINIMUM_CLUSTERS:
+        return {**detail, "status": POPULATED, "why": None}
+    return {**detail, "status": COLLAPSED,
+            "why": (f"the reference this report measured assigns all {scored} scored rows to {assigned} cluster(s); "
+                    f"an internal index needs at least {MINIMUM_CLUSTERS}, so silhouette and Davies-Bouldin do not "
+                    f"exist for it and what remains in the report is a stability -- the agreement between two "
+                    f"assignments, which is reproducibility and never a quality. This area therefore carries NO "
+                    f"quality number, and the fix is a reference whose holdout reaches two populated clusters, "
+                    f"which is a new fit and not a reading of this one")}
+
+
 def _metric_set(report, name):
     for metrics in report.get("metric_sets") or ():
         if metrics.get("name") == name:
@@ -240,6 +289,15 @@ def from_evaluation_report(area, report, digest, *, measured_on=None, source=Non
         block["n"] = dict(block["n"], **{k: v for k, v in (primary.get("counts") or {}).items()})
         block["reading"] = ("internal indices of a fitted reference; none of them is an accuracy, and an unsupervised "
                             "assignment has no ground truth")
+        collapse = reference_collapse(report)
+        block["reference_collapse"] = collapse
+        if collapse["status"] == COLLAPSED:
+            return _refusal(area, QUALITY_REFERENCE_COLLAPSED, collapse["why"],
+                            kind=family, n=block["n"], protocol_digest=block["protocol_digest"],
+                            corpus_seal=block["corpus_seal"], report_sha256=digest,
+                            label_provenance=block["label_provenance"], flags=block["flags"],
+                            indices_omitted=block["indices_omitted"], reference_collapse=collapse,
+                            reproducibility_only=block["values"], source=block["source"])
     else:
         primary = (report.get("metric_sets") or [{}])[0]
         block["values"] = dict(primary.get("values") or {})

@@ -1,0 +1,86 @@
+{
+ "finding": "`laya_first_layer` and `flat` are the same series: nonzero_share 0.0, mean_absolute_action 0.0, environment return total 0.0 on both. The Laya stage is flat BY ABSTENTION -- the chooser abstained on all 256 rows and abstention falls back to flat -- and until today neither report said so, so a three-stage table showed the Laya stage 'matching the baseline'. That match is an identity, not a finding. `fitted_sac` is the only stage that took decisions (nonzero_share 1.0, mean |a| 0.0636) and its environment return total is -0.0038879 against the flat baseline's 0.0 on the same 256 rows -- i.e. WORSE than flat, on 256 rows against a declared minimum of 500, so UNDERPOWERED stands and no quality claim follows either way.",
+ "measured_at": "2026-09-27T02:45Z",
+ "schema": "m5phet.rl_stage_reading.v1",
+ "stages": [
+  {
+   "baseline": {
+    "environment_return_training_reward_total": 0.0,
+    "name": "flat",
+    "note": "the all-flat series replayed in the same environment configuration over the same sealed rows",
+    "rows": 256,
+    "same_rows_as_model": true
+   },
+   "environment_return_total": -0.0038878623815613534,
+   "existing_flags": [
+    "UNDERPOWERED:policy:256/500",
+    "UNDERPOWERED:environment_return:256/500"
+   ],
+   "family": "policy",
+   "max_by_dimension": [
+    0.18251430988311768
+   ],
+   "mean_absolute_action": 0.0636235133279115,
+   "min_by_dimension": [
+    -0.03693181276321411
+   ],
+   "minimum_rows": 500,
+   "nonzero_share": 1.0,
+   "report": "report_fitted_sac.json",
+   "sealed_row_count": 256,
+   "stage": "fitted_sac",
+   "would_now_flag_no_decision_taken": false
+  },
+  {
+   "baseline": null,
+   "environment_return_total": 0.0,
+   "existing_flags": [
+    "UNDERPOWERED:policy:256/500",
+    "UNDERPOWERED:environment_return:256/500"
+   ],
+   "family": "policy",
+   "max_by_dimension": [
+    0.0
+   ],
+   "mean_absolute_action": 0.0,
+   "min_by_dimension": [
+    0.0
+   ],
+   "minimum_rows": 500,
+   "nonzero_share": 0.0,
+   "report": "report_flat.json",
+   "sealed_row_count": 256,
+   "stage": "flat",
+   "would_now_flag_no_decision_taken": true
+  },
+  {
+   "baseline": {
+    "environment_return_training_reward_total": 0.0,
+    "name": "flat",
+    "note": "the all-flat series replayed in the same environment configuration over the same sealed rows",
+    "rows": 256,
+    "same_rows_as_model": true
+   },
+   "environment_return_total": 0.0,
+   "existing_flags": [
+    "UNDERPOWERED:policy:256/500",
+    "UNDERPOWERED:environment_return:256/500"
+   ],
+   "family": "policy",
+   "max_by_dimension": [
+    0.0
+   ],
+   "mean_absolute_action": 0.0,
+   "min_by_dimension": [
+    0.0
+   ],
+   "minimum_rows": 500,
+   "nonzero_share": 0.0,
+   "report": "report_laya_first_layer.json",
+   "sealed_row_count": 256,
+   "stage": "laya_first_layer",
+   "would_now_flag_no_decision_taken": true
+  }
+ ],
+ "what": "the three RETAINED WP21 policy reports of 2026-09-25, re-read against the NO_DECISION_TAKEN rule added today. Nothing was re-scored and no policy was re-evaluated: the flag is decided by `nonzero_share`, which each report already carries"
+}

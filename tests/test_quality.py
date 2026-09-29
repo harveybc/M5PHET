@@ -158,13 +158,20 @@ def test_a_report_missing_its_seal_or_its_counts_is_not_a_measurement(tmp_path):
     assert block["refusal"] == quality.QUALITY_REPORT_UNREADABLE and "corpus_seal" in block["why"]
 
 
-def test_the_representation_report_publishes_its_internal_indices_and_what_was_not_defined(tmp_path):
+def test_the_representation_report_publishes_what_was_not_defined_and_refuses_the_collapse(tmp_path):
+    """RR05 CORRECTED this assertion. `REGIMES_REPORT` is the real served report, whose `clusters_assigned` is 1, and
+    until today this test asserted that such a report publishes as `MEASURED` with a `values` block -- so a reader of
+    an answer was told this area carries a quality number while the same document said both internal indices are
+    `INDEX_NOT_DEFINED`. The report is unchanged; what it is published AS is the correction."""
     path = write(tmp_path, REGIMES_REPORT)
     block = quality.for_area("unsupervised", None, None, {"M5PHET_UNSUPERVISED_QUALITY_REPORT": str(path)})
-    assert block["status"] == quality.MEASURED and block["kind"] == "regimes"
-    assert block["values"]["stability_index"] == 0.9998015873015873
+    assert block["status"] == quality.REFUSED and block["refusal"] == quality.QUALITY_REFERENCE_COLLAPSED
+    assert block["kind"] == "regimes"
+    assert "values" not in block
+    assert block["reproducibility_only"]["stability_index"] == 0.9998015873015873
     assert "silhouette" in block["indices_omitted"]
     assert block["flags"] == ["AUTHOR_WRITTEN_SMOKE"]
+    assert block["reference_collapse"]["clusters_assigned"] == 1
 
 
 def test_an_area_with_no_declared_report_is_not_measured_and_names_no_number(tmp_path):
@@ -358,3 +365,57 @@ def test_every_catalog_entry_carries_a_quality_block():
     for area, entry in entries.items():
         assert entry["quality"]["status"] in (quality.MEASURED, quality.NOT_MEASURED, quality.REFUSED)
         assert entry["quality"]["area"] == area
+
+
+# --- RR05: the served regimes reference collapsed, and the block says so instead of publishing a stability ----------
+
+def test_a_regimes_report_whose_scored_rows_reach_one_cluster_is_a_named_refusal():
+    from m5phet.quality import COLLAPSED, QUALITY_REFERENCE_COLLAPSED, from_evaluation_report
+    report = {"version": "m5phet-evaluation-report/1", "family": "regimes", "sealed_row_count": 10080,
+              "protocol_digest": "p" * 64, "corpus_seal": "c" * 64, "label_provenance": "AUTHOR_WRITTEN_SMOKE",
+              "flags": ["AUTHOR_WRITTEN_SMOKE"],
+              "clusters": {"labels": [0], "largest_share": 1.0, "shares": {"0": 1.0}},
+              "indices_omitted": {"silhouette": "INDEX_NOT_DEFINED: 1 cluster",
+                                  "davies_bouldin": "INDEX_NOT_DEFINED: 1 cluster"},
+              "metric_sets": [{"name": "regimes_internal_indices", "family": "regimes",
+                               "counts": {"scored_rows": 10080, "clusters_assigned": 1, "holdout_rows": 10080},
+                               "values": {"stability_index": 0.99, "adjusted_stability_index": 0.9945583692936788}}]}
+    block = from_evaluation_report("unsupervised", report, "d" * 64)
+    assert block["status"] == "REFUSED" and block["refusal"] == QUALITY_REFERENCE_COLLAPSED
+    assert block["reference_collapse"]["status"] == COLLAPSED
+    assert block["reference_collapse"]["clusters_assigned"] == 1
+    # the stability survives, under a name that cannot be read as a quality
+    assert "values" not in block and block["reproducibility_only"]["stability_index"] == 0.99
+    assert "reproducibility" in block["why"] and "new fit" in block["why"]
+
+
+def test_a_regimes_report_with_two_populated_clusters_is_measured_as_before():
+    from m5phet.quality import POPULATED, from_evaluation_report
+    report = {"version": "m5phet-evaluation-report/1", "family": "regimes", "sealed_row_count": 400,
+              "protocol_digest": "p" * 64, "corpus_seal": "c" * 64, "label_provenance": "DECLARED",
+              "clusters": {"labels": [0, 1], "largest_share": 0.7, "shares": {"0": 0.7, "1": 0.3}},
+              "metric_sets": [{"name": "regimes_internal_indices", "family": "regimes",
+                               "counts": {"scored_rows": 400, "clusters_assigned": 2},
+                               "values": {"silhouette": 0.41}}]}
+    block = from_evaluation_report("unsupervised", report, "d" * 64)
+    assert block["status"] == "MEASURED" and block["values"]["silhouette"] == 0.41
+    assert block["reference_collapse"]["status"] == POPULATED
+
+
+def test_a_report_that_declares_no_cluster_count_is_not_read_as_two():
+    from m5phet.quality import CLUSTER_COUNT_NOT_DECLARED, reference_collapse
+    out = reference_collapse({"family": "regimes", "sealed_row_count": 400,
+                             "metric_sets": [{"name": "regimes_internal_indices", "counts": {"scored_rows": 400},
+                                              "values": {}}]})
+    assert out["status"] == CLUSTER_COUNT_NOT_DECLARED and "unknown is not two" in out["why"]
+
+
+def test_the_collapse_is_read_from_the_reports_own_counts_and_recomputes_nothing():
+    """The real served report, by its own numbers: one cluster over 10 080 rows."""
+    from m5phet.quality import COLLAPSED, reference_collapse
+    out = reference_collapse({"family": "regimes", "sealed_row_count": 10080,
+                             "clusters": {"labels": [0], "largest_share": 1.0},
+                             "metric_sets": [{"name": "regimes_internal_indices",
+                                              "counts": {"scored_rows": 10080, "clusters_assigned": 1},
+                                              "values": {}}]})
+    assert out["status"] == COLLAPSED and out["scored_rows"] == 10080 and out["largest_share"] == 1.0

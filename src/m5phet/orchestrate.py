@@ -49,6 +49,138 @@ ROUTE_RELIABILITY_VARIABLE = "M5PHET_ROUTE_RELIABILITY_REPORT"
 #: be applied to it. It is published so nobody believes the gate is wider than it is.
 ROUTE_CONFIDENCE_NOT_REPORTED = "CONFIDENCE_NOT_REPORTED"
 
+#: RR05: the router's ONE measured failure mode, and what is done about it.
+#:
+#: `tools/measure_route.py` at N=5 over 19 sentences scored 81 CORRECT, `WRONG_AREA` 0, `WRONG_VALUE` 0 and
+#: `WRONG_TYPE` **12** -- every one of the twelve on four sentences that ask for TWO things at once ("pronostica la
+#: potencia **y dame un rango**", "assign hierarchical regimes to these rows" against a reference that also describes
+#: clusters, "cual fue el efecto del tratamiento **y en jovenes**"). In all twelve the engine and every governed value
+#: were right and the envelope asked a strict SUBSET of the types the sentence asks for: the model answered the more
+#: specific half (interval, cluster_description, cate) and dropped the plain half (point_forecast, clustering, ate).
+#: So this is an UNDER-ANSWER, not a misrouting, and it is repaired by asking about the half that is missing -- once,
+#: in the interpreter's constrained mode where it picks among values that are already declared, which is the mode its
+#: reliability was measured in (0.9434 when it chose) rather than the free-text envelope mode this path uses.
+#:
+#: Three rules make the repair incapable of inventing anything:
+#:   1. only a question type the chosen area ALREADY DECLARES may be added; the choice list is that set minus the
+#:      types already asked, plus `none`, and anything else the model returns is discarded by name;
+#:   2. a type is offered only when every field it REQUIRES is already present in the validated envelope (in a
+#:      question of the same area or in the state). A type needing a field nobody supplied -- `interval` needs a
+#:      `confidence_level` -- is not offered, because filling it would be this layer choosing a number;
+#:   3. whatever is added is re-validated by `check_proposal`, and an addition that does not validate is dropped and
+#:      recorded. The envelope that runs is never worse than the one the model first wrote.
+COMPLETION_NONE = "none"
+#: the completion pass ran and the model said the sentence asks for nothing further
+COMPLETION_NOTHING_FURTHER = "NOTHING_FURTHER_ASKED"
+#: there was no type to offer: every declared type is already asked, or each remaining one needs a field nobody gave
+COMPLETION_NOTHING_TO_OFFER = "NO_COMPLETABLE_TYPE_DECLARED"
+#: the model named something that is not on the offered list. Discarded, never guessed at
+COMPLETION_NOT_OFFERED = "CHOICE_WAS_NOT_OFFERED"
+#: the addition was made and then refused by `check_proposal`; the envelope the model wrote is kept unchanged
+COMPLETION_REJECTED = "ADDITION_DID_NOT_VALIDATE"
+#: the addition was made and validates
+COMPLETION_ADDED = "ADDED"
+#: the interpreter could not be consulted for the second, narrow question. The first envelope stands
+COMPLETION_NOT_CONSULTED = "INTERPRETER_NOT_CONSULTED"
+
+
+def _fields_available(task):
+    """Every field name the validated envelope already carries a value for, in its questions or in its state.
+
+    A completion may only use these. It is the whole of rule 2: a required field that is not in here would have to be
+    invented, and this layer does not invent one."""
+    available = {}
+    for question in (task.get("questions") or {}).values():
+        if isinstance(question, dict):
+            for field, value in question.items():
+                if field != "type" and value is not None:
+                    available.setdefault(field, value)
+    for field, value in (task.get("state") or {}).items():
+        if value is not None:
+            available.setdefault(field, value)
+    return available
+
+
+def completable_types(task, declared, available=None):
+    """The declared types this sentence did not ask and that CAN be asked from what the envelope already carries.
+
+    Deterministic, and testable without a model: no interpreter is consulted here."""
+    available = _fields_available(task) if available is None else available
+    asked = {q.get("type") for q in (task.get("questions") or {}).values() if isinstance(q, dict)}
+    out = []
+    for name in sorted(declared):
+        if name in asked:
+            continue
+        required = (declared[name] or {}).get("required") or []
+        if all(field in available for field in required):
+            out.append(name)
+    return out
+
+
+def _completion_question(kind, declared_spec, available):
+    """The question to add: its type, and ONLY the fields that type declares, taken from what is already there."""
+    spec = declared_spec or {}
+    allowed = list(spec.get("required") or []) + list(spec.get("optional") or [])
+    question = {"type": kind}
+    for field in allowed:
+        if field in available:
+            question[field] = available[field]
+    return question
+
+
+def _completion_name(task, kind):
+    name = kind
+    existing = set(task.get("questions") or {})
+    while name in existing:
+        name += "_2"
+    return name
+
+
+def complete_under_answer(prompt, task, catalog, profile, interpreter):
+    """Ask, once, whether the sentence also asks for a declared type the envelope left out. Returns (task, record).
+
+    The returned task is the original object when nothing was added, so a caller that ignores the record is exactly as
+    safe as before this function existed."""
+    record = {"pass": "route_completion.v1", "offered": [], "choice": None, "outcome": None, "why": None,
+              "added": None, "problems": []}
+    area = (catalog or {}).get((task or {}).get("area")) or {}
+    declared = area.get("question_types") or {}
+    available = _fields_available(task)
+    offered = completable_types(task, declared, available)
+    record["offered"] = offered
+    if not offered:
+        record["outcome"] = COMPLETION_NOTHING_TO_OFFER
+        record["why"] = ("every question type this area answers is already asked, or each remaining one needs a field "
+                         "the envelope does not carry -- and filling one in would be this layer choosing a value")
+        return task, record
+    slots = [{"name": "also_asked_question_type", "type": "string", "allowed": offered + [COMPLETION_NONE]}]
+    try:
+        proposed = interpreter.propose(prompt, slots)
+    except Exception as error:                                          # noqa: BLE001
+        record["outcome"], record["why"] = COMPLETION_NOT_CONSULTED, f"{type(error).__name__}: {error}"
+        return task, record
+    choice = (proposed or {}).get("also_asked_question_type") if isinstance(proposed, dict) else None
+    choice = choice.strip() if isinstance(choice, str) else choice
+    record["choice"] = choice
+    if choice in (None, "", COMPLETION_NONE, "null", "None"):
+        record["outcome"] = COMPLETION_NOTHING_FURTHER
+        return task, record
+    if choice not in offered:
+        record["outcome"] = COMPLETION_NOT_OFFERED
+        record["why"] = f"{choice!r} was not one of the offered types {offered}"
+        return task, record
+    candidate = json.loads(json.dumps(task))
+    candidate["questions"][_completion_name(task, choice)] = _completion_question(choice, declared.get(choice),
+                                                                                 available)
+    checked, problems = check_proposal(candidate, catalog, profile)
+    if checked is None:
+        record["outcome"], record["problems"] = COMPLETION_REJECTED, list(problems)
+        record["why"] = "the completed envelope did not validate, so the envelope the model wrote is kept unchanged"
+        return task, record
+    record["outcome"], record["added"] = COMPLETION_ADDED, choice
+    return checked, record
+
+
 
 # --- what the model is allowed to know about the data ------------------------------------------------------------------
 
@@ -207,7 +339,7 @@ def resolve_dataset(prompt, data, catalog, decider):
     return resolution, module.proposal_view(resolution)
 
 
-def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None):
+def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None, complete=True):
     """Turn a sentence into a validated envelope, or say exactly why it could not be.
 
     `datasets` is the dataset catalog (WP15) and `decider` the Engine or Registry Laya is asked through when
@@ -283,12 +415,18 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=No
         # name here, not silently answered from whatever else was to hand
         problems = list(problems) + [resolution["why"]]
         task = None
+    completion = None
+    if task is not None and complete:
+        # RR05: the twelve measured WRONG_TYPE runs were all UNDER-answers of a sentence that asks two things. The
+        # second ask is recovered here, from the area's own declared types only, and the record says what happened --
+        # including when nothing was added, so an under-answer is visible rather than silent.
+        task, completion = complete_under_answer(prompt, task, catalog, profile, interpreter)
     if task is not None and chosen:
         # what runs records which dataset it read, so the envelope beside the answers is replayable and the person
         # reviewing it sees the choice rather than having to trust it
         task["state"].setdefault("dataset", chosen["id"])
     return {**report, "status": "OK" if task else "INVALID_PROPOSAL", "proposal": proposal, "task": task,
-            "problems": problems,
+            "problems": problems, "completion": completion,
             "why": None if task else "the proposal names something the catalog or the data does not have; see problems"}
 
 

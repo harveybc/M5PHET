@@ -24,6 +24,21 @@ from .protocol import NotEvaluable, PopulationMismatch, ProtocolError
 #: a declared abstention. A row missing from the predictions is an absence, not this, and the two are never merged
 ABSTAINED = "ABSTAINED"
 
+#: RR05: every proposed action in this metric set is the zero vector, so the stage proposed the flat series -- the very
+#: thing the flat baseline IS. The 2026-09-25 WP21 run is why this exists: its `laya_first_layer` report was
+#: numerically identical to its `flat` report, because the chooser abstained on all 256 rows and abstention falls back
+#: to flat, and nothing in either document said so. A reader comparing the three stages would have seen the Laya stage
+#: "match the baseline" and could have read that as a result about a policy. It is not a result about a policy; it is
+#: the baseline under another name, and it is not comparable with a stage that took decisions.
+NO_DECISION_TAKEN = "NO_DECISION_TAKEN"
+
+#: what such a metric set says about itself, in one sentence nobody has to reconstruct
+NO_DECISION_TAKEN_NOTE = (
+    "NO_DECISION_TAKEN: every proposed action in this population is the zero vector, so this stage proposed the flat "
+    "series. Whatever it scores is the flat baseline under another name -- comparing it with the baseline compares a "
+    "series with itself, and comparing it with a stage that took decisions compares two different things. If the zeros "
+    "come from abstentions, the count of abstentions is the result, not the action statistics.")
+
 #: quantities this package will not compute, with the reason each one does not exist. Caught code can read the reason
 REFUSED_METRICS = {
     "causal_accuracy": (
@@ -329,6 +344,7 @@ def score_policy(*, protocol, seal, corpus, actions, bounds=None) -> MetricSet:
     if any(len(v) != width for v in vectors):
         raise ProtocolError("actions: every proposal must have the same action dimension, or they are not one action space")
 
+    nonzero = sum(1 for v in vectors if any(c != 0 for c in v))
     per_dim = [[v[i] for v in vectors] for i in range(width)]
     violations = 0
     if bounds is not None:
@@ -343,14 +359,16 @@ def score_policy(*, protocol, seal, corpus, actions, bounds=None) -> MetricSet:
                              "min_by_dimension": [min(col) for col in per_dim],
                              "max_by_dimension": [max(col) for col in per_dim],
                              "mean_absolute_action": sum(sum(abs(c) for c in v) for v in vectors) / (len(vectors) * width),
-                             "nonzero_share": sum(1 for v in vectors if any(c != 0 for c in v)) / len(vectors),
+                             "nonzero_share": nonzero / len(vectors),
+                             "all_actions_zero": nonzero == 0,
                              "mean_turnover_in_population_order": turnover,
                              "bound_violations": violations if bounds is not None else None},
                      counts={"declared_rows": len(rows), "scored_rows": len(vectors)},
                      baseline=None,
                      notes=(REFUSED_METRICS["policy_profitability"],
                             "Turnover assumes the declared population order is the decision order; in any other order it "
-                            "measures nothing."))
+                            "measures nothing.")
+                           + ((NO_DECISION_TAKEN_NOTE,) if nonzero == 0 else ()))
 
 
 def policy_profitability(*_args, **_kwargs):

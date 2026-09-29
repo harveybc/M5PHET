@@ -221,3 +221,28 @@ def test_policy_profitability_refuses_by_name():
         policy_profitability(actions={})
     assert "not a realised return" in str(refusal.value)
     assert REFUSED_METRICS["policy_profitability"] in str(refusal.value)
+
+
+# --- RR05: a stage that proposed nothing is not a stage that proposed the baseline -------------------------------------
+
+def test_an_all_zero_action_series_is_named_and_not_reported_as_a_policy():
+    """The WP21 case of 2026-09-25: the Laya first layer abstained on every row, abstention falls back to flat, and its
+    report was numerically identical to the flat baseline's with nothing saying so."""
+    from m5phet_evaluation import NO_DECISION_TAKEN
+    from m5phet_evaluation.scoring import NO_DECISION_TAKEN_NOTE
+    declared, corpus, seal = policy_case()
+    actions = {row: (0.0,) for row in ("p1", "p2", "p3", "p4")}
+    metrics = score_policy(protocol=declared, seal=seal, corpus=corpus, actions=actions)
+    assert metrics.values["all_actions_zero"] is True
+    assert metrics.values["nonzero_share"] == 0.0
+    assert NO_DECISION_TAKEN_NOTE in metrics.notes
+    assert NO_DECISION_TAKEN in NO_DECISION_TAKEN_NOTE
+
+
+def test_a_stage_that_took_decisions_carries_no_such_note():
+    from m5phet_evaluation.scoring import NO_DECISION_TAKEN_NOTE
+    declared, corpus, seal = policy_case()
+    actions = {"p1": (0.0,), "p2": (0.5,), "p3": (-0.5,), "p4": (0.0,)}
+    metrics = score_policy(protocol=declared, seal=seal, corpus=corpus, actions=actions)
+    assert metrics.values["all_actions_zero"] is False
+    assert NO_DECISION_TAKEN_NOTE not in metrics.notes

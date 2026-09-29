@@ -75,3 +75,36 @@ def test_a_report_refuses_a_foreign_seal_no_metrics_and_countless_metrics(classi
     countless = dataclasses.replace(metrics, counts={"declared_rows": 6})
     with pytest.raises(ProtocolError, match="no scored_rows count"):
         build_report(protocol=protocol, seal=seal, metric_sets=[countless])
+
+
+# --- RR05: the flag a reader of the three-stage table needed ----------------------------------------------------------
+
+def test_a_report_over_an_all_zero_action_series_flags_no_decision_taken():
+    from m5phet_evaluation import NO_DECISION_TAKEN, score_policy, seal_corpus
+    rows = ("p1", "p2", "p3", "p4")
+    protocol = build_protocol(family="policy", population=rows, split={"test": rows}, baseline="none_declared",
+                              metrics=("mean_absolute_action", "nonzero_share"), minimum_rows=2)
+    corpus = {row: f"state-digest-{row}" for row in rows}
+    seal = seal_corpus(corpus, protocol=protocol)
+    metrics = score_policy(protocol=protocol, seal=seal, corpus=corpus, actions={row: (0.0,) for row in rows})
+    report = build_report(protocol=protocol, seal=seal, metric_sets=(metrics,))
+    assert report.took_no_decision is True
+    assert f"{NO_DECISION_TAKEN}:policy:4" in report.flags
+    statement = next(line for line in report.statements if line.startswith(NO_DECISION_TAKEN))
+    assert "flat series" in statement and "identity, not a finding" in statement
+    assert NO_DECISION_TAKEN in report.headline()
+
+
+def test_a_report_over_real_actions_does_not_flag_it():
+    from m5phet_evaluation import score_policy, seal_corpus
+    rows = ("p1", "p2", "p3", "p4")
+    protocol = build_protocol(family="policy", population=rows, split={"test": rows}, baseline="none_declared",
+                              metrics=("mean_absolute_action", "nonzero_share"), minimum_rows=2)
+    corpus = {row: f"state-digest-{row}" for row in rows}
+    seal = seal_corpus(corpus, protocol=protocol)
+    metrics = score_policy(protocol=protocol, seal=seal, corpus=corpus,
+                           actions={"p1": (0.1,), "p2": (0.2,), "p3": (-0.1,), "p4": (0.0,)})
+    report = build_report(protocol=protocol, seal=seal, metric_sets=(metrics,))
+    from m5phet_evaluation import NO_DECISION_TAKEN
+    assert report.took_no_decision is False
+    assert not any(flag.startswith(NO_DECISION_TAKEN) for flag in report.flags)

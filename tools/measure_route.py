@@ -360,7 +360,11 @@ def save_checkpoint(directory, case, base, runs, entry):
                                indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
 
-def measure(base, runs, timeout, checkpoint=None):
+def measure(base, runs, timeout, checkpoint=None, only=None):
+    """`only` restricts the corpus to the sentences whose prompt contains one of those substrings.
+
+    A scoped run is NOT the published 19-sentence rate and the report says so in `corpus_scope`, so a subset measured
+    while repairing one failure mode can never be quoted as the router's reliability."""
     catalog = call(base, "GET", "/api/catalog")
     report = {"schema": REPORT_SCHEMA, "base": base, "runs_per_sentence": runs,
               "measured_at": datetime.now(timezone.utc).isoformat(),
@@ -369,7 +373,18 @@ def measure(base, runs, timeout, checkpoint=None):
               "abstention": (catalog.get("abstention") or {}).get("paths", {}).get("route"),
               "protocol": PROTOCOL, "corpus": CORPUS, "sentences": []}
     examples = catalog["examples"]
-    for case in CASES:
+    cases = CASES
+    if only:
+        cases = [c for c in CASES if any(fragment in c["prompt"] for fragment in only)]
+        report["corpus_scope"] = {"scoped": True, "selected": len(cases), "of": len(CASES), "fragments": list(only),
+                                 "reading": ("a SUBSET of the declared corpus. The rates below are about these "
+                                             "sentences only and are not this router's reliability, which is measured "
+                                             "over the whole corpus")}
+        if not cases:
+            raise ValueError(f"--only {list(only)} selected none of the {len(CASES)} declared sentences")
+    else:
+        report["corpus_scope"] = {"scoped": False, "selected": len(CASES), "of": len(CASES)}
+    for case in cases:
         chosen = [e for e in examples if e["config"]["provider"] == case["provider"]
                   and case["fragment"].lower() in e["title"].lower()]
         if not chosen:
@@ -438,6 +453,9 @@ def main(argv=None):
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--out")
     parser.add_argument("--token", default=os.environ.get("M5PHET_CHAT_TOKEN"))
+    parser.add_argument("--only", action="append", default=None,
+                        help="measure only the sentences whose prompt contains this substring; repeatable. The report "
+                             "marks itself `corpus_scope.scoped` so a subset is never quoted as the whole rate")
     parser.add_argument("--checkpoint", help="directory to write each sentence's runs to as they complete, and to "
                                              "resume from. A stored sentence is reused only when the case, the "
                                              "instance, N and the protocol are identical")
@@ -447,7 +465,7 @@ def main(argv=None):
     if args.token:
         login(args.base, args.token)
     try:
-        report = measure(args.base, args.runs, args.timeout, checkpoint=args.checkpoint)
+        report = measure(args.base, args.runs, args.timeout, checkpoint=args.checkpoint, only=args.only)
     except (urllib.error.URLError, OSError) as error:
         print(f"the workbench is not answering at {args.base}: {error}")
         return 2

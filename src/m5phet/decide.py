@@ -1157,3 +1157,101 @@ def load_outcome(path):
         raise DecisionError(f"digest mismatch: {path.name} holds an outcome whose digest is {recomputed}; the record "
                             f"has been altered since it was written")
     return linked
+
+
+# --- RR05: what the chooser's own retained records say about it -------------------------------------------------------
+
+#: every retained record carries the same probability vector: the state made no difference at all
+STATE_INDEPENDENT = "STATE_INDEPENDENT"
+#: the vectors differ with the state and the FIRST-ranked option never changes, and no record reaches the cited
+#: threshold. This is what the 28 retained `regime_method` records of 2026-09-25 are, and it is not the same claim as
+#: `STATE_INDEPENDENT`: the model does read the state, it just never reads it hard enough to change its mind or to
+#: enter the region its confidence was measured in
+ARGMAX_INVARIANT_BELOW_THRESHOLD = "ARGMAX_INVARIANT_BELOW_THRESHOLD"
+#: the first-ranked option never changes, and at least one record reached the threshold
+ARGMAX_INVARIANT_AT_THRESHOLD = "ARGMAX_INVARIANT_AT_THRESHOLD"
+#: the first-ranked option changes with the state
+DISCRIMINATING = "DISCRIMINATING"
+#: fewer than two records, or none carrying probabilities: nothing can be said, and nothing is
+NOT_DIAGNOSABLE = "NOT_DIAGNOSABLE"
+
+
+def _top_two(probabilities):
+    ordered = sorted(probabilities.items(), key=lambda item: (-item[1], item[0]))
+    top = ordered[0]
+    second = ordered[1] if len(ordered) > 1 else (None, None)
+    return top, second
+
+
+def diagnose_chooser(records):
+    """What a set of RETAINED decision records says about the chooser that wrote them. Nothing is asked of any model.
+
+    This exists because "the chooser abstained on 28 of 28 corpora and ranked the same option first on all 28 distinct
+    state digests" was read as the model ignoring the state, and the records do not say that. They say something
+    narrower and more useful: all 28 probability vectors DIFFER (the state is read), the argmax never changes, the top
+    probability sits around 0.37 of four options where chance is 0.25, and the cited threshold is 0.80 -- so every
+    abstention is the rule working, not the model failing. A diagnosis that overstates a defect is as unusable as one
+    that hides it, so each of those is a separate field here and the verdict names which of them holds.
+
+    No accuracy appears in the result and none can: these records carry no correct answer."""
+    usable = [r for r in (records or []) if isinstance(r, dict) and isinstance(r.get("probabilities"), dict)
+              and r["probabilities"]]
+    out = {"schema": "m5phet.chooser_diagnosis.v1", "records": len(records or []), "with_probabilities": len(usable),
+           "distinct_states": len({r.get("state_sha256") for r in usable}),
+           "distinct_probability_vectors": None, "options": None, "chance_level": None,
+           "top_option_counts": {}, "argmax_invariant": None, "abstained": 0, "chose": 0,
+           "top_probability": None, "margin_over_second": None, "thresholds": sorted(
+               {(r.get("abstention") or {}).get("threshold", {}).get("min_confidence")
+                for r in usable if isinstance(r.get("abstention"), dict)} - {None}),
+           "verdict": NOT_DIAGNOSABLE, "why": None}
+    if len(usable) < 2:
+        out["why"] = ("fewer than two retained records carry a probability vector, so nothing about how this chooser "
+                      "reads the state can be said from them")
+        return out
+    keys = sorted(usable[0]["probabilities"])
+    vectors = {tuple(round(float(r["probabilities"].get(k, 0.0)), 6) for k in keys) for r in usable}
+    out["distinct_probability_vectors"] = len(vectors)
+    out["options"] = len(keys)
+    out["chance_level"] = round(1.0 / len(keys), 6) if keys else None
+    tops, margins = [], []
+    for record in usable:
+        (option, probability), (_, runner_up) = _top_two(record["probabilities"])
+        out["top_option_counts"][option] = out["top_option_counts"].get(option, 0) + 1
+        tops.append(float(probability))
+        if runner_up is not None:
+            margins.append(float(probability) - float(runner_up))
+        if record.get("chosen") is None:
+            out["abstained"] += 1
+        else:
+            out["chose"] += 1
+    out["argmax_invariant"] = len(out["top_option_counts"]) == 1
+    out["top_probability"] = {"min": min(tops), "max": max(tops), "mean": round(sum(tops) / len(tops), 6),
+                              "distinct": len(set(tops))}
+    if margins:
+        out["margin_over_second"] = {"min": min(margins), "max": max(margins),
+                                     "mean": round(sum(margins) / len(margins), 6)}
+    threshold = out["thresholds"][0] if len(out["thresholds"]) == 1 else None
+    out["reached_threshold"] = None if threshold is None else sum(1 for t in tops if t >= threshold)
+    if len(vectors) == 1:
+        out["verdict"] = STATE_INDEPENDENT
+        out["why"] = (f"all {len(usable)} records carry one probability vector over {out['distinct_states']} distinct "
+                      f"state digests: the state made no difference to this chooser at all")
+    elif not out["argmax_invariant"]:
+        out["verdict"] = DISCRIMINATING
+        out["why"] = (f"the first-ranked option changes with the state ({out['top_option_counts']}), so this chooser "
+                      f"is not answering the same thing regardless of what it is shown")
+    elif threshold is not None and out["reached_threshold"] == 0:
+        out["verdict"] = ARGMAX_INVARIANT_BELOW_THRESHOLD
+        out["why"] = (f"all {len(vectors)} probability vectors differ across {out['distinct_states']} distinct states, "
+                      f"so the state IS read; the first-ranked option is the same on every record; and no record's top "
+                      f"probability reaches the cited threshold {threshold} -- the highest is "
+                      f"{out['top_probability']['max']} against a chance level of {out['chance_level']} over "
+                      f"{out['options']} options. Every abstention here is the measured rule holding, not a failure of "
+                      f"the model, and this question is simply outside the confidence region the checkpoint was "
+                      f"measured in. Nothing here licenses a quality claim for this chooser")
+    else:
+        out["verdict"] = ARGMAX_INVARIANT_AT_THRESHOLD
+        out["why"] = (f"the first-ranked option never changes and {out['reached_threshold']} of {len(usable)} records "
+                      f"reached the cited threshold, so some choices were made on an invariant argmax -- which is a "
+                      f"reason to look at what the state contributes before trusting any of them")
+    return out

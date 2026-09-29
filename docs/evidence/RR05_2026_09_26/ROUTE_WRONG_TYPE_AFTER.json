@@ -1,0 +1,531 @@
+{
+ "abstention": {
+  "confidence": "CONFIDENCE_NOT_REPORTED",
+  "covered": false,
+  "reliability": {
+   "confidence": "CONFIDENCE_NOT_REPORTED",
+   "corpus": "tools/verify_families.py PROSE and tools/verify_envelopes.py prompts (18 sentences; expectations in tools/measure_route.py CASES)",
+   "invalid_proposal_problems": {
+    "MALFORMED_ENVELOPE": 1
+   },
+   "measured_at": "2026-09-25T18:19:12.398506+00:00",
+   "measured_interpreter": {
+    "model": "deepseek-v4-flash (OpenCode Go)",
+    "plugin": "command"
+   },
+   "n": {
+    "runs": 95,
+    "runs_per_sentence": 5,
+    "sentences": 19
+   },
+   "protocol": "each sentence of tools/measure_route.py CASES is routed N times through POST /api/chats/{id}/tasks/propose, which builds the envelope and runs nothing. A run is CORRECT when the proposal validates against check_proposal AND its area, the set of its question types and every governed value the sentence names are the expected ones. The expectations come from the harnesses the sentences belong to (tools/verify_families.py PROSE and tools/verify_envelopes.py's envelopes) and from the engines' declared vocabularies -- never from a model's answer.",
+   "reliability": 0.8526,
+   "reliability_when_it_proposed": 0.8617,
+   "report_sha256": "aac62e58938eca2d33314f95a6f8a546827379588e20ea060450456eda4aa8fa",
+   "verdicts": {
+    "CORRECT": 81,
+    "INVALID_PROPOSAL": 1,
+    "REFUSED": 1,
+    "WRONG_AREA": 0,
+    "WRONG_TYPE": 12,
+    "WRONG_VALUE": 0
+   }
+  },
+  "rule": "NOT_CONFIGURED",
+  "why": "orchestrate.route asks the model for a WHOLE envelope as free text; no shipped plugin reports a confidence for that -- not even openai_compatible, whose endpoint can return logprobs, because route calls _ask and _ask discards them. So the rule is not applied on this path at all. What does apply is check_proposal: an area nobody serves, a question type no provider declares, a governed value the engine does not have or a column the data lacks is refused by name and does not run, and how often the router is right is published as route.reliability"
+ },
+ "base": "http://127.0.0.1:8769",
+ "corpus": "tools/verify_families.py PROSE and tools/verify_envelopes.py prompts (19 sentences; expectations in tools/measure_route.py CASES)",
+ "corpus_scope": {
+  "fragments": [
+   "dame un rango",
+   "assign hierarchical regimes",
+   "asigna los regímenes",
+   "efecto del tratamiento y en jovenes"
+  ],
+  "of": 19,
+  "reading": "a SUBSET of the declared corpus. The rates below are about these sentences only and are not this router's reliability, which is measured over the whole corpus",
+  "scoped": true,
+  "selected": 4
+ },
+ "interpreter": {
+  "available": true,
+  "command": "hermes",
+  "model": "deepseek-v4-flash (OpenCode Go)",
+  "plugin": "command",
+  "reading": "the model chooses among declared values; it cannot introduce one",
+  "reliability": {
+   "corpus": "tools/verify_families.py PROSE (14 sentences; expectations in tools/measure_interpreter.py)",
+   "measured_at": "2026-09-25T17:08:21.149002+00:00",
+   "measured_interpreter": {
+    "model": "deepseek-v4-flash (OpenCode Go)",
+    "plugin": "command"
+   },
+   "n": {
+    "runs": 60,
+    "runs_per_sentence": 5,
+    "sentences": 12
+   },
+   "protocol": "Interpreter.propose(sentence, slots) is called N times per sentence with the area's declared values and aliases as published by /api/tasks/catalog -- what interpret() shows a model when the words settle nothing. A proposal outside the declared values is not kept, exactly as interpret() does not keep it. No deterministic pass runs first: this is the model's own reading of the sentence and nothing else.",
+   "reliability": 0.8333,
+   "reliability_when_it_chose": 0.9434,
+   "report_sha256": "c57d91a8ca1e2e4cdce5c14e77ab95b00994b4e3c0bfc3e0fcd5806c3c9e48e3",
+   "verdicts": {
+    "CORRECT": 50,
+    "DECLINED": 7,
+    "INTERPRETER_FAILED": 0,
+    "OUTSIDE_DECLARED": 0,
+    "WRONG_VALUE": 3
+   }
+  },
+  "reports_confidence": false
+ },
+ "measured_at": "2026-09-27T02:42:21.944208+00:00",
+ "protocol": "each sentence of tools/measure_route.py CASES is routed N times through POST /api/chats/{id}/tasks/propose, which builds the envelope and runs nothing. A run is CORRECT when the proposal validates against check_proposal AND its area, the set of its question types and every governed value the sentence names are the expected ones. The expectations come from the harnesses the sentences belong to (tools/verify_families.py PROSE and tools/verify_envelopes.py's envelopes) and from the engines' declared vocabularies -- never from a model's answer.",
+ "route": {
+  "confidence": "CONFIDENCE_NOT_REPORTED",
+  "gate": "a proposal that fails check_proposal is refused by name and does not run; no confidence is reported for this path, so a declared abstention threshold is not applied to it",
+  "reliability": {
+   "confidence": "CONFIDENCE_NOT_REPORTED",
+   "corpus": "tools/verify_families.py PROSE and tools/verify_envelopes.py prompts (18 sentences; expectations in tools/measure_route.py CASES)",
+   "invalid_proposal_problems": {
+    "MALFORMED_ENVELOPE": 1
+   },
+   "measured_at": "2026-09-25T18:19:12.398506+00:00",
+   "measured_interpreter": {
+    "model": "deepseek-v4-flash (OpenCode Go)",
+    "plugin": "command"
+   },
+   "n": {
+    "runs": 95,
+    "runs_per_sentence": 5,
+    "sentences": 19
+   },
+   "protocol": "each sentence of tools/measure_route.py CASES is routed N times through POST /api/chats/{id}/tasks/propose, which builds the envelope and runs nothing. A run is CORRECT when the proposal validates against check_proposal AND its area, the set of its question types and every governed value the sentence names are the expected ones. The expectations come from the harnesses the sentences belong to (tools/verify_families.py PROSE and tools/verify_envelopes.py's envelopes) and from the engines' declared vocabularies -- never from a model's answer.",
+   "reliability": 0.8526,
+   "reliability_when_it_proposed": 0.8617,
+   "report_sha256": "aac62e58938eca2d33314f95a6f8a546827379588e20ea060450456eda4aa8fa",
+   "verdicts": {
+    "CORRECT": 81,
+    "INVALID_PROPOSAL": 1,
+    "REFUSED": 1,
+    "WRONG_AREA": 0,
+    "WRONG_TYPE": 12,
+    "WRONG_VALUE": 0
+   }
+  }
+ },
+ "runs_per_sentence": 5,
+ "schema": "m5phet_route_reliability.v1",
+ "sentences": [
+  {
+   "area": "forecasting",
+   "correct": 3,
+   "distinct_resolutions": [
+    "{\"area\": \"forecasting\", \"types\": [\"interval\", \"point_forecast\"], \"values\": {\"target\": \"Global_active_power\"}}",
+    "{\"area\": \"forecasting\", \"types\": [\"interval\"], \"values\": {\"target\": \"Global_active_power\"}}"
+   ],
+   "example": "DEVELOPMENT: retained household-power model, 60-minute forecast",
+   "kind": "ROUTED",
+   "prompt": "pronostica la potencia y dame un rango",
+   "provider": "predictor_forecast",
+   "results": [
+    {
+     "detail": {
+      "area": "forecasting",
+      "types": [
+       "interval",
+       "point_forecast"
+      ],
+      "values": {
+       "target": "Global_active_power"
+      }
+     },
+     "seconds": 11.97,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "forecasting",
+      "types": [
+       "interval"
+      ],
+      "values": {
+       "target": "Global_active_power"
+      },
+      "wanted_types": [
+       "interval",
+       "point_forecast"
+      ]
+     },
+     "seconds": 23.37,
+     "status": "OK",
+     "verdict": "WRONG_TYPE",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "forecasting",
+      "types": [
+       "interval",
+       "point_forecast"
+      ],
+      "values": {
+       "target": "Global_active_power"
+      }
+     },
+     "seconds": 34.51,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "forecasting",
+      "types": [
+       "interval"
+      ],
+      "values": {
+       "target": "Global_active_power"
+      },
+      "wanted_types": [
+       "interval",
+       "point_forecast"
+      ]
+     },
+     "seconds": 24.15,
+     "status": "OK",
+     "verdict": "WRONG_TYPE",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "forecasting",
+      "types": [
+       "interval",
+       "point_forecast"
+      ],
+      "values": {
+       "target": "Global_active_power"
+      }
+     },
+     "seconds": 25.38,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    }
+   ],
+   "runs": 5,
+   "seconds_mean": 23.88,
+   "stable": false,
+   "types": [
+    "interval",
+    "point_forecast"
+   ],
+   "values": {
+    "target": "Global_active_power"
+   },
+   "verdicts": {
+    "CORRECT": 3,
+    "WRONG_TYPE": 2
+   },
+   "why_expected": "the envelope tools/verify_envelopes.py runs for this prompt asks a point_forecast and an interval; the sentence names no horizon, so no horizon is scored"
+  },
+  {
+   "area": "unsupervised",
+   "correct": 5,
+   "distinct_resolutions": [
+    "{\"area\": \"unsupervised\", \"types\": [\"clustering\"], \"values\": {}}"
+   ],
+   "example": "DEVELOPMENT: 8 historical OHLC rows, no market-performance claim",
+   "kind": "ROUTED",
+   "prompt": "assign hierarchical regimes to these rows",
+   "provider": "feature-eng-hierarchical-regimes",
+   "results": [
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 12.17,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 16.08,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 20.5,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 20.67,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 9.03,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    }
+   ],
+   "runs": 5,
+   "seconds_mean": 15.69,
+   "stable": true,
+   "types": [
+    "clustering"
+   ],
+   "values": {},
+   "verdicts": {
+    "CORRECT": 5
+   },
+   "why_expected": null
+  },
+  {
+   "area": "unsupervised",
+   "correct": 5,
+   "distinct_resolutions": [
+    "{\"area\": \"unsupervised\", \"types\": [\"clustering\"], \"values\": {}}"
+   ],
+   "example": "DEVELOPMENT: 8 historical OHLC rows, no market-performance claim",
+   "kind": "ROUTED",
+   "prompt": "asigna los regímenes jerárquicos a estas filas",
+   "provider": "feature-eng-hierarchical-regimes",
+   "results": [
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 7.54,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 17.31,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 8.07,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 7.8,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "unsupervised",
+      "types": [
+       "clustering"
+      ],
+      "values": {}
+     },
+     "seconds": 17.82,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    }
+   ],
+   "runs": 5,
+   "seconds_mean": 11.71,
+   "stable": true,
+   "types": [
+    "clustering"
+   ],
+   "values": {},
+   "verdicts": {
+    "CORRECT": 5
+   },
+   "why_expected": null
+  },
+  {
+   "area": "causal",
+   "correct": 5,
+   "distinct_resolutions": [
+    "{\"area\": \"causal\", \"types\": [\"ate\", \"cate\"], \"values\": {}}"
+   ],
+   "example": "SYNTHETIC/DEVELOPMENT: confounded ATE, known effect 2",
+   "kind": "ROUTED",
+   "prompt": "cual fue el efecto del tratamiento y en jovenes",
+   "provider": "causal_inference",
+   "results": [
+    {
+     "detail": {
+      "area": "causal",
+      "types": [
+       "ate",
+       "cate"
+      ],
+      "values": {}
+     },
+     "seconds": 17.5,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "causal",
+      "types": [
+       "ate",
+       "cate"
+      ],
+      "values": {}
+     },
+     "seconds": 70.37,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "causal",
+      "types": [
+       "ate",
+       "cate"
+      ],
+      "values": {}
+     },
+     "seconds": 32.99,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "causal",
+      "types": [
+       "ate",
+       "cate"
+      ],
+      "values": {}
+     },
+     "seconds": 12.57,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    },
+    {
+     "detail": {
+      "area": "causal",
+      "types": [
+       "ate",
+       "cate"
+      ],
+      "values": {}
+     },
+     "seconds": 10.41,
+     "status": "OK",
+     "verdict": "CORRECT",
+     "why": null
+    }
+   ],
+   "runs": 5,
+   "seconds_mean": 28.77,
+   "stable": true,
+   "types": [
+    "ate",
+    "cate"
+   ],
+   "values": {},
+   "verdicts": {
+    "CORRECT": 5
+   },
+   "why_expected": "the envelope tools/verify_envelopes.py runs for this prompt asks an ate and a cate; the sentence names no study in the study's own words, so none is scored"
+  }
+ ],
+ "summary": {
+  "correct": 18,
+  "invalid_proposal_problems": {},
+  "reliability": 0.9,
+  "reliability_when_it_proposed": 0.9,
+  "runs": 20,
+  "sentences": 4,
+  "sentences_always_correct": 3,
+  "sentences_never_correct": 0,
+  "sentences_resumed_from_checkpoint": 0,
+  "sentences_stable": 3,
+  "sentences_without_an_example": 0,
+  "verdicts": {
+   "CORRECT": 18,
+   "INVALID_PROPOSAL": 0,
+   "REFUSED": 0,
+   "WRONG_AREA": 0,
+   "WRONG_TYPE": 2,
+   "WRONG_VALUE": 0
+  }
+ }
+}

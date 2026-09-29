@@ -1,0 +1,70 @@
+{
+ "distinct_economies": 14,
+ "distinct_release_keys": 727,
+ "distinct_series_keys": 154,
+ "execution_authorized_values": [
+  false
+ ],
+ "integrity_failures": 0,
+ "integrity_problems_present": 0,
+ "limits": [
+  "a receipt clock is NOT a publication clock. Every OBSERVED row's `publication_bound` is an UPPER bound: the release was public no later than our `received_at`, and may have been public for hours before. Nothing here identifies a causal effect and nothing here may be used as an event instant.",
+  "45 of 727 releases are OBSERVED and 682 are AWAITED: the record began on 2026-09-25 and a year of capture is a year away. No study may be run on it now, and the store does not offer one.",
+  "0 revisions so far means only that no observed value has changed yet, not that the revision path is exercised."
+ ],
+ "one_row_shape": [
+  "calendar_source",
+  "derived_row_id",
+  "economy",
+  "execution_authorized",
+  "integrity",
+  "integrity_problems",
+  "match_rule",
+  "observation_identity",
+  "observation_sha256",
+  "publication_bound",
+  "publication_clock",
+  "quarantined",
+  "received_at",
+  "recomputed_sha256",
+  "release_identity",
+  "release_key",
+  "revision_index",
+  "row_id",
+  "row_sha256",
+  "scheduled_at",
+  "schema",
+  "series",
+  "series_key",
+  "source",
+  "source_path",
+  "source_publication_at",
+  "source_rows_matched",
+  "source_sha256",
+  "status",
+  "supersedes",
+  "supersedes_reading",
+  "unit",
+  "unit_reason",
+  "value",
+  "value_period",
+  "value_revision_index",
+  "why"
+ ],
+ "publication_clock_values": {
+  "NOT_OBSERVED": 682,
+  "SOURCE_DECLARED": 45
+ },
+ "quarantined": 0,
+ "revision_rows": 0,
+ "rows_including_quarantine": 727,
+ "rows_read_first_hand": 727,
+ "schema": "m5phet.point_in_time_verification.v1",
+ "statuses": {
+  "AWAITED": 682,
+  "OBSERVED": 45
+ },
+ "superseding_rows": 0,
+ "verified_at": "2026-09-27T02:50Z",
+ "what": "a first-hand replay of the point-in-time store, read through the store's own reader, which recomputes each row's digest and refuses a row whose content no longer hashes to the name it is filed under. The store is written by financial-data's stage13 capture worker, driven by a systemd --user timer."
+}

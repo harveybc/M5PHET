@@ -23,6 +23,11 @@ from .protocol import AUTHOR_WRITTEN_SMOKE, EvaluationProtocol, PopulationMismat
 REPORT_VERSION = "m5phet-evaluation-report/1"
 UNDERPOWERED = "UNDERPOWERED"
 
+#: RR05: a policy metric set whose every action is the zero vector. Carried the same way UNDERPOWERED is -- in the
+#: flags, in the statements and in the headline -- because a stage that took no decision is not a weaker version of a
+#: stage that did, and the two must not be read from the same table as if they were.
+NO_DECISION_TAKEN = "NO_DECISION_TAKEN"
+
 
 @dataclasses.dataclass(frozen=True)
 class EvaluationReport:
@@ -72,6 +77,11 @@ class EvaluationReport:
     def is_underpowered(self) -> bool:
         return any(flag.startswith(UNDERPOWERED) for flag in self.flags)
 
+    @property
+    def took_no_decision(self) -> bool:
+        """True when a metric set of this report proposed the zero vector on every row of its population."""
+        return any(flag.startswith(NO_DECISION_TAKEN) for flag in self.flags)
+
     def headline(self) -> str:
         """One line that cannot be quoted without its conditions, because they are inside the line."""
         scored = min((metrics.counts.get("scored_rows", 0) for metrics in self.metric_sets), default=0)
@@ -109,6 +119,13 @@ def build_report(*, protocol: EvaluationProtocol, seal: CorpusSeal, metric_sets,
                 f"{UNDERPOWERED}: {metrics.name} rests on {scored} scored rows against a declared minimum of "
                 f"{protocol.minimum_rows}. The numbers are reported because withholding weak results and publishing "
                 f"strong ones is selection, but they do not support a claim about quality.")
+        if metrics.values.get("all_actions_zero") is True:
+            flags.append(f"{NO_DECISION_TAKEN}:{metrics.name}:{scored}")
+            statements.append(
+                f"{NO_DECISION_TAKEN}: every one of the {scored} proposed actions in {metrics.name!r} is the zero "
+                f"vector, so this stage proposed the flat series. Its numbers are the flat baseline's under another "
+                f"name: they are not comparable with a stage that took decisions, and a tie with the baseline here is "
+                f"an identity, not a finding.")
 
     if protocol.is_smoke:
         flags.append(AUTHOR_WRITTEN_SMOKE)

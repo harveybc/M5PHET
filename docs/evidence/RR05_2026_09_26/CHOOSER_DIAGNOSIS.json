@@ -1,0 +1,40 @@
+{
+ "wp29_calibration_20260925": {
+  "by_kind": {
+   "regime_method": {
+    "abstained": 28,
+    "argmax_invariant": true,
+    "chance_level": 0.25,
+    "chose": 0,
+    "distinct_probability_vectors": 28,
+    "distinct_states": 28,
+    "margin_over_second": {
+     "max": 0.231,
+     "mean": 0.132621,
+     "min": 0.045599999999999974
+    },
+    "options": 4,
+    "reached_threshold": 0,
+    "records": 28,
+    "schema": "m5phet.chooser_diagnosis.v1",
+    "thresholds": [
+     0.8
+    ],
+    "top_option_counts": {
+     "agglomerative": 28
+    },
+    "top_probability": {
+     "distinct": 28,
+     "max": 0.436,
+     "mean": 0.372975,
+     "min": 0.3171
+    },
+    "verdict": "ARGMAX_INVARIANT_BELOW_THRESHOLD",
+    "why": "all 28 probability vectors differ across 28 distinct states, so the state IS read; the first-ranked option is the same on every record; and no record's top probability reaches the cited threshold 0.8 -- the highest is 0.436 against a chance level of 0.25 over 4 options. Every abstention here is the measured rule holding, not a failure of the model, and this question is simply outside the confidence region the checkpoint was measured in. Nothing here licenses a quality claim for this chooser",
+    "with_probabilities": 28
+   }
+  },
+  "laya_records": 28,
+  "records_in_folder": 84
+ }
+}

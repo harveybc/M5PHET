@@ -1,0 +1,154 @@
+{
+ "bundles": [
+  {
+   "bundle": "household-dev",
+   "device": "CPU",
+   "engine": "tensorflow_saved_model",
+   "fresh_native_input_sha256": "a4a4598bce72d3723055300d84d797df4ea18e28bdf5f0689315d06061f75ffb",
+   "fresh_native_values": [
+    [
+     0.5412255525588989
+    ]
+   ],
+   "heads": null,
+   "horizons": [
+    60
+   ],
+   "input_digests_match": true,
+   "max_absolute_error": 0.0,
+   "no_heldout_scoring": true,
+   "no_training": true,
+   "retained_max_absolute_error_provider_vs_native": 0.0,
+   "retained_native_values": [
+    [
+     0.5412255525588989
+    ]
+   ],
+   "retained_parity_input_sha256": "a4a4598bce72d3723055300d84d797df4ea18e28bdf5f0689315d06061f75ffb",
+   "scale": "original",
+   "state_id": null,
+   "targets": [
+    "Global_active_power"
+   ],
+   "task_id": "e1.household.W60_h60",
+   "unit": "kW"
+  },
+  {
+   "bundle": "predictor-direction-dev",
+   "device": "CPU",
+   "engine": "tensorflow_saved_model",
+   "fresh_native_input_sha256": "64debf04378d17ec40791f4b59796bf5d9e645e5b2884c26ae623cc7991a3b25",
+   "fresh_native_values": [
+    [
+     0.6035091876983643
+    ]
+   ],
+   "heads": null,
+   "horizons": [
+    1
+   ],
+   "input_digests_match": true,
+   "max_absolute_error": 0.0,
+   "no_heldout_scoring": true,
+   "no_training": true,
+   "retained_max_absolute_error_provider_vs_native": 0.0,
+   "retained_native_values": [
+    [
+     0.6035091876983643
+    ]
+   ],
+   "retained_parity_input_sha256": "64debf04378d17ec40791f4b59796bf5d9e645e5b2884c26ae623cc7991a3b25",
+   "scale": "probability",
+   "state_id": "phase-1c-direction-cnn-direction-long",
+   "targets": [
+    "direction_long"
+   ],
+   "task_id": "predictor.phase-1c-direction-cnn-direction-long.W71_h1",
+   "unit": "probability"
+  },
+  {
+   "bundle": "quantile-household-95",
+   "device": "CPU",
+   "engine": "tensorflow_saved_model",
+   "fresh_native_input_sha256": "750f2095720ca4e6bc92163b6a5a94875a90e1b24a695bf9ba5f80e6c5b6798b",
+   "fresh_native_values": [
+    [
+     [
+      0.031671345233917236,
+      0.05390828847885132,
+      0.3106432557106018,
+      2.4179186820983887,
+      2.8229525089263916
+     ]
+    ]
+   ],
+   "heads": [
+    "quantile"
+   ],
+   "horizons": [
+    60
+   ],
+   "input_digests_match": true,
+   "max_absolute_error": 0.0,
+   "no_heldout_scoring": true,
+   "no_training": true,
+   "retained_max_absolute_error_provider_vs_native": 0.0,
+   "retained_native_values": [
+    [
+     0.031671345233917236,
+     0.05390828847885132,
+     0.3106432557106018,
+     2.4179186820983887,
+     2.8229525089263916
+    ]
+   ],
+   "retained_parity_input_sha256": "750f2095720ca4e6bc92163b6a5a94875a90e1b24a695bf9ba5f80e6c5b6798b",
+   "scale": "original",
+   "state_id": "quantile-household-95-20260925",
+   "targets": [
+    "Global_active_power"
+   ],
+   "task_id": "predictor.quantile-household-95-20260925.W60_h60",
+   "unit": "kW"
+  },
+  {
+   "bundle": "searched-w21-household-outer",
+   "device": "CPU",
+   "engine": "tensorflow_saved_model",
+   "fresh_native_input_sha256": "f9ff0d57ea00db5f7669bd227aebffc212f7d03bfe9db11f8e2857ee763602fc",
+   "fresh_native_values": [
+    [
+     0.3901098966598511
+    ]
+   ],
+   "heads": [
+    "point"
+   ],
+   "horizons": [
+    60
+   ],
+   "input_digests_match": true,
+   "max_absolute_error": 0.0,
+   "no_heldout_scoring": true,
+   "no_training": true,
+   "retained_max_absolute_error_provider_vs_native": 0.0,
+   "retained_native_values": [
+    [
+     0.3901098966598511
+    ]
+   ],
+   "retained_parity_input_sha256": "f9ff0d57ea00db5f7669bd227aebffc212f7d03bfe9db11f8e2857ee763602fc",
+   "scale": "original",
+   "state_id": "searched-w21-household-outer-20260925",
+   "targets": [
+    "Global_active_power"
+   ],
+   "task_id": "predictor.searched-w21-household-outer-20260925.W21_h60",
+   "unit": "kW"
+  }
+ ],
+ "measured_at": "2026-09-27T02:41Z",
+ "reading": "max_absolute_error 0.0 with matching input digests means the served graph, its scaler and its readout reproduce bit for bit after the reboot. It is NOT a quality claim: no held-out row was scored here and no baseline was computed",
+ "schema": "m5phet.forecast_native_parity.v1",
+ "what": "every served forecast bundle re-inferred TODAY in the operator's native TensorFlow interpreter (forecast-native-venv, CPU, CUDA_VISIBLE_DEVICES empty) against the bundle's own example_request, and compared value by value with the parity record retained beside it"
+}
