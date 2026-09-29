@@ -10,6 +10,18 @@ service the owner is running was started, stopped or restarted. The owner's
 workbench on port 8765 was never driven, and no conversation was overwritten.
 The deployment below is **prepared and proposed, not applied**.
 
+> **Corrected by CB05, 2026-09-28** — see
+> `SATOSHI_CB05_BACKEND_AND_CORRECTIONS_2026_09_28.md` §5. The *short* return I
+> gave the owner about this work invited the reading that a live classifier
+> accuracy run had happened. It had not. This document's own §8 says
+> `NO_NEW_MODEL_MEASUREMENT`, and its real-provider and classification-quality
+> statements are a **declaration** (the provider's `capabilities()`) and a
+> **retained record** (the operator's quality record) respectively. Two of the
+> five families answered with named refusals, and a refusal is not a delivered
+> family. The contradictory `NEWS_SIGNAL_BACKEND` / worker configuration
+> described at the end of §5 below is fixed there, not here: it now refuses by
+> name instead of resolving silently in either direction.
+
 ---
 
 ## 1. The thirteen preserved files, and how they were integrated
