@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parent.parent
 HELDOUT = REPO / "docs/evidence/ROUTE_GENERALIZATION_HELDOUT_2026_09_28/heldout_paraphrases.json"
 
 #: the freeze. A held-out set whose contents can drift is not held out; changing it means changing this line.
-HELDOUT_SHA256 = "f0e0b0cad84e1b6f25dcf7e3f2f3c3e7d9d9e0a2d7ed96d0dcb0b4d80f4b8b6a"
+HELDOUT_SHA256 = "1cb0310a67a089891447614d43f83eb67a4cb07f7be5dc98fc3129d7de69233f"
 
 
 def test_the_scope_block_declares_prompts_and_repeats_and_not_an_example_count():

@@ -57,6 +57,12 @@ REPORT_SCHEMA = "m5phet_route_reliability.v1"
 #: words or through a phrasing the provider declared as an alias. A field the sentence does not name is not scored:
 #: the engine settles it, and a model that leaves it out has not misread anything.
 #:
+#: CB05: what this corpus IS, stated once and carried by every report. It was read as "95 examples" in a short
+#: report of 2026-09-28, and a completion pass was then judged on a six-run difference as though six examples had
+#: moved. Five runs of one sentence are five observations of one item; and the item is a ROUTER's envelope, never a
+#: classification label, so nothing measured here is a classification benchmark.
+CORPUS_ROLE = "ROUTER_DEV_CORPUS_NOT_A_CLASSIFICATION_BENCHMARK"
+
 #: `fragment` picks the shipped example whose data is attached, exactly as the other harnesses pick it.
 CASES = [
     # --- classification. `laya_news` declares no governed values: the sentence IS the question put to the checkpoint
@@ -338,7 +344,9 @@ PROTOCOL = ("each sentence of tools/measure_route.py CASES is routed N times thr
             "Scorer v2 checks every explicit governed-value occurrence in state and questions, including aliases; "
             "integer fields never truncate fractional values or accept booleans. "
             "Every result retains the WHOLE proposal endpoint response (minus the catalog, published once above, "
-            "and the attachment profile) plus the route completion record, for independent rescoring.")
+            "and the attachment profile) plus the route completion record, for independent rescoring. "
+            "The corpus is " + CORPUS_ROLE + ": N repeats of each prompt are N observations of ONE item, never N "
+            "independent examples, and what is scored is the router's envelope and not any classifier's label.")
 
 #: counted from CASES and never written by hand. The first run of this harness (2026-09-25) published "18 sentences"
 #: from a hand-written string while its own summary counted 19; a corpus size that can disagree with the corpus is a
@@ -393,6 +401,39 @@ def save_checkpoint(directory, case, base, runs, entry):
                                indent=1, sort_keys=True, ensure_ascii=False), encoding="utf-8")
 
 
+def select_cases(cases, only):
+    """The sentences a run covers: all of them, or those whose prompt contains one of `only`'s substrings."""
+    if not only:
+        return list(cases)
+    return [case for case in cases if any(fragment in case["prompt"] for fragment in only)]
+
+
+def corpus_scope(cases, only, *, runs):
+    """What the denominator of this run IS, in the report's own words.
+
+    CB05 correction 3. The block used to say `selected` and `of`, which answered "how much of the corpus" and left
+    "how many examples" to the reader -- and the reader, including me in a short report to the owner, read 19x5 as 95
+    examples. It now states prompts and repeats separately, declares `independent_examples: false`, says that what is
+    measured is the router, and refuses the reading under which this corpus is a classification benchmark."""
+    selected = select_cases(cases, only)
+    plural = lambda count, word: f"{count} {word}" + ("" if count == 1 else "s")
+    always = (f"{plural(len(selected), 'prompt')} x {plural(runs, 'repeat')} = {plural(len(selected) * runs, 'run')}."
+              f" Repeats of one prompt are "
+              f"repeated observations of ONE item and are not independent examples, so a difference of k runs is not "
+              f"k examples' worth of evidence. What is scored is the ROUTER -- a language model writing an envelope --"
+              f" and never a classifier's label: this is not a classification benchmark under any reading.")
+    scope = {"scoped": bool(only), "prompts": len(selected), "repeats": runs, "runs": len(selected) * runs,
+             "selected": len(selected), "of": len(cases),
+             "independent_examples": False, "measures": "router", "role": CORPUS_ROLE,
+             "not_a_classification_benchmark": True,
+             "reading": always}
+    if only:
+        scope["fragments"] = list(only)
+        scope["reading"] = ("a SUBSET of the declared corpus. The rates below are about these sentences only and are "
+                            "not this router's reliability, which is measured over the whole corpus. " + always)
+    return scope
+
+
 def measure(base, runs, timeout, checkpoint=None, only=None):
     """`only` restricts the corpus to the sentences whose prompt contains one of those substrings.
 
@@ -406,17 +447,11 @@ def measure(base, runs, timeout, checkpoint=None, only=None):
               "abstention": (catalog.get("abstention") or {}).get("paths", {}).get("route"),
               "protocol": PROTOCOL, "corpus": CORPUS, "sentences": []}
     examples = catalog["examples"]
-    cases = CASES
-    if only:
-        cases = [c for c in CASES if any(fragment in c["prompt"] for fragment in only)]
-        report["corpus_scope"] = {"scoped": True, "selected": len(cases), "of": len(CASES), "fragments": list(only),
-                                 "reading": ("a SUBSET of the declared corpus. The rates below are about these "
-                                             "sentences only and are not this router's reliability, which is measured "
-                                             "over the whole corpus")}
-        if not cases:
-            raise ValueError(f"--only {list(only)} selected none of the {len(CASES)} declared sentences")
-    else:
-        report["corpus_scope"] = {"scoped": False, "selected": len(CASES), "of": len(CASES)}
+    cases = select_cases(CASES, only)
+    report["corpus_role"] = CORPUS_ROLE
+    report["corpus_scope"] = corpus_scope(CASES, only, runs=runs)
+    if only and not cases:
+        raise ValueError(f"--only {list(only)} selected none of the {len(CASES)} declared sentences")
     for case in cases:
         chosen = [e for e in examples if e["config"]["provider"] == case["provider"]
                   and case["fragment"].lower() in e["title"].lower()]

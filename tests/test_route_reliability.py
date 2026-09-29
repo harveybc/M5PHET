@@ -346,7 +346,12 @@ def test_each_scored_result_carries_the_completion_record_beside_its_verdict(mon
     report = measure_route.measure("http://unused", 1, 1)
     result = report["sentences"][0]["results"][0]
     assert result["completion"]["outcome"] == "NOTHING_FURTHER_ASKED"
-    assert report["corpus_scope"] == {"scoped": False, "selected": 1, "of": 1}
+    # CB05 widened this block: it now states prompts and repeats separately, so a reader cannot take runs for
+    # examples. The two facts this test was written for are unchanged and asserted by name.
+    assert report["corpus_scope"]["scoped"] is False
+    assert (report["corpus_scope"]["selected"], report["corpus_scope"]["of"]) == (1, 1)
+    assert report["corpus_scope"]["independent_examples"] is False
+    assert report["corpus_role"] == measure_route.CORPUS_ROLE
 
 
 def test_a_scoped_run_says_so_and_an_unscoped_one_says_so_too(monkeypatch):
