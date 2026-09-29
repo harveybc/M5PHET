@@ -1,5 +1,20 @@
 {
   "schema": "m5phet.method.v1",
+  "musashi_continuation_20260927": {
+    "assignment": "RR05 / WP30; direct continuation while Satoshi is unavailable",
+    "stage": "focused_implementation_verified_not_deployed",
+    "scope": "Router evaluation: all explicit governed values, non-lossy horizon comparison, retained endpoint outcomes",
+    "pre": "5 failures, 22 passes; separate missing-outcome retention test failed",
+    "post": "80 focused tests passed under bounded 2 GiB admission",
+    "historical_rescoring": "Unavailable: the retained 95 outcomes contain verdict summaries, not complete proposals",
+    "scientific_measurement": "NO_NEW_MODEL_MEASUREMENT",
+    "next_actions": [
+      "Integrate with the preserved, uncommitted RR05 work without overwriting it",
+      "Measure the corrected router on the complete declared corpus in an isolated workbench and retain endpoint outcomes",
+      "Rehearse a pinned product deployment before changing the user's running chat"
+    ],
+    "evidence": "docs/evidence/MUSASHI_ROUTE_VALUES_2026_09_27/RETURN.md"
+  },
   "current_stage": "classification_first_real_provider_verified_on_external_5090",
   "natural_language_interface": {
     "role": "PRIMARY_PRODUCT_INTERFACE_NOT_OPTIONAL_DECORATION",

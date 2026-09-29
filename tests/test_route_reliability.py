@@ -99,6 +99,55 @@ def test_nothing_proposed_at_all_is_a_refusal_and_not_a_misreading():
     assert verdict == REFUSED and detail["why"] == "the interpreter returned no JSON object"
 
 
+@pytest.mark.parametrize("horizon", [60.5, float("inf"), float("nan"), True])
+def test_horizon_comparison_never_truncates_or_accepts_boolean(horizon):
+    case = dict(CASE, values={"horizon": 1 if horizon is True else 60})
+    verdict, _ = verdict_of(case, outcome(questions={"p": {
+        "type": "point_forecast", "horizon": horizon}}))
+    assert verdict == WRONG_VALUE
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_every_question_value_is_checked_independently_of_order(reverse):
+    questions = {"right": {"type": "point_forecast", "horizon": 60,
+                            "target": "Global_active_power"},
+                 "wrong": {"type": "point_forecast", "horizon": 1,
+                            "target": "Global_active_power"}}
+    if reverse:
+        questions = dict(reversed(list(questions.items())))
+    verdict, detail = verdict_of(CASE, outcome(questions=questions))
+    assert verdict == WRONG_VALUE
+    assert "horizon" in detail["value_problems"]
+
+
+def test_conflicting_target_alias_is_not_hidden_by_first_spelling():
+    verdict, _ = verdict_of(CASE, outcome(questions={"p": {
+        "type": "point_forecast", "horizon": 60,
+        "target": "Global_active_power", "target_variable": "Voltage"}}))
+    assert verdict == WRONG_VALUE
+
+
+def test_oversized_integer_text_is_a_mismatch_not_a_conversion_exception():
+    verdict, _ = verdict_of(CASE, outcome(questions={"p": {
+        "type": "point_forecast", "horizon": "9" * 5000,
+        "target": "Global_active_power"}}))
+    assert verdict == WRONG_VALUE
+
+
+def test_measurement_retains_the_envelope_needed_for_independent_rescoring(monkeypatch):
+    recorded = outcome()
+    recorded["seconds"] = 0.01
+    monkeypatch.setattr(measure_route, "CASES", [CASE])
+    monkeypatch.setattr(measure_route, "call", lambda *a, **kw: {"examples": [{
+        "title": "household-power", "config": {"provider": "predictor_forecast"}}]})
+    monkeypatch.setattr(measure_route, "prepare", lambda *a: ("chat", []))
+    monkeypatch.setattr(measure_route, "one_run", lambda *a: recorded)
+    report = measure_route.measure("http://unused", 1, 1)
+    result = report["sentences"][0]["results"][0]
+    assert result["outcome"] == recorded
+    assert verdict_of(CASE, result["outcome"])[0] == result["verdict"]
+
+
 def test_a_field_the_sentence_does_not_name_is_not_scored():
     case = dict(CASE, values={"target": "Global_active_power"})
     verdict, _ = verdict_of(case, outcome(questions={"p": {"type": "point_forecast", "horizon": 1,

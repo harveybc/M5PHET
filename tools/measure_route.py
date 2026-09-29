@@ -215,22 +215,38 @@ def named_values(outcome, fields):
 
 
 def value_problems(expected, outcome):
-    """`{field: "ABSENT"|["got", "wanted"]}` for every governed value the sentence names and the envelope does not."""
-    got = named_values(outcome, list(expected))
+    """Check every named occurrence, not just the first matching question or alias."""
+    envelope = outcome.get("task") if isinstance(outcome.get("task"), dict) else outcome.get("proposal")
+    envelope = envelope if isinstance(envelope, dict) else {}
+    state = envelope.get("state")
+    containers = [("state", state)] if isinstance(state, dict) else []
+    containers += [(f"questions.{name}", question)
+                   for name, question in proposed_questions(outcome).items() if isinstance(question, dict)]
     problems = {}
     for field, wanted in expected.items():
-        if field not in got:
+        occurrences = [(f"{path}.{spelling}", obj[spelling]) for path, obj in containers
+                       for spelling in FIELD_SPELLINGS.get(field, (field,)) if spelling in obj]
+        if not occurrences:
             problems[field] = "ABSENT"
             continue
-        value = got[field]
-        if isinstance(wanted, int) and not isinstance(wanted, bool):
-            try:
-                value = int(value)
-            except (TypeError, ValueError):
-                problems[field] = {"got": got[field], "wanted": wanted}
-                continue
-        if value != wanted:
-            problems[field] = {"got": got[field], "wanted": wanted}
+        mismatches = []
+        for path, value in occurrences:
+            candidate = value
+            if type(wanted) is int:
+                # Preserve the declared integer-text compatibility without truncating floats.
+                if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value.strip()):
+                    digits = value.strip().lstrip("+-").lstrip("0") or "0"
+                    sign = "-" if value.strip().startswith("-") and digits != "0" else ""
+                    matches = sign + digits == str(wanted)
+                else:
+                    matches = type(candidate) in (int, float) and candidate == wanted
+            else:
+                matches = type(candidate) is type(wanted) and candidate == wanted
+            if not matches:
+                mismatches.append({"path": path, "got": value, "wanted": wanted})
+        if mismatches:
+            problems[field] = ({"got": mismatches[0]["got"], "wanted": wanted}
+                               if len(occurrences) == 1 else {"occurrences": mismatches})
     return problems
 
 
@@ -305,7 +321,10 @@ PROTOCOL = ("each sentence of tools/measure_route.py CASES is routed N times thr
             "the proposal validates against check_proposal AND its area, the set of its question types and every "
             "governed value the sentence names are the expected ones. The expectations come from the harnesses the "
             "sentences belong to (tools/verify_families.py PROSE and tools/verify_envelopes.py's envelopes) and from "
-            "the engines' declared vocabularies -- never from a model's answer.")
+            "the engines' declared vocabularies -- never from a model's answer. "
+            "Scorer v2 checks every explicit governed-value occurrence in state and questions, including aliases; "
+            "integer fields never truncate fractional values or accept booleans. "
+            "Every result retains the proposal endpoint outcome for independent rescoring.")
 
 #: counted from CASES and never written by hand. The first run of this harness (2026-09-25) published "18 sentences"
 #: from a hand-written string while its own summary counted 19; a corpus size that can disagree with the corpus is a
@@ -404,7 +423,8 @@ def measure(base, runs, timeout, checkpoint=None, only=None):
             verdict, detail = verdict_of(case, outcome)
             verdicts.append(verdict)
             results.append({"verdict": verdict, "detail": detail, "status": outcome.get("status"),
-                            "seconds": outcome.get("seconds"), "why": outcome.get("why")})
+                            "seconds": outcome.get("seconds"), "why": outcome.get("why"),
+                            "outcome": outcome})
         distinct = sorted({json.dumps({"area": r["detail"].get("area"), "types": r["detail"].get("types"),
                                        "values": r["detail"].get("values")}, sort_keys=True, ensure_ascii=False)
                            for r in results})
