@@ -1,0 +1,304 @@
+{
+  "schema": "m5phet.ap01_restart.v1",
+  "case": "pinned_checkpoint_mismatch",
+  "port": 8772,
+  "state_dir": "/home/harveybc/.local/share/m5phet/staging-ap-20260929/state-gate",
+  "taken_at": "2026-09-29T17:32:14-0500",
+  "process_1_pid_owned_by_this_script": true,
+  "before_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "answered_by": null,
+      "backend": null,
+      "weights_present": false,
+      "device": null,
+      "checkpoint": null,
+      "checkpoint_pinned": true,
+      "status": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+      "validated": false,
+      "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+      "reading": "the declared mode cannot be served. No question of this area is answered from anywhere else: there is no path from this refusal to a local reading of the same question."
+    },
+    "classification_selection": {
+      "schema": "m5phet.classification_backend.v1",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "mode_declared": true,
+      "worker_bound": true,
+      "worker_command_bound": true,
+      "worker_binding_ignored": false,
+      "local_backend_selection": null,
+      "expects_backend": "laya",
+      "expects_weights": true,
+      "expects_path": "remote_worker",
+      "checkpoint_pin": "laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "variables": {
+        "backend": "NEWS_SIGNAL_BACKEND",
+        "worker": "M5PHET_CHAT_LAYA_WORKER",
+        "command": "M5PHET_CHAT_LAYA_COMMAND",
+        "mode": "M5PHET_CLASSIFICATION_MODE",
+        "checkpoint_pin": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT"
+      },
+      "reading": "which backend answers classification, decided from the operator's declarations alone. A contradiction refuses by name; an ambiguity requires one explicit mode; nothing is overridden silently. The host itself is never published here."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [],
+        "unavailable": {
+          "code": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+          "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+          "mode": "remote_worker"
+        },
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "answer": {
+      "status": "OK",
+      "content": "La potencia pronosticada a 60 pasos es 0.5412255525588989 kW, para la variable Global_active_power. La respuesta es un pronóstico puntual (sin incertidumbre), con estado OK y sin autorización de ejecución.\n\nNo hubo preguntas rechazadas: la única pregunta (\"pronostica la potencia a 60 pasos\") se respondió correctamente, por lo que no hay motivos de rechazo que reportar.",
+      "answers": {
+        "prediccion": {
+          "type": "point_forecast",
+          "values": [
+            0.5412255525588989
+          ],
+          "unit": "kW",
+          "scale": "original",
+          "targets": [
+            "Global_active_power"
+          ],
+          "horizons": [
+            60
+          ],
+          "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+          "as_of": "2026-09-29T22:32:16.941389+00:00",
+          "uncertainty": "none",
+          "execution_authorized": false,
+          "status": "OK"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "8f04a1f68c0c7cc5cc90daab9df2a3aff25742ce0b516e88cf29a1995e8b3fd1",
+      "message_sha256": "7396aac840b3fcfcef703a9ff6c31e83d8fa3ba2999a8bf5434288a788df84f8"
+    },
+    "interrupted_status_at_stop": "RUNNING"
+  },
+  "bundle_named": {
+    "state_id": null,
+    "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+    "heads": [
+      "point"
+    ]
+  },
+  "chat_id": "a011254d634e4f37a6d2d6791618367e",
+  "message_id": "32b317c8fc264870b20efe12982c444d",
+  "attachment_sha256": "8148ba924eafd90fe3e47959f2af0bee2826339c39a3db1903a047d5ea4a13fd",
+  "stop": {
+    "signal": "SIGTERM",
+    "returncode": -15
+  },
+  "after_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "answered_by": null,
+      "backend": null,
+      "weights_present": false,
+      "device": null,
+      "checkpoint": null,
+      "checkpoint_pinned": true,
+      "status": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+      "validated": false,
+      "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+      "reading": "the declared mode cannot be served. No question of this area is answered from anywhere else: there is no path from this refusal to a local reading of the same question."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [],
+        "unavailable": {
+          "code": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+          "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+          "mode": "remote_worker"
+        },
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "chat_listed": true,
+    "attachment_present": true,
+    "answer": {
+      "status": "OK",
+      "content": "La potencia pronosticada a 60 pasos es 0.5412255525588989 kW, para la variable Global_active_power. La respuesta es un pronóstico puntual (sin incertidumbre), con estado OK y sin autorización de ejecución.\n\nNo hubo preguntas rechazadas: la única pregunta (\"pronostica la potencia a 60 pasos\") se respondió correctamente, por lo que no hay motivos de rechazo que reportar.",
+      "answers": {
+        "prediccion": {
+          "type": "point_forecast",
+          "values": [
+            0.5412255525588989
+          ],
+          "unit": "kW",
+          "scale": "original",
+          "targets": [
+            "Global_active_power"
+          ],
+          "horizons": [
+            60
+          ],
+          "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+          "as_of": "2026-09-29T22:32:16.941389+00:00",
+          "uncertainty": "none",
+          "execution_authorized": false,
+          "status": "OK"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "8f04a1f68c0c7cc5cc90daab9df2a3aff25742ce0b516e88cf29a1995e8b3fd1",
+      "message_sha256": "7396aac840b3fcfcef703a9ff6c31e83d8fa3ba2999a8bf5434288a788df84f8"
+    },
+    "interrupted": {
+      "status": "INTERRUPTED",
+      "content": "Server stopped while this request was running; no answer was produced. Send the same request again to run it.",
+      "retry_message_id": "c73dd6a3b0cb447190298377c04b9bb8",
+      "retry_is_the_same_message": true,
+      "after_resend": {
+        "status": "OK",
+        "answers": {
+          "prediccion": {
+            "type": "point_forecast",
+            "values": [
+              0.5412255525588989
+            ],
+            "unit": "kW",
+            "scale": "original",
+            "targets": [
+              "Global_active_power"
+            ],
+            "horizons": [
+              60
+            ],
+            "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+            "as_of": "2026-09-29T22:32:40.472391+00:00",
+            "uncertainty": "none",
+            "execution_authorized": false,
+            "status": "OK"
+          }
+        },
+        "answered_by": {
+          "provider": "predictor_forecast",
+          "backend": null,
+          "fitted_state_ref": null,
+          "classification_backend": null,
+          "execution_authorized": false,
+          "quality": "NOT_MEASURED"
+        }
+      }
+    }
+  },
+  "verdict": {
+    "input_attached": true,
+    "output_answered": true,
+    "persisted_identically": true,
+    "conversation_survived_restart": true,
+    "receipt_survived_restart": true,
+    "interrupted_named": true,
+    "interrupted_request_reran": true,
+    "offer_matches_servability": true,
+    "all": true
+  }
+}

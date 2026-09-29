@@ -225,9 +225,35 @@ def run_task(payload, registry, *, data=None, configuration=None, environ=None):
     return response
 
 
-def catalog(registry, configuration=None):
+#: AP01: what the catalog says about an area whose declared engine cannot be served. The area keeps the name of the
+#: provider the configuration declares -- removing it would make the configuration unreadable from the outside -- and
+#: it offers NOTHING, because every question of it refuses by name. An offer is a promise; this is the absence of one.
+UNAVAILABLE_READING = ("the declared backend of this area cannot be served, so nothing of it is offered; every "
+                       "question of it refuses by name and no other engine answers in its place")
+
+
+def unserved_area(entry, refusal):
+    """One catalog entry gated: the declared provider kept, every offer emptied, the refusal named on its face.
+
+    `refusal` is `{code, why, mode?}` as the area's own contract named it -- this function never invents a reason and
+    never decides that an area is unserved. It is given that finding and makes the catalog say it."""
+    return {**entry, "question_types": {}, "parameters": {}, "aliases": {}, "combinations": [],
+            "confidence_levels": [], "quality": "NOT_MEASURED",
+            "unavailable": {"code": refusal.get("code"), "why": refusal.get("why"), "mode": refusal.get("mode")},
+            "reading": UNAVAILABLE_READING}
+
+
+def catalog(registry, configuration=None, unserved=None):
     """What can be asked, per area: the provider and the question types it declares. This is what an orchestrator is given
     to choose from; it is also exactly what a person may write by hand.
+
+    `unserved` is `{area: {code, why, mode?}}` for the areas whose declared engine cannot be served at this moment.
+    Those areas are published with their refusal and with nothing on offer (`unserved_area`). CB05 closed every door
+    that ANSWERS a classification question when its declared backend was not the one serving; it left the door that
+    OFFERS open, so a person -- or a router, or an MCP client -- was still shown `choice` on an area where every run
+    could only refuse. This parameter is that gap closed, and it is a parameter rather than a lookup because this
+    module must not acquire an opinion about anyone's backend: the caller that resolved the contract passes the
+    finding in.
 
     Each area also carries its `chooser`: the abstention rule that applies when a language model picks this area's
     configuration -- the threshold, the report it is cited from, and the bins at or above it -- or `NOT_CONFIGURED`.
@@ -268,6 +294,9 @@ def catalog(registry, configuration=None):
                      # WP31: and what is known about how well this area answers, published beside what it can be
                      # asked. A consumer reading the catalog sees the measurement before it asks anything
                      "quality": area_quality(area, provider, configuration)}
+    for area, refusal in (unserved or {}).items():
+        if area in out and refusal:
+            out[area] = unserved_area(out[area], refusal)
     return out
 
 

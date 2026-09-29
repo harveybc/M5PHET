@@ -1,0 +1,234 @@
+{
+  "schema": "m5phet.ap01_restart.v1",
+  "case": "pinned_checkpoint_mismatch",
+  "port": 8771,
+  "state_dir": "/home/harveybc/.local/share/m5phet/staging-ap-20260929/state-before",
+  "taken_at": "2026-09-29T17:06:05-0500",
+  "process_1_pid_owned_by_this_script": true,
+  "before_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "answered_by": null,
+      "backend": null,
+      "weights_present": false,
+      "device": null,
+      "checkpoint": null,
+      "checkpoint_pinned": true,
+      "status": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+      "validated": false,
+      "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+      "reading": "the declared mode cannot be served. No question of this area is answered from anywhere else: there is no path from this refusal to a local reading of the same question."
+    },
+    "classification_selection": {
+      "schema": "m5phet.classification_backend.v1",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "mode_declared": true,
+      "worker_bound": true,
+      "worker_command_bound": true,
+      "worker_binding_ignored": false,
+      "local_backend_selection": null,
+      "expects_backend": "laya",
+      "expects_weights": true,
+      "expects_path": "remote_worker",
+      "checkpoint_pin": "laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "variables": {
+        "backend": "NEWS_SIGNAL_BACKEND",
+        "worker": "M5PHET_CHAT_LAYA_WORKER",
+        "command": "M5PHET_CHAT_LAYA_COMMAND",
+        "mode": "M5PHET_CLASSIFICATION_MODE",
+        "checkpoint_pin": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT"
+      },
+      "reading": "which backend answers classification, decided from the operator's declarations alone. A contradiction refuses by name; an ambiguity requires one explicit mode; nothing is overridden silently. The host itself is never published here."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [
+          "choice"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "answer": {
+      "status": "REFUSED",
+      "content": "La pregunta \"pronostica la potencia a 60 pasos\" fue rechazada con estado REFUSED y motivo STATE_REQUIRED: 'Global_active_power' está servida por más de un bundle configurado (e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7, quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8 y searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669) y la solicitud no declara nada que las distinga. El tipo solicitado fue point_forecast.",
+      "answers": {
+        "prediccion": {
+          "status": "REFUSED",
+          "refusal": "STATE_REQUIRED",
+          "why": "'Global_active_power' is served by more than one configured bundle (e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7 and quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8 and searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669) and this request declares nothing that tells them apart; name it: `bundle` in the question (its state_ref, its state_id, or its head -- `quantile` or `point`), or `state_ref` in the state; ask for an `interval`, which only a bundle with a quantile head can answer; or ask for a `point_forecast`, which prefers the bundle without a quantile head when exactly one has none",
+          "type": "point_forecast"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "f114a72da7215fa479af6fbccc822f022f2eca7de5036d8e90b31a10ac6f87f5",
+      "message_sha256": "cf7cef97a882e188a4b5039fdb133cc53a856626c113ba2f8ff9462b3888a14d"
+    },
+    "interrupted_status_at_stop": "RUNNING"
+  },
+  "chat_id": "9243b41be76f4a4ea7e830b9b145d6a0",
+  "message_id": "e925953f6e454d8b95e6dbbaff5c42e9",
+  "attachment_sha256": "8148ba924eafd90fe3e47959f2af0bee2826339c39a3db1903a047d5ea4a13fd",
+  "stop": {
+    "signal": "SIGTERM",
+    "returncode": -15
+  },
+  "after_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "remote_worker",
+      "mode_source": "DECLARED",
+      "answered_by": null,
+      "backend": null,
+      "weights_present": false,
+      "device": null,
+      "checkpoint": null,
+      "checkpoint_pinned": true,
+      "status": "CLASSIFICATION_CHECKPOINT_MISMATCH",
+      "validated": false,
+      "why": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT pins 'laya-checkpoint:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' and the remote_worker path serves 'laya-checkpoint:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'.",
+      "reading": "the declared mode cannot be served. No question of this area is answered from anywhere else: there is no path from this refusal to a local reading of the same question."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [
+          "choice"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "chat_listed": true,
+    "attachment_present": true,
+    "answer": {
+      "status": "REFUSED",
+      "content": "La pregunta \"pronostica la potencia a 60 pasos\" fue rechazada con estado REFUSED y motivo STATE_REQUIRED: 'Global_active_power' está servida por más de un bundle configurado (e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7, quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8 y searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669) y la solicitud no declara nada que las distinga. El tipo solicitado fue point_forecast.",
+      "answers": {
+        "prediccion": {
+          "status": "REFUSED",
+          "refusal": "STATE_REQUIRED",
+          "why": "'Global_active_power' is served by more than one configured bundle (e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7 and quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8 and searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669) and this request declares nothing that tells them apart; name it: `bundle` in the question (its state_ref, its state_id, or its head -- `quantile` or `point`), or `state_ref` in the state; ask for an `interval`, which only a bundle with a quantile head can answer; or ask for a `point_forecast`, which prefers the bundle without a quantile head when exactly one has none",
+          "type": "point_forecast"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "f114a72da7215fa479af6fbccc822f022f2eca7de5036d8e90b31a10ac6f87f5",
+      "message_sha256": "cf7cef97a882e188a4b5039fdb133cc53a856626c113ba2f8ff9462b3888a14d"
+    },
+    "interrupted": {
+      "status": "REFUSED",
+      "content": "prediccion: not answered -- 'Global_active_power' is served by more than one configured bundle (e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7 and quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8 and searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669) and this request declares nothing that tells them apart; name it: `bundle` in the question (its state_ref, its state_id, or its head -- `quantile` or `point`), or `state_ref` in the state; ask for an `interval`, which only a bundle with a quantile head can answer; or ask for a `point_forecast`, which prefers the bundle without a quantile head when exactly one has none\nquality (forecasting): NOT_MEASURED — no evaluation report is declared for this area; the configured bundles name the protocol and the seal their numbers were measured under, and the report itself is where those numbers may be quoted from\n0 answered, 1 refused; nothing here is an instruction to act.",
+      "retry_message_id": "5528daa84d2c4740b6b5ab369f930747",
+      "retry_is_the_same_message": true
+    }
+  },
+  "verdict": {
+    "input_attached": true,
+    "output_answered": false,
+    "persisted_identically": true,
+    "conversation_survived_restart": true,
+    "receipt_survived_restart": true,
+    "interrupted_named": false,
+    "offer_matches_servability": false,
+    "all": false
+  }
+}

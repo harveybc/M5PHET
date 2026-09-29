@@ -1,0 +1,298 @@
+{
+  "schema": "m5phet.ap01_restart.v1",
+  "case": "real_forecast_fixture_classification",
+  "port": 8771,
+  "state_dir": "/home/harveybc/.local/share/m5phet/staging-ap-20260929/state-real",
+  "taken_at": "2026-09-29T17:31:29-0500",
+  "process_1_pid_owned_by_this_script": true,
+  "before_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "fixture",
+      "mode_source": "BACKEND_SELECTED",
+      "answered_by": "in_process",
+      "backend": "fixture",
+      "weights_present": false,
+      "device": "cpu",
+      "checkpoint": "laya-checkpoint:f057ebed79717126d7cd5b772310bd3679a67b5a4d07917111be452e3013fdf8",
+      "checkpoint_pinned": false,
+      "status": "VALIDATED",
+      "validated": true,
+      "reading": "the backend and checkpoint that ANSWERED, read from the declaration of the path that answered and checked against the configured mode; not inferred from the configuration."
+    },
+    "classification_selection": {
+      "schema": "m5phet.classification_backend.v1",
+      "mode": "fixture",
+      "mode_source": "BACKEND_SELECTED",
+      "mode_declared": false,
+      "worker_bound": false,
+      "worker_command_bound": false,
+      "worker_binding_ignored": false,
+      "local_backend_selection": "fixture",
+      "expects_backend": "fixture",
+      "expects_weights": false,
+      "expects_path": "in_process",
+      "checkpoint_pin": null,
+      "variables": {
+        "backend": "NEWS_SIGNAL_BACKEND",
+        "worker": "M5PHET_CHAT_LAYA_WORKER",
+        "command": "M5PHET_CHAT_LAYA_COMMAND",
+        "mode": "M5PHET_CLASSIFICATION_MODE",
+        "checkpoint_pin": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT"
+      },
+      "reading": "which backend answers classification, decided from the operator's declarations alone. A contradiction refuses by name; an ambiguity requires one explicit mode; nothing is overridden silently. The host itself is never published here."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [
+          "choice"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "answer": {
+      "status": "OK",
+      "content": "Pronóstico de potencia a 60 pasos:\n\nEl modelo devuelve un pronóstico puntual de 0.5412255525588989 kW para la variable Global_active_power, a un horizonte de 60 pasos, en escala original. Estado ajustado: e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7, con corte de decisión 2026-09-29T22:31:31.442271+00:00.\n\nNo hubo preguntas rechazadas: la única pregunta formulada fue respondida con estado OK.\n\nNotas: el pronóstico no incluye incertidumbre (uncertainty: none) y no autoriza ejecución de ninguna acción (execution_authorized: false).",
+      "answers": {
+        "prediccion": {
+          "type": "point_forecast",
+          "values": [
+            0.5412255525588989
+          ],
+          "unit": "kW",
+          "scale": "original",
+          "targets": [
+            "Global_active_power"
+          ],
+          "horizons": [
+            60
+          ],
+          "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+          "as_of": "2026-09-29T22:31:31.442271+00:00",
+          "uncertainty": "none",
+          "execution_authorized": false,
+          "status": "OK"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "a34fd7fc618b12297fbb057db1fab17f9a3ad49f20b85d4cc8fe3cf14b0aa598",
+      "message_sha256": "c87b964337baa8ff240e7eb0375cacbb497f0649711a005c3dce7b7573abc4cf"
+    },
+    "interrupted_status_at_stop": "RUNNING"
+  },
+  "bundle_named": {
+    "state_id": null,
+    "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+    "heads": [
+      "point"
+    ]
+  },
+  "chat_id": "5579703208cb404cb58e26ace1cd9c07",
+  "message_id": "1ffcab30e497422992296a085ce28d3f",
+  "attachment_sha256": "8148ba924eafd90fe3e47959f2af0bee2826339c39a3db1903a047d5ea4a13fd",
+  "stop": {
+    "signal": "SIGTERM",
+    "returncode": -15
+  },
+  "after_restart": {
+    "classification_backend": {
+      "schema": "m5phet.classification_backend.v1.effective",
+      "mode": "fixture",
+      "mode_source": "BACKEND_SELECTED",
+      "answered_by": "in_process",
+      "backend": "fixture",
+      "weights_present": false,
+      "device": "cpu",
+      "checkpoint": "laya-checkpoint:f057ebed79717126d7cd5b772310bd3679a67b5a4d07917111be452e3013fdf8",
+      "checkpoint_pinned": false,
+      "status": "VALIDATED",
+      "validated": true,
+      "reading": "the backend and checkpoint that ANSWERED, read from the declaration of the path that answered and checked against the configured mode; not inferred from the configuration."
+    },
+    "offered": {
+      "causal": {
+        "provider": "causal_inference",
+        "question_types": [
+          "ate",
+          "cate",
+          "counterfactual_path",
+          "impulse_response",
+          "sensitivity"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "classification": {
+        "provider": "laya_news",
+        "question_types": [
+          "choice"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "forecasting": {
+        "provider": "predictor_forecast",
+        "question_types": [
+          "anomaly_risk",
+          "interval",
+          "point_forecast"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "rl": {
+        "provider": "trading_policy",
+        "question_types": [
+          "next_action",
+          "value_estimation"
+        ],
+        "unavailable": null,
+        "error": null
+      },
+      "unsupervised": {
+        "provider": "feature-eng-hierarchical-regimes",
+        "question_types": [
+          "cluster_description",
+          "clustering"
+        ],
+        "unavailable": null,
+        "error": null
+      }
+    },
+    "chat_listed": true,
+    "attachment_present": true,
+    "answer": {
+      "status": "OK",
+      "content": "Pronóstico de potencia a 60 pasos:\n\nEl modelo devuelve un pronóstico puntual de 0.5412255525588989 kW para la variable Global_active_power, a un horizonte de 60 pasos, en escala original. Estado ajustado: e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7, con corte de decisión 2026-09-29T22:31:31.442271+00:00.\n\nNo hubo preguntas rechazadas: la única pregunta formulada fue respondida con estado OK.\n\nNotas: el pronóstico no incluye incertidumbre (uncertainty: none) y no autoriza ejecución de ninguna acción (execution_authorized: false).",
+      "answers": {
+        "prediccion": {
+          "type": "point_forecast",
+          "values": [
+            0.5412255525588989
+          ],
+          "unit": "kW",
+          "scale": "original",
+          "targets": [
+            "Global_active_power"
+          ],
+          "horizons": [
+            60
+          ],
+          "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+          "as_of": "2026-09-29T22:31:31.442271+00:00",
+          "uncertainty": "none",
+          "execution_authorized": false,
+          "status": "OK"
+        }
+      },
+      "answered_by": {
+        "provider": "predictor_forecast",
+        "backend": null,
+        "fitted_state_ref": null,
+        "classification_backend": null,
+        "execution_authorized": false,
+        "quality": "NOT_MEASURED"
+      },
+      "detail_sha256": "a34fd7fc618b12297fbb057db1fab17f9a3ad49f20b85d4cc8fe3cf14b0aa598",
+      "message_sha256": "c87b964337baa8ff240e7eb0375cacbb497f0649711a005c3dce7b7573abc4cf"
+    },
+    "interrupted": {
+      "status": "INTERRUPTED",
+      "content": "Server stopped while this request was running; no answer was produced. Send the same request again to run it.",
+      "retry_message_id": "cbe86dae6a6846e38779f7c01640076f",
+      "retry_is_the_same_message": true,
+      "after_resend": {
+        "status": "OK",
+        "answers": {
+          "prediccion": {
+            "type": "point_forecast",
+            "values": [
+              0.5412255525588989
+            ],
+            "unit": "kW",
+            "scale": "original",
+            "targets": [
+              "Global_active_power"
+            ],
+            "horizons": [
+              60
+            ],
+            "state_ref": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+            "as_of": "2026-09-29T22:31:57.262207+00:00",
+            "uncertainty": "none",
+            "execution_authorized": false,
+            "status": "OK"
+          }
+        },
+        "answered_by": {
+          "provider": "predictor_forecast",
+          "backend": null,
+          "fitted_state_ref": null,
+          "classification_backend": null,
+          "execution_authorized": false,
+          "quality": "NOT_MEASURED"
+        }
+      }
+    }
+  },
+  "verdict": {
+    "input_attached": true,
+    "output_answered": true,
+    "persisted_identically": true,
+    "conversation_survived_restart": true,
+    "receipt_survived_restart": true,
+    "interrupted_named": true,
+    "interrupted_request_reran": true,
+    "offer_matches_servability": true,
+    "all": true
+  }
+}

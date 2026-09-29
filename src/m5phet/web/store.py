@@ -9,6 +9,11 @@ from datetime import datetime, timezone
 
 from .engine import DEFAULT_CONFIG, validate_config
 
+#: AP01: one sentence for one event, wherever it is recorded from -- the run thread that saw the shutdown
+#: (`web.app.interrupted_or_refused`) or the next start-up finding a row nobody got to record (`Store.recover`).
+STOPPED_WHILE_RUNNING = ("Server stopped while this request was running; no answer was produced. Send the same "
+                         "request again to run it.")
+
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -42,8 +47,44 @@ class Store:
         return db
 
     def recover(self):
+        """Run at every start-up: a request that was in flight when the process went away is named, never guessed.
+
+        AP01: the message says the request may be sent again, because since this round it can be -- `begin` re-runs an
+        INTERRUPTED request of the same identity instead of handing back a record that would never complete."""
         with self.connect() as db:
-            db.execute("UPDATE messages SET status='INTERRUPTED',content='Server restarted before completion; not retried automatically.' WHERE status='RUNNING'")
+            db.execute("UPDATE messages SET status='INTERRUPTED',content=? WHERE status='RUNNING'",
+                       (STOPPED_WHILE_RUNNING,))
+
+    def interrupt_stopped(self, ids, shadowed=None):
+        """Relabel the requests that were in flight when the server began stopping and then failed.
+
+        AP01, and the reason the shutdown flag alone is not enough: stopping the process kills the engines'
+        subprocesses at the same instant, so the run thread's exception frequently arrives BEFORE the flag is set
+        (measured 2026-09-29: `PROVIDER_ERROR: native CPU forecast process refused:` recorded on a request that was
+        merely running when the server went down). This runs after the pool is drained, over the ids that were in
+        flight when the stop began, and it is deliberately narrow:
+
+        * an answer that completed is left exactly as it is -- a shutdown never rewrites an answer;
+        * a TYPED refusal is left too: it carries a `response`, which means an engine considered the question and
+          declined it by name, and that is the person's answer;
+        * a run that ended in an exception with no response at all is renamed, because its recorded cause is the
+          shutdown wearing an engine's name;
+        * and `shadowed(detail)` -- supplied by the caller, which owns the meaning of an engine's answers -- renames
+          the case where the engines DID return, all of them saying only that their own process failed.
+
+        The engine's own words are kept in `error_at_shutdown`: evidence is never discarded, it is just not
+        presented as the answer."""
+        with self.connect() as db:
+            for mid in list(ids or ()):
+                row = db.execute("SELECT status,content,detail FROM messages WHERE id=?", (mid,)).fetchone()
+                if row is None or row["status"] in ("OK", "PARTIAL", "INTERRUPTED"):
+                    continue
+                detail = json.loads(row["detail"])
+                if "response" in detail and not (shadowed and shadowed(detail)):
+                    continue
+                detail = detail | {"stopped_while_running": True, "error_at_shutdown": row["content"]}
+                db.execute("UPDATE messages SET status='INTERRUPTED',content=?,detail=? WHERE id=?",
+                           (STOPPED_WHILE_RUNNING, dump(detail), mid))
 
     def create(self, title):
         cid, clock = uuid.uuid4().hex, now()
@@ -120,7 +161,21 @@ class Store:
             if prior:
                 if prior["request_digest"] != fingerprint:
                     raise RuntimeError("Request ID was already used for different input")
-                return prior["id"], None
+                if prior["status"] != "INTERRUPTED":
+                    return prior["id"], None
+                # AP01: a request the restart interrupted has no answer, so re-sending the same request id cannot be
+                # a replay of one. Before this, `begin` handed the interrupted record back and ran nothing: the
+                # caller got 202 for work that would never start and polled a message that would never finish, and
+                # the only way out was to invent a new request id -- which is a DIFFERENT request. It is run once,
+                # from the snapshot it was accepted with, so what runs is the request the person sent and not
+                # whatever the chat's configuration happens to be now.
+                if db.execute("SELECT 1 FROM messages WHERE status='RUNNING'").fetchone():
+                    raise RuntimeError("Another request is running; try again when it finishes")
+                resumed = json.loads(prior["detail"])
+                again = [self.file(cid, item["id"]) for item in resumed.get("attachments", [])]
+                db.execute("UPDATE messages SET status='RUNNING',content='' WHERE id=?", (prior["id"],))
+                db.execute("UPDATE chats SET updated=? WHERE id=?", (now(), cid))
+                return prior["id"], (prompt, resumed["config"], again, resumed)
             if db.execute("SELECT 1 FROM messages WHERE status='RUNNING'").fetchone():
                 raise RuntimeError("Another request is running; try again when it finishes")
             attachments = [self.file(cid, fid) for fid in file_ids]

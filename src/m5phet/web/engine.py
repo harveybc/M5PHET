@@ -326,8 +326,25 @@ class Engine:
                 "areas": {area: rule for area in configuration_module.AREAS}}
 
     # --- the question envelope: one shape for every area ----------------------------------------------------------------
+    def unserved_areas(self):
+        """The areas whose declared engine cannot be served right now, each as the refusal its own contract named.
+
+        AP01. CB05 made every classification ANSWER pass the backend contract -- the single-question door, the
+        envelope door, and the refusal receipts -- and recorded, in its own §9, that the door which OFFERS was still
+        open: `GET /api/tasks/catalog` listed `classification` with `choice` on offer while `GET /api/catalog` said
+        the declared backend was not serving. Nothing answered, so no number was ever wrong; what was wrong is that
+        the product offered a family it could not serve, which is the same misrepresentation one step earlier.
+
+        This is the only place that decides what "unserved" means for the offer, and it decides it from the effective
+        backend block -- read from the path that would answer -- and never from the configuration."""
+        effective = self.classification_effective()
+        if effective is None or effective["validated"]:
+            return {}
+        return {"classification": {"code": effective["status"], "why": effective.get("why"),
+                                   "mode": effective.get("mode")}}
+
     def task_catalog(self):
-        return question_catalog(self.registry, self.configuration)
+        return question_catalog(self.registry, self.configuration, unserved=self.unserved_areas())
 
     def propose_task(self, prompt, attachments):
         """A sentence and the SHAPE of the attachment become a proposed envelope. Nothing runs; the person sees it first.
@@ -338,8 +355,10 @@ class Engine:
         who chose it, before anything runs."""
         data = [parse_file(item["name"], item["data"]) for item in attachments]
         payload = data[0] if len(data) == 1 else (data if data else None)
+        # AP01: and the router is shown the same gated catalog the person is. A proposal for an area whose engine
+        # cannot be served is refused by name here, before the person reviews an envelope that could only refuse.
         return route(prompt, payload, self.registry, interpreter=self.interpreter, datasets=self.datasets,
-                     decider=self)
+                     decider=self, unserved=self.unserved_areas())
 
     def output(self, area):
         """The procedure configured for this area: `areas.<area>.output.plugin`, `default` when nothing is bound."""

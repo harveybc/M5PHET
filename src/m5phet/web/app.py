@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import os
 from pathlib import Path
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -14,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .engine import Engine, parse_file
-from .store import Store
+from .store import STOPPED_WHILE_RUNNING, Store
 
 
 class CreateChat(BaseModel):
@@ -54,6 +55,16 @@ class SendMessage(BaseModel):
 #: own token without ever reading the owner's. Value bindings follow the opposite rule (the JSON wins); a path
 #: override is not one.
 API_TOKEN_VARIABLE = "M5PHET_API_TOKEN_FILE"
+
+#: AP01 -- `STOPPED_WHILE_RUNNING`, imported from `store` so one event has one sentence. What a request that the
+#: server's own stop cut short is called. It is NOT a refusal: no engine declined
+#: anything and nothing about the question was wrong. Stopping the process kills the provider subprocesses with it,
+#: and until this round the person was shown the engine's death as the engine's answer -- `PROVIDER_ERROR: native CPU
+#: forecast process refused:` on a request that was simply running when the service went down (measured 2026-09-29,
+#: `docs/evidence/AP01_RESTART_2026_09_29/`). A shutdown wearing an engine's name is the same class of mistake as a
+#: fixture wearing a model's: the receipt names the wrong cause. The status is the one `recover()` uses for a request
+#: whose thread never got to record anything at all, so both halves of one event read the same, and `Store.begin`
+#: runs either of them again on the same request id.
 
 
 def api_token_path(configuration=None, environ=None):
@@ -96,6 +107,26 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
     allowed = set(allowed_hosts or ["127.0.0.1", "localhost", "::1"])
     cookie = hashlib.sha256((access_token or "local").encode()).hexdigest()
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="m5phet-chat")
+    # set once the server has begun shutting down, and read by the run threads so that a provider that died WITH the
+    # process is not recorded as a provider that refused
+    stopping = threading.Event()
+    #: the message ids currently being run, so the shutdown knows WHICH requests it cut short. A flag on its own
+    #: loses the race: the engines' subprocesses die with the process, often a moment before the flag is set.
+    inflight, inflight_lock = set(), threading.Lock()
+    cut_short = set()
+
+    def begin_stopping():
+        """The moment the server was ASKED to stop: which requests were in flight then, recorded before anything dies.
+
+        AP01, and the reason a flag set in the lifespan's shutdown is too late. A stop signal reaches the whole
+        process group -- that is what `systemctl restart` and every `kill` of the group do -- so the engines'
+        subprocesses die at that instant, while uvicorn is still finishing its current responses. The run thread's
+        exception is therefore usually recorded BEFORE the lifespan shutdown runs (measured 2026-09-29), and a
+        snapshot taken there finds nothing in flight. `main()` calls this from the signal handler, before uvicorn
+        begins its graceful stop, which is the only place where "in flight when the stop began" is still true."""
+        with inflight_lock:
+            cut_short.update(inflight)
+        stopping.set()
     # WP12: a program's credential beside the owner's browser cookie. The token is never a value in a configuration
     # file; the configuration names a file, and the file's contents are the token. No file, no bearer access.
     api_token = read_api_token(Path(os.path.expanduser(str(api_token_file))) if api_token_file else
@@ -112,7 +143,13 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
     async def lifespan(app):
         store.recover()
         yield
+        begin_stopping()                    # a stop with no signal (a test client leaving its context) still counts
         pool.shutdown(wait=True)
+        # and the same rule again for whatever was recorded in the milliseconds between the signal and this drain,
+        # so a run whose thread won the race is not judged differently from one that lost it
+        store.interrupt_stopped(cut_short, shadowed=lambda detail: shadowed_by_the_stop(
+            list((((detail or {}).get("response") or {}).get("answers") or {}).values()),
+            ((detail or {}).get("response") or {}).get("answered")))
 
     ATTACHMENT_LIMIT = 8 * 1024 * 1024
 
@@ -231,15 +268,48 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
         return Response(entry["data"], media_type="application/octet-stream",
                         headers={"Content-Disposition": f'attachment; filename="{fid}.txt"'})
 
+    #: what an engine's answer says when the engine did not answer because its own process failed. `run_task`
+    #: converts a provider exception into this typed refusal, which is why the app's `except` branch is NOT where a
+    #: stopped engine arrives -- the measured case of 2026-09-29 came back as a narrated `PROVIDER_ERROR`, a REFUSED
+    #: message telling the person the forecaster had declined their question.
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+
+    def shadowed_by_the_stop(answers, answered=None):
+        """True when the server is stopping and this run produced no answer, only engines' process failures.
+
+        Narrow on purpose. A typed refusal that an engine REACHED -- `NOT_ESTIMABLE`, `STATE_REQUIRED`,
+        `NOT_IDENTIFIED` -- stays a refusal even if it lands during a shutdown: the engine considered the question
+        and declined it by name, and that is the person's answer. Only `PROVIDER_ERROR`, which means the engine never
+        got to consider anything, is re-attributed to the stop that killed it."""
+        if not stopping.is_set() or answered or not answers:
+            return False
+        return all(isinstance(answer, dict) and answer.get("refusal") == PROVIDER_ERROR for answer in answers)
+
+    def interrupted_or_refused(mid, error, detail):
+        """`store.finish` arguments for a run that ended in an exception: INTERRUPTED if the server is going down.
+
+        The engine's own error is kept in the detail either way -- it is evidence and is never discarded -- but what
+        the person is TOLD is which of the two happened."""
+        if stopping.is_set():
+            return mid, "INTERRUPTED", STOPPED_WHILE_RUNNING, detail | {
+                "stopped_while_running": True, "error_at_shutdown": f"{type(error).__name__}: {error}"}
+        return mid, "REFUSED", f"{type(error).__name__}: {error}", detail
+
     def execute(mid, job):
         prompt, config, attachments, snapshot = job
         started = time.monotonic()
+        with inflight_lock:
+            inflight.add(mid)
         try:
             detail = engine.execute(prompt, config, attachments)
             result = detail["result"]
             status = result["status"]
             content = result.get("why") or ("Resultado" if status == "OK" else status)
-            store.finish(mid, status, content, snapshot | detail | {"elapsed_seconds": time.monotonic() - started})
+            detail = snapshot | detail | {"elapsed_seconds": time.monotonic() - started}
+            if shadowed_by_the_stop([result]):
+                store.finish(mid, "INTERRUPTED", STOPPED_WHILE_RUNNING, detail | {"stopped_while_running": True})
+            else:
+                store.finish(mid, status, content, detail)
         except Exception as error:
             # CB05: a refused answer is a receipt too, and a refusal that names a backend must record WHICH declared
             # backend could not serve it. Without this the reader of a refused classification saw the sentence and not
@@ -247,7 +317,10 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
             refusal = {"elapsed_seconds": time.monotonic() - started, "execution_authorized": False}
             if config.get("provider") == "laya_news":
                 refusal["classification_backend"] = engine.classification_effective()
-            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | refusal)
+            store.finish(*interrupted_or_refused(mid, error, snapshot | refusal))
+        finally:
+            with inflight_lock:
+                inflight.discard(mid)
 
     @app.get("/api/tasks/catalog")
     def task_catalog():
@@ -271,17 +344,25 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
     def execute_task(mid, job, task, language):
         prompt, _config, attachments, snapshot = job
         started = time.monotonic()
+        with inflight_lock:
+            inflight.add(mid)
         try:
             detail = engine.execute_task(prompt, task, attachments, language=language)
             response = detail["response"]
             status = "OK" if response["refused"] == 0 else ("PARTIAL" if response["answered"] else "REFUSED")
-            store.finish(mid, status, detail["narration"]["text"],
-                         snapshot | detail | {"elapsed_seconds": time.monotonic() - started})
+            detail = snapshot | detail | {"elapsed_seconds": time.monotonic() - started}
+            if shadowed_by_the_stop(list((response.get("answers") or {}).values()), response.get("answered")):
+                store.finish(mid, "INTERRUPTED", STOPPED_WHILE_RUNNING, detail | {"stopped_while_running": True})
+            else:
+                store.finish(mid, status, detail["narration"]["text"], detail)
         except Exception as error:
             refusal = {"task": task, "elapsed_seconds": time.monotonic() - started, "execution_authorized": False}
             if isinstance(task, dict) and task.get("area") == "classification":
                 refusal["classification_backend"] = engine.classification_effective()   # CB05, on this door too
-            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | refusal)
+            store.finish(*interrupted_or_refused(mid, error, snapshot | refusal))
+        finally:
+            with inflight_lock:
+                inflight.discard(mid)
 
     @app.post("/api/chats/{cid}/tasks/run", status_code=202)
     def run_envelope(cid: str, body: RunTask):
@@ -301,6 +382,10 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
         if job is not None:
             pool.submit(execute, mid, job)
         return {"message_id": mid}
+
+    # what `main()`'s signal handler and the tests reach for: the stop, declared once and owned by the app
+    app.state.begin_stopping = begin_stopping
+    app.state.stopping = stopping
 
     static = Path(__file__).parent / "static"
     app.mount("/static", StaticFiles(directory=static, check_dir=False), name="static")
@@ -323,9 +408,32 @@ def main():
     if args.host not in ("127.0.0.1", "localhost", "::1") and (not token or len(token) < 24 or not args.allowed_host):
         parser.error("Non-loopback requires M5PHET_CHAT_TOKEN (24+ characters) and --allowed-host")
     import uvicorn
-    uvicorn.run(create_app(args.state_dir, access_token=token,
-                          allowed_hosts=["localhost", "127.0.0.1", "::1"] + args.allowed_host),
-                host=args.host, port=args.port, workers=1)
+    app = create_app(args.state_dir, access_token=token,
+                     allowed_hosts=["localhost", "127.0.0.1", "::1"] + args.allowed_host)
+
+    class Served(uvicorn.Server):
+        """uvicorn, with the stop noticed BEFORE the graceful shutdown rather than after it.
+
+        AP01. `uvicorn.run` installs its own SIGINT/SIGTERM handlers and starts the graceful stop; by the time the
+        lifespan's shutdown runs, the engines' subprocesses -- which the same signal reached, because it goes to the
+        process group -- are already dead and their runs already recorded. Noticing the stop here is what lets a
+        request that was merely running be called INTERRUPTED instead of being handed the engine's death as its
+        answer. A second signal is uvicorn's own force-exit, untouched."""
+
+        def install_signal_handlers(self):
+            import signal
+
+            def stop(signum, frame):
+                if self.should_exit:
+                    self.force_exit = True
+                    return
+                app.state.begin_stopping()
+                self.should_exit = True
+
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                signal.signal(signum, stop)
+
+    Served(uvicorn.Config(app, host=args.host, port=args.port, workers=1)).run()
 
 
 if __name__ == "__main__":

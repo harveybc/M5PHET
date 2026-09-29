@@ -491,6 +491,14 @@ def check_proposal(proposal, catalog, profile):
     if not area.get("provider"):
         problems.append(f"no installed provider serves area {task['area']!r}")
         return None, problems
+    # AP01: an area whose declared engine cannot be served is refused BY THE NAME ITS CONTRACT GAVE, here, rather
+    # than as "type 'choice' is not one this area answers ([])" -- which is what an emptied offer would otherwise
+    # read as, and which would blame the question for the configuration.
+    if area.get("unavailable"):
+        unavailable = area["unavailable"]
+        problems.append(f"area {task['area']!r} cannot be served: {unavailable.get('code')}: "
+                        f"{unavailable.get('why')}")
+        return None, problems
     declared = area.get("question_types") or {}
     parameters = area.get("parameters") or {}
     levels = area.get("confidence_levels") or []
@@ -567,7 +575,7 @@ def resolve_dataset(prompt, data, catalog, decider):
 
 
 def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None, complete=None,
-          environ=None):
+          environ=None, unserved=None):
     """Turn a sentence into a validated envelope, or say exactly why it could not be.
 
     `datasets` is the dataset catalog (WP15) and `decider` the Engine or Registry Laya is asked through when
@@ -580,7 +588,10 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=No
     if len(prompt) > MAX_PROMPT:
         return {"status": "REFUSED", "why": f"the question is {len(prompt)} characters; the limit is {MAX_PROMPT}",
                 "proposal": None, "problems": []}
-    catalog = question_catalog(registry)
+    # AP01: `unserved` is `{area: {code, why}}` for the areas whose declared engine cannot be served. They reach the
+    # model with nothing on offer, so it cannot propose one, and `check_proposal` refuses such an area by name if a
+    # hand-written proposal names it anyway.
+    catalog = question_catalog(registry, unserved=unserved)
     profile = dataset_profile(data)
     interpreter = interpreter if interpreter is not None else build_interpreter()
     resolution, chosen = resolve_dataset(prompt, data, datasets, decider)

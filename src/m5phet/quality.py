@@ -145,6 +145,50 @@ def from_provider_record(area, record):
             "source": f"the provider's own quality record ({CLASSIFICATION_SCHEMA})"}
 
 
+#: AP01. Why a measured record is withheld: it was measured on model weights and this answer did not come from them.
+QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH = "QUALITY_RECORD_IS_NOT_OF_THE_ANSWERING_PATH"
+
+
+def withheld_from_a_non_model_path(block, capabilities):
+    """A measured record is published beside an answer only when a MODEL produced that answer.
+
+    AP01, measured on 2026-09-29 on an instance whose classification backend was the declared
+    `NON_MODEL_FIXTURE`: the fixture answered `other` with `euro_area 0.0`, and the answer carried
+    `quality: MEASURED, macro_f1 0.3778, n 450` -- a real checkpoint's retained record, with no statement anywhere in
+    the block that the path which answered has no weights. CB05 closed the mirror image of this (a worker answered
+    and the LOCALLY installed provider's record would have been published beside it) and this is the same mistake in
+    the other direction: a number about a model, printed beside an answer no model gave.
+
+    The rule is narrow, because a wider one would hide real measurements:
+
+    * a path that declares real weights keeps its record, unchanged;
+    * a path that declares NO weights, or names itself the `fixture` backend, has the record WITHHELD: the block
+      becomes `NOT_MEASURED` with this reason, and keeps the record's identifiers -- corpus, seal, protocol, n -- so
+      the reader can go and find it, without its values standing beside a fixture's answer;
+    * a provider that declares neither a backend nor a weights flag is not contradicted here. This function does not
+      guess what answered; it only refuses to let a model's number travel with a declared non-model's answer.
+
+    The record carries no checkpoint of its own, so nothing here can check a record against the checkpoint that
+    served it. That is a gap in the record's schema, not a licence to publish it beside anything."""
+    if block.get("status") != MEASURED or not isinstance(capabilities, dict):
+        return block
+    backend, weights = capabilities.get("backend"), capabilities.get("weights_present")
+    if backend is None and weights is None:
+        return block
+    if weights is not False and backend != "fixture":
+        return block
+    named = f"backend {backend!r}" if backend else "weights_present false"
+    return _not_measured(
+        block.get("area"),
+        f"the path that answers declares no model weights ({named}), and the retained quality record was measured on "
+        "model weights, so it says nothing about these answers; it is named here and not quoted",
+        quality_record_withheld={"reason": QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH,
+                                 "corpus_id": block.get("corpus_id"), "corpus_seal": block.get("corpus_seal"),
+                                 "protocol_digest": block.get("protocol_digest"), "n": block.get("n"),
+                                 "source": block.get("source"),
+                                 "where": "the provider's own capabilities, which this framework publishes verbatim"})
+
+
 # --- forecasting and representation: an evaluation report the operator declares --------------------------------------
 
 def declared_report_path(area, configuration=None, environ=None):
@@ -337,8 +381,9 @@ def for_area(area, capabilities=None, configuration=None, environ=None):
     if area in AREA_REFUSAL:
         return _refused_area(area)
     if area == "classification":
-        record = (capabilities or {}).get("quality") if isinstance(capabilities, dict) else None
-        return from_provider_record(area, record)
+        caps = capabilities if isinstance(capabilities, dict) else {}
+        # AP01: and the record is published only beside an answer from the path it was measured on
+        return withheld_from_a_non_model_path(from_provider_record(area, caps.get("quality")), caps)
     if area not in AREA_FAMILY:
         return _not_measured(area, f"{area!r} is not an area this framework measures")
     bundle_dir = None

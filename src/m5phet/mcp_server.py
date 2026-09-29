@@ -110,8 +110,13 @@ class Server:
     # --- tools --------------------------------------------------------------------------------------------------------
     def call(self, name, arguments):
         if name == "m5phet_catalog":
-            payload = {"areas": question_catalog(self.registry), "discovery": self.discovery,
-                       "execution_authorized": False}
+            # AP01: the MCP door offers what the web door offers. With an engine, that is the GATED catalog -- an
+            # area whose declared engine cannot be served is listed with its refusal and nothing on offer. Without
+            # one (`python -m m5phet.mcp_server`, no worker binding) there is no backend contract to consult in this
+            # process, so the ungated catalog is what there is, and `run_task` refuses whatever it cannot answer.
+            payload = {"areas": (self.engine.task_catalog() if self.engine is not None
+                                 else question_catalog(self.registry)),
+                       "discovery": self.discovery, "execution_authorized": False}
         elif name == "m5phet_execute_ml_task":
             envelope = {k: arguments[k] for k in ("area", "state", "questions") if k in arguments}
             if arguments.get("as_of"):
