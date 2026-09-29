@@ -1,0 +1,140 @@
+{
+ "causal": {
+  "provider": "causal_inference",
+  "backend": "EconML LinearDML / explicit offline fitted study",
+  "weights_present": null,
+  "device": null,
+  "known_states": [
+   "causal-ate:4bda9dbb0812c656fab4cb502be09f6f001879637c75e41ef14131cb9a4fd6a9",
+   "causal-ate:a1f430bd03b4a1c13cf4a2ef7c8be96866c7722aba1471f2df86e6166a631954",
+   "causal-ate:ec5189d57572e7b8b0c0f89e8dd3c3d14ccde4041af1a528d5b4a2ed3f8e250f",
+   "causal-ate:f18fafdaa95e22a5b5cf147c80f87ad0836691c3d550c13bd695992fc0a2602b"
+  ],
+  "question_types": [
+   "ate",
+   "cate",
+   "counterfactual_path",
+   "impulse_response",
+   "sensitivity"
+  ],
+  "confidence_levels": [],
+  "quality_status": "REFUSED",
+  "quality_refusal": "causal_accuracy",
+  "quality_kind": null,
+  "quality_values": {},
+  "quality_n": null,
+  "example_title": "SYNTHETIC/DEVELOPMENT: effect modifier baseline, known subgroup effects baseline == 0 -> 1, baseline == 1 -> 3",
+  "example_prompt": "Report wp20-spec-modifier-v1, with its uncertainty.",
+  "example_reading": null,
+  "example_state": "causal-ate:4bda9dbb0812c656fab4cb502be09f6f001879637c75e41ef14131cb9a4fd6a9",
+  "example_has_data": true
+ },
+ "classification": {
+  "provider": "laya_news",
+  "backend": "laya",
+  "weights_present": true,
+  "device": "cuda:0",
+  "known_states": [
+   "laya-checkpoint:bd12df887789924672d1c848319caf9866a172183e6959beab369d9e20aaaa89"
+  ],
+  "question_types": [
+   "choice"
+  ],
+  "confidence_levels": [],
+  "quality_status": "MEASURED",
+  "quality_refusal": null,
+  "quality_kind": "classification",
+  "quality_values": {
+   "macro_f1": 0.37775954555995367,
+   "expected_calibration_error": 0.13151177777777778,
+   "brier": 0.6472929861999999
+  },
+  "quality_n": {
+   "scored_rows": 450
+  },
+  "example_title": "Noticia · Clasificación",
+  "example_prompt": "Which economy is named in this news?",
+  "example_reading": null,
+  "example_state": null,
+  "example_has_data": true
+ },
+ "forecasting": {
+  "provider": "predictor_forecast",
+  "backend": "tensorflow_saved_model_cpu_subprocess",
+  "weights_present": null,
+  "device": null,
+  "known_states": [
+   "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+   "phase-1c-direction-cnn-direction-long:6f14a78ee2a1c6a4c623234bd3144799d01dd7f6188e94163c77f60759d2ea99",
+   "quantile-household-95-20260925:a6d20c4b7a90463493dbabba880f46cb1682ccdf8a522182790abbb02924b4f8",
+   "searched-w21-household-outer-20260925:87f7b6b407b7832258e55f292b876c6dde186feef449564affbc0fd924cbb669"
+  ],
+  "question_types": [
+   "anomaly_risk",
+   "interval",
+   "point_forecast"
+  ],
+  "confidence_levels": [
+   0.9,
+   0.95
+  ],
+  "quality_status": "NOT_MEASURED",
+  "quality_refusal": null,
+  "quality_kind": null,
+  "quality_values": {},
+  "quality_n": null,
+  "example_title": "DEVELOPMENT: retained household-power model, 60-minute forecast",
+  "example_prompt": "forecast Global_active_power at 60 steps",
+  "example_reading": "regression_forecasting: the answer is a level in kW (original scale)",
+  "example_state": "e1-household-r0-s1:15bd0451df2825747935dc9e8b865670acb7bbdf9406cfa937e136f032ccc1d7",
+  "example_has_data": true
+ },
+ "rl": {
+  "provider": "trading_policy",
+  "backend": "stable_baselines3_cpu_subprocess",
+  "weights_present": null,
+  "device": null,
+  "known_states": [
+   "policy:4579e6f09a9cf1272664479217f6dbaafd74004421cab8e7571da037fb86e80a"
+  ],
+  "question_types": [
+   "next_action",
+   "value_estimation"
+  ],
+  "confidence_levels": [],
+  "quality_status": "REFUSED",
+  "quality_refusal": "policy_profitability",
+  "quality_kind": null,
+  "quality_values": {},
+  "quality_n": null,
+  "example_title": "DEVELOPMENT: an all-zero observation vector; its action is this input's, not the bars example's",
+  "example_prompt": "What action does this fitted policy propose for this observation?",
+  "example_reading": "a synthetic observation of zeros; the same policy answers the market-data example with a different action because the input differs",
+  "example_state": "policy:4579e6f09a9cf1272664479217f6dbaafd74004421cab8e7571da037fb86e80a",
+  "example_has_data": true
+ },
+ "unsupervised": {
+  "provider": "feature-eng-hierarchical-regimes",
+  "backend": null,
+  "weights_present": null,
+  "device": null,
+  "known_states": [
+   "/home/harveybc/.local/state/m5phet/examples/regimes/reference.joblib"
+  ],
+  "question_types": [
+   "cluster_description",
+   "clustering"
+  ],
+  "confidence_levels": [],
+  "quality_status": "NOT_MEASURED",
+  "quality_refusal": null,
+  "quality_kind": null,
+  "quality_values": {},
+  "quality_n": null,
+  "example_title": "DEVELOPMENT: 8 historical OHLC rows, no market-performance claim",
+  "example_prompt": "Assign hierarchical regimes",
+  "example_reading": null,
+  "example_state": "/home/harveybc/.local/state/m5phet/examples/regimes/reference.joblib",
+  "example_has_data": true
+ }
+}

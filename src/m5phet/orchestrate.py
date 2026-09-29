@@ -71,6 +71,25 @@ ROUTE_CONFIDENCE_NOT_REPORTED = "CONFIDENCE_NOT_REPORTED"
 #:      `confidence_level` -- is not offered, because filling it would be this layer choosing a number;
 #:   3. whatever is added is re-validated by `check_proposal`, and an addition that does not validate is dropped and
 #:      recorded. The envelope that runs is never worse than the one the model first wrote.
+#: RB04, from the full-corpus measurement of 2026-09-28: the variable an operator sets to turn the completion pass on.
+#: It is OFF by default, and the default is a MEASUREMENT and not a preference.
+#:
+#: The pass was built from a 4-sentence subset and repairs a real failure mode on those sentences. Measured over the
+#: WHOLE declared corpus -- 19 sentences, 5 runs each, one scorer, one build, one day -- it repairs three sentences
+#: and breaks two, and the two it breaks it breaks DETERMINISTICALLY: "describe el grupo de velas con cuerpo alto"
+#: and "describe the cluster with a large body" went CORRECT 5/5 to WRONG_TYPE 5/5, because the model, asked whether
+#: the sentence also asks for `clustering`, says yes on all ten runs. Describing a cluster does imply that rows were
+#: assigned, so this is not a plumbing fault; it is the mirror image of the under-answer the pass exists to repair,
+#: and on this corpus the over-answer costs more runs than the under-answer repair saves. Every one of the twelve
+#: WRONG_TYPE runs in that measurement is this pass adding `clustering`.
+#:
+#: So the pass ships off, its measurement ships with it, and turning it on is an operator's informed decision rather
+#: than a default nobody measured. `route(complete=True)` still forces it on for a caller that wants it -- the
+#: measurement harness uses exactly that -- and the record always says which of the two happened.
+ROUTE_COMPLETION_VARIABLE = "M5PHET_ROUTE_COMPLETION"
+#: the completion pass did not run because it is not enabled. Published rather than left as a null, because a null
+#: was read once in this very work as "the pass is broken" when the pass had simply not been asked to run
+COMPLETION_DISABLED = "COMPLETION_NOT_ENABLED"
 COMPLETION_NONE = "none"
 #: the completion pass ran and the model said the sentence asks for nothing further
 COMPLETION_NOTHING_FURTHER = "NOTHING_FURTHER_ASKED"
@@ -84,6 +103,13 @@ COMPLETION_REJECTED = "ADDITION_DID_NOT_VALIDATE"
 COMPLETION_ADDED = "ADDED"
 #: the interpreter could not be consulted for the second, narrow question. The first envelope stands
 COMPLETION_NOT_CONSULTED = "INTERPRETER_NOT_CONSULTED"
+
+
+def completion_enabled(environ=None):
+    """Whether the route completion pass runs. OFF unless an operator turns it on; see ROUTE_COMPLETION_VARIABLE."""
+    import os
+    value = (environ if environ is not None else os.environ).get(ROUTE_COMPLETION_VARIABLE)
+    return str(value).strip().lower() in ("1", "true", "yes", "on") if value is not None else False
 
 
 def _fields_available(task):
@@ -530,7 +556,8 @@ def resolve_dataset(prompt, data, catalog, decider):
     return resolution, module.proposal_view(resolution)
 
 
-def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None, complete=True):
+def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=None, complete=None,
+          environ=None):
     """Turn a sentence into a validated envelope, or say exactly why it could not be.
 
     `datasets` is the dataset catalog (WP15) and `decider` the Engine or Registry Laya is asked through when
@@ -607,11 +634,22 @@ def route(prompt, data, registry, *, interpreter=None, datasets=None, decider=No
         problems = list(problems) + [resolution["why"]]
         task = None
     completion = None
-    if task is not None and complete:
-        # RR05: the twelve measured WRONG_TYPE runs were all UNDER-answers of a sentence that asks two things. The
-        # second ask is recovered here, from the area's own declared types only, and the record says what happened --
-        # including when nothing was added, so an under-answer is visible rather than silent.
-        task, completion = complete_under_answer(prompt, task, catalog, profile, interpreter)
+    if task is not None:
+        # RR05: the twelve WRONG_TYPE runs measured on 2026-09-25 were all UNDER-answers of a sentence that asks two
+        # things, and the pass recovers the second ask from the area's own declared types only. RB04 measured the
+        # pass on the WHOLE corpus and it also OVER-answers, deterministically, on two sentences -- see
+        # ROUTE_COMPLETION_VARIABLE -- so it is off unless it is asked for. Either way the record says which.
+        if complete is None:
+            complete = completion_enabled(environ)
+        if complete:
+            task, completion = complete_under_answer(prompt, task, catalog, profile, interpreter)
+        else:
+            completion = {"pass": "route_completion.v1", "outcome": COMPLETION_DISABLED,
+                          "why": (f"the route completion pass is not enabled; set {ROUTE_COMPLETION_VARIABLE}=1 to "
+                                  f"turn it on. Its full-corpus measurement is the reason it is off by default, not "
+                                  f"a preference"),
+                          "offered": [], "choice": None, "added": None, "problems": [],
+                          "fields_offered": {}, "fields_chosen": {}}
     if task is not None and chosen:
         # what runs records which dataset it read, so the envelope beside the answers is replayable and the person
         # reviewing it sees the choice rather than having to trust it

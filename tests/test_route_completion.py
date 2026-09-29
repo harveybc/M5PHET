@@ -11,7 +11,8 @@ import json
 import pytest
 
 from m5phet.interpret import Interpreter
-from m5phet.orchestrate import (COMPLETION_ADDED, COMPLETION_NONE, COMPLETION_NOTHING_FURTHER,
+from m5phet.orchestrate import (COMPLETION_ADDED, COMPLETION_DISABLED, COMPLETION_NONE,
+                                COMPLETION_NOTHING_FURTHER,
                                 COMPLETION_NOTHING_TO_OFFER, COMPLETION_NOT_CONSULTED, COMPLETION_NOT_OFFERED,
                                 COMPLETION_REJECTED, complete_under_answer, completable_types, route)
 from m5phet.runtime import Registry
@@ -222,11 +223,15 @@ def test_an_addition_that_does_not_validate_is_dropped_and_recorded():
 # --- through `route`, which is what the product calls -----------------------------------------------------------------
 
 def test_route_reports_the_completion_and_recovers_the_second_ask():
+    """RB04 added `complete=True` here. This test is about the PASS, not about whether the pass is the default, and
+    the default changed: the full-corpus measurement of 2026-09-28 found the pass also over-answers -- every one of
+    that run's twelve WRONG_TYPE runs was this pass adding `clustering` -- so it now ships off and a caller that
+    wants it asks for it. The assertions below are the preserved ones, unchanged."""
     envelope = json.dumps({"area": "unsupervised", "state": {},
                            "questions": {"d": {"type": "cluster_description", "target_metric": "highest body"}}})
     scripted = Scripted(envelope, json.dumps({"also_asked_question_type": "clustering"}))
     out = route("describe el grupo con cuerpo alto y asigna los regimenes", ROWS, registry(Regimes()),
-                interpreter=scripted)
+                interpreter=scripted, complete=True, environ={})
     assert out["status"] == "OK"
     assert out["completion"]["outcome"] == COMPLETION_ADDED
     assert {q["type"] for q in out["task"]["questions"].values()} == {"cluster_description", "clustering"}
@@ -236,8 +241,13 @@ def test_route_with_completion_off_is_the_old_behaviour_and_asks_the_model_once(
     envelope = json.dumps({"area": "unsupervised", "state": {},
                            "questions": {"d": {"type": "cluster_description", "target_metric": "highest body"}}})
     scripted = Scripted(envelope, json.dumps({"also_asked_question_type": "clustering"}))
-    out = route("describe el grupo y asigna", ROWS, registry(Regimes()), interpreter=scripted, complete=False)
-    assert out["status"] == "OK" and out["completion"] is None and len(scripted.asked) == 1
+    out = route("describe el grupo y asigna", ROWS, registry(Regimes()), interpreter=scripted, complete=False,
+                environ={})
+    # RB04: a disabled pass now SAYS it is disabled instead of leaving a null. The null was read, during RB04's own
+    # measurement, as "the pass never ran" when it had simply not been asked to -- so the two states are now
+    # different words. What this test is really about is unchanged: one model call, one question type.
+    assert out["status"] == "OK" and out["completion"]["outcome"] == COMPLETION_DISABLED
+    assert len(scripted.asked) == 1
     assert {q["type"] for q in out["task"]["questions"].values()} == {"cluster_description"}
 
 

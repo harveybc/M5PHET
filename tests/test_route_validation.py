@@ -373,7 +373,7 @@ def test_route_recovers_the_interval_end_to_end():
                            json.dumps({"also_asked_question_type": "interval"}),
                            json.dumps({"confidence_level": 0.9}))
     out = route("pronostica la potencia a una hora y dame un rango", HISTORY, registry_of(Quantile()),
-                interpreter=interpreter)
+                interpreter=interpreter, complete=True, environ={})
     assert out["status"] == "OK", out["problems"]
     assert sorted(q["type"] for q in out["task"]["questions"].values()) == ["interval", "point_forecast"]
     assert out["completion"]["outcome"] == "ADDED"
@@ -426,3 +426,82 @@ def test_selecting_a_surface_does_not_change_what_the_area_returns():
 def test_every_name_the_selection_accepts_is_one_this_installation_can_load():
     for name in outputs.names():
         assert outputs.load(name) is not None
+
+
+# --- F. the completion pass is a measured switch, and its default is a measurement -----------------------------------
+
+def test_the_completion_pass_is_off_unless_an_operator_turns_it_on():
+    """Its default is the full-corpus measurement of 2026-09-28, not a preference: over 19 sentences and 95 runs the
+    pass repaired three sentences and broke two, and every one of the twelve WRONG_TYPE runs was this pass adding
+    `clustering` to a sentence that had asked correctly."""
+    from m5phet.orchestrate import COMPLETION_DISABLED, ROUTE_COMPLETION_VARIABLE
+    interpreter = Fixed(json.dumps(envelope(p=point(horizon=60, target="Global_active_power"))))
+    out = route("pronostica la potencia", HISTORY, registry_of(Quantile()), interpreter=interpreter, environ={})
+    assert out["status"] == "OK", out["problems"]
+    assert out["completion"]["outcome"] == COMPLETION_DISABLED
+    assert ROUTE_COMPLETION_VARIABLE in out["completion"]["why"]
+    assert len(interpreter.asked) == 1, "a disabled pass costs no model call"
+
+
+def test_a_disabled_pass_is_said_out_loud_and_not_left_as_a_null():
+    """A null was read, during this very work, as "the pass never ran" when the pass had simply not been asked to
+    run. The two states are now different words."""
+    interpreter = Fixed(json.dumps(envelope(p=point(horizon=60, target="Global_active_power"))))
+    out = route("pronostica", HISTORY, registry_of(Quantile()), interpreter=interpreter, environ={})
+    assert out["completion"] is not None and out["completion"]["added"] is None
+
+
+@pytest.mark.parametrize("value,runs", [("1", True), ("true", True), ("on", True), ("yes", True),
+                                        ("0", False), ("false", False), ("", False), ("maybe", False)])
+def test_the_switch_reads_only_what_it_declares(value, runs):
+    from m5phet.orchestrate import completion_enabled
+    assert completion_enabled({"M5PHET_ROUTE_COMPLETION": value}) is runs
+
+
+def test_an_explicit_argument_beats_the_environment_in_both_directions():
+    """The measurement harness forces it on to measure it; a caller may also force it off where it is enabled."""
+    on = Scripted(json.dumps(envelope(p=point(horizon=60, target="Global_active_power"))),
+                  json.dumps({"also_asked_question_type": "none"}))
+    out = route("pronostica", HISTORY, registry_of(Quantile()), interpreter=on, complete=True, environ={})
+    assert out["completion"]["outcome"] == "NOTHING_FURTHER_ASKED"
+
+    off = Fixed(json.dumps(envelope(p=point(horizon=60, target="Global_active_power"))))
+    out = route("pronostica", HISTORY, registry_of(Quantile()), interpreter=off, complete=False,
+                environ={"M5PHET_ROUTE_COMPLETION": "1"})
+    from m5phet.orchestrate import COMPLETION_DISABLED
+    assert out["completion"]["outcome"] == COMPLETION_DISABLED
+
+
+def test_the_over_answer_the_measurement_found_is_reproduced_here_as_a_counterexample():
+    """The measured regression, as a test: a sentence that asked `cluster_description` correctly gets `clustering`
+    added when the pass is on and the model says the sentence also asks for it. Ten runs of this, deterministic,
+    are why the pass ships off."""
+    class Regimes:
+        name, area = "fake_regimes", "unsupervised"
+
+        def capabilities(self):
+            return {"provider": self.name, "operations": ["infer"], "families": ["clustering"],
+                    "output_kinds": ["clustering"], "uncertainty_methods": ["none"],
+                    "supported": [{"operation": "infer", "family": "clustering", "output_kind": "clustering"}],
+                    "known_states": ["r1"]}
+
+        def question_types(self):
+            return {"clustering": {"required": [], "optional": []},
+                    "cluster_description": {"required": ["target_metric"], "optional": []}}
+
+        def answer_questions(self, state, questions, data, as_of):
+            return {n: {"type": q["type"]} for n, q in questions.items()}
+
+    described = {"area": "unsupervised", "state": {},
+                 "questions": {"d": {"type": "cluster_description", "target_metric": "highest body"}}}
+    interpreter = Scripted(json.dumps(described), json.dumps({"also_asked_question_type": "clustering"}))
+    out = route("describe the cluster with a large body", [{"o": 1.0}], registry_of(Regimes()),
+                interpreter=interpreter, complete=True, environ={})
+    assert out["completion"]["outcome"] == "ADDED" and out["completion"]["added"] == "clustering"
+    assert sorted(q["type"] for q in out["task"]["questions"].values()) == ["cluster_description", "clustering"]
+
+    # and with the shipped default it stays the one question the sentence asked
+    plain = Fixed(json.dumps(described))
+    out = route("describe the cluster with a large body", [{"o": 1.0}], registry_of(Regimes()),
+                interpreter=plain, environ={})
+    assert sorted(q["type"] for q in out["task"]["questions"].values()) == ["cluster_description"]
