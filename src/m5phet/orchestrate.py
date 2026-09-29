@@ -20,10 +20,12 @@ emphasis, never in fact.
 import csv
 import io
 import json
+import math
 import re
 
 from .interpret import build as build_interpreter
-from .outputs import NOT_NARRATED, default as default_output, narratable, response_view, select as select_output
+from .outputs import (NOT_NARRATED, default as default_output, load as load_output,
+                      names as output_names, narratable, response_view, select as select_output)
 from .questions import AREAS, TaskError, catalog as question_catalog, validate_task
 
 MAX_PROMPT = 4000
@@ -101,31 +103,97 @@ def _fields_available(task):
     return available
 
 
-def completable_types(task, declared, available=None):
-    """The declared types this sentence did not ask and that CAN be asked from what the envelope already carries.
+def declared_choices(area):
+    """`{field: [declared values]}` a completion may ASK about, as distinct from what the envelope already carries.
 
-    Deterministic, and testable without a model: no interpreter is consulted here."""
+    RB04 widens rule 2 by exactly this much and no more. Before today a required field the envelope did not carry
+    made its type unofferable, full stop -- which is why `interval` was never offered: its `confidence_level` is in
+    no question and in no state, so offering it would have meant this layer choosing a number, and it rightly
+    refused to. What changed is not the rule but the vocabulary: the provider DECLARES the confidence levels its
+    bundles actually fitted, so the level can be chosen the way a target or a horizon is -- among declared values, in
+    the interpreter's constrained mode, which is the mode its reliability was measured in.
+
+    A field with no declared list is still not askable, and an area that fitted no level declares an empty list, so
+    `interval` stays unofferable there. Nothing here can produce a value the area did not publish."""
+    choices = {field: list(values) for field, values in ((area or {}).get("parameters") or {}).items() if values}
+    levels = (area or {}).get("confidence_levels") or []
+    if levels:
+        choices[QUESTION_CONFIDENCE_LEVEL] = list(levels)
+    return choices
+
+
+def completable_types(task, declared, available=None, *, area=None):
+    """The declared types this sentence did not ask and that CAN be asked without inventing a field value.
+
+    A required field is satisfied either by a value the envelope ALREADY CARRIES (rule 2 as written) or by a field
+    whose values this area declares, which a second constrained question can choose among. Deterministic, and
+    testable without a model: no interpreter is consulted here."""
     available = _fields_available(task) if available is None else available
+    askable = set(declared_choices(area))
     asked = {q.get("type") for q in (task.get("questions") or {}).values() if isinstance(q, dict)}
     out = []
     for name in sorted(declared):
         if name in asked:
             continue
         required = (declared[name] or {}).get("required") or []
-        if all(field in available for field in required):
+        if all(field in available or field in askable for field in required):
             out.append(name)
     return out
 
 
-def _completion_question(kind, declared_spec, available):
-    """The question to add: its type, and ONLY the fields that type declares, taken from what is already there."""
+def _completion_question(kind, declared_spec, available, chosen=None):
+    """The question to add: its type, and ONLY the fields that type declares, taken from what is already there.
+
+    `chosen` holds the values a second constrained question settled -- a confidence level among the ones the area
+    fitted. They are applied only to fields the type declares, and a value the envelope already carries is never
+    overwritten by one: what the sentence said outranks what a model was asked afterwards."""
     spec = declared_spec or {}
     allowed = list(spec.get("required") or []) + list(spec.get("optional") or [])
     question = {"type": kind}
     for field in allowed:
         if field in available:
             question[field] = available[field]
+        elif field in (chosen or {}):
+            question[field] = chosen[field]
     return question
+
+
+def _choose_missing_fields(prompt, kind, declared_spec, available, choices, interpreter, record):
+    """Ask, in ONE constrained question, for the required fields the envelope does not carry.
+
+    Constrained means the model picks among values the area declared; anything else it returns is discarded by name,
+    exactly as the type choice is. A field left unchosen simply stays missing, and the addition then fails
+    `check_proposal` and is dropped -- which is the third rule doing its job rather than a special case here."""
+    missing = [field for field in ((declared_spec or {}).get("required") or [])
+               if field not in available and field in choices]
+    if not missing:
+        return {}
+    slots = [{"name": field, "allowed": list(choices[field])} for field in missing]
+    record["fields_offered"] = {field: list(choices[field]) for field in missing}
+    try:
+        proposed = interpreter.propose(prompt, slots)
+    except Exception as error:                                          # noqa: BLE001
+        record["fields_why"] = f"{type(error).__name__}: {error}"
+        return {}
+    chosen, discarded = {}, {}
+    for field in missing:
+        value = (proposed or {}).get(field) if isinstance(proposed, dict) else None
+        if admits(value, choices[field]):
+            chosen[field] = value
+        elif isinstance(value, str):
+            # a constrained slot may come back as the text of a declared number; the DECLARED value is what is kept,
+            # never the model's spelling of it, and a string matching none of them is discarded like anything else
+            matched = [candidate for candidate in choices[field] if str(candidate) == value.strip()]
+            if len(matched) == 1:
+                chosen[field] = matched[0]
+            else:
+                discarded[field] = value
+        elif value is not None:
+            discarded[field] = value
+    record["fields_chosen"] = chosen
+    if discarded:
+        record["fields_discarded"] = discarded
+    return chosen
 
 
 def _completion_name(task, kind):
@@ -142,11 +210,12 @@ def complete_under_answer(prompt, task, catalog, profile, interpreter):
     The returned task is the original object when nothing was added, so a caller that ignores the record is exactly as
     safe as before this function existed."""
     record = {"pass": "route_completion.v1", "offered": [], "choice": None, "outcome": None, "why": None,
-              "added": None, "problems": []}
+              "added": None, "problems": [], "fields_offered": {}, "fields_chosen": {}}
     area = (catalog or {}).get((task or {}).get("area")) or {}
     declared = area.get("question_types") or {}
     available = _fields_available(task)
-    offered = completable_types(task, declared, available)
+    choices = declared_choices(area)
+    offered = completable_types(task, declared, available, area=area)
     record["offered"] = offered
     if not offered:
         record["outcome"] = COMPLETION_NOTHING_TO_OFFER
@@ -169,9 +238,20 @@ def complete_under_answer(prompt, task, catalog, profile, interpreter):
         record["outcome"] = COMPLETION_NOT_OFFERED
         record["why"] = f"{choice!r} was not one of the offered types {offered}"
         return task, record
+    chosen = _choose_missing_fields(prompt, choice, declared.get(choice), available, choices, interpreter, record)
     candidate = json.loads(json.dumps(task))
     candidate["questions"][_completion_name(task, choice)] = _completion_question(choice, declared.get(choice),
-                                                                                 available)
+                                                                                 available, chosen)
+    still_missing = [field for field in (declared.get(choice) or {}).get("required") or []
+                     if not any(spelling in candidate["questions"][_completion_name(task, choice)]
+                                for spelling in _spellings(field))]
+    if still_missing:
+        # rule 3, applied to the addition's own completeness: a type whose required field nobody supplied is not
+        # added half-formed for an engine to refuse. The envelope the model wrote stands.
+        record["outcome"], record["why"] = COMPLETION_REJECTED, (
+            f"{choice!r} needs {still_missing} and no declared value was chosen for it, so nothing was added; "
+            f"filling it in here would be this layer choosing a value")
+        return task, record
     checked, problems = check_proposal(candidate, catalog, profile)
     if checked is None:
         record["outcome"], record["problems"] = COMPLETION_REJECTED, list(problems)
@@ -260,6 +340,110 @@ def _governed_values(task, governed):
     return found
 
 
+#: the field an interval carries, named once so the validator, the catalog and the completion pass cannot disagree
+QUESTION_CONFIDENCE_LEVEL = "confidence_level"
+
+
+#: RB04: the spellings one governed field has. `state.target_variable` is the owner's spelling of the forecaster's
+#: `target`, and both are governed by the same declared list. Until today the alias was checked in the STATE and not
+#: inside a question, so a question naming `target_variable` carried whatever a model wrote: an unfitted series passed
+#: validation and was refused later, by the engine, after the person pressed run. `tools/measure_route.py` governs the
+#: same spellings under `FIELD_SPELLINGS`, and `tests/test_route_validation.py` asserts the two agree, because a
+#: spelling one of them governs and the other does not is a hole that reopens without anybody noticing.
+GOVERNED_ALIASES = {"target_variable": "target"}
+
+
+def admits(value, allowed):
+    """Whether a declared vocabulary admits this value, comparing by TYPE as well as by equality.
+
+    Plain `value in allowed` is what this replaces, and it had a hole with a measured consequence: `True == 1` in
+    Python, so a slot whose fitted horizon was 1 admitted `True`, and a boolean reached an engine as a horizon.
+    Musashi's `44130ae` repaired exactly that in the measurement scorer; this is the same rule in the validator, so
+    the product refuses what the measurement refuses.
+
+    The rule, and what each clause is for:
+      * a boolean is admitted only by a slot that declares booleans. It is never a number here.
+      * a non-finite float is admitted by nothing: infinity and NaN are not values an engine was fitted at, and a
+        comparison against them silently succeeds at nothing.
+      * a finite number is admitted by an equal number of either numeric type, so `60.0` IS the fitted horizon `60`.
+        Refusing that would refuse a real sentence; truncating `60.5` to it would answer a different question.
+      * anything else must match both the type and the value, so the string `"60"` is not the integer `60`. The
+        validator stays strict there on purpose: the scorer accepts an exact integer string in order to SCORE what a
+        model wrote, and `verdict_of` reads `INVALID_PROPOSAL` before it reads any value, so a refused envelope is
+        never scored correct."""
+    allowed = list(allowed or ())
+    if isinstance(value, bool):
+        return any(isinstance(candidate, bool) and candidate == value for candidate in allowed)
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value):
+            return False
+        return any(not isinstance(candidate, bool) and isinstance(candidate, (int, float)) and candidate == value
+                   for candidate in allowed)
+    return any(type(candidate) is type(value) and candidate == value for candidate in allowed)
+
+
+def _spellings(field):
+    """Every key a governed field may appear under: its own name first, then its aliases."""
+    return [field] + [alias for alias, canonical in GOVERNED_ALIASES.items() if canonical == field]
+
+
+def _governed_problems(where, holder, parameters):
+    """Every governed value in one question or state, under EVERY spelling, plus any contradiction between two of them.
+
+    Two spellings of one field holding different values is refused even when both values are admissible: which one
+    the engine would read is not something a validator should leave to the engine.
+
+    `where` is `None` for the state, whose problems have always read `state.<spelling> ...` and still do, so an
+    existing reader of these messages is not broken by the repair."""
+    problems = []
+    for field, allowed in parameters.items():
+        named = [(spelling, holder[spelling]) for spelling in _spellings(field) if spelling in holder]
+        for spelling, value in named:
+            if not admits(value, allowed):
+                said = f"state.{spelling}" if where is None else f"{where}: {spelling}"
+                problems.append(f"{said} {value!r} is not one the engine has ({allowed})")
+        distinct = {json.dumps(value, sort_keys=True, default=str) for _, value in named}
+        if len(named) > 1 and len(distinct) > 1:
+            spoken = ", ".join(f"{spelling}={value!r}" for spelling, value in named)
+            said = "state" if where is None else where
+            problems.append(f"{said}: {spoken} name one governed field ({field}) with different values; which one "
+                            f"the engine reads is not for it to decide, so the envelope is refused instead")
+    return problems
+
+
+def _confidence_level_problems(name, question, levels, declared_types):
+    """Whether an `interval` question's confidence level is one this area can be held to.
+
+    The field was ungoverned until RB04: `0.99` passed with nothing fitted at that level, and `95` passed although it
+    is not a probability at all. The two are not the same fault and are not treated the same, because
+    `check_proposal` refuses the WHOLE envelope and `m5phet.questions` is explicit that every question is answered
+    separately -- "a request asking for a point forecast and an interval gets the point forecast from an engine that
+    has one and an explicit refusal for the interval from an engine that does not". Refusing both halves because one
+    is unserviceable would hide which half the engine can actually do. So:
+
+      * a value that is not a two-sided confidence level at all -- a boolean, a string, 95, a NaN -- is an envelope
+        problem. The router wrote something no engine could mean, and a person asking for "un rango" should be told
+        the request was misread, not handed a refusal that blames the model for lacking a distribution.
+      * a well-formed level this area DID fit is fine.
+      * a well-formed level this area did not fit, where the area declares a fitted vocabulary, is an envelope
+        problem for the same reason an unfitted horizon is: the router picked outside a declared list.
+      * a well-formed level where the area declares NO level at all is left to the provider, which refuses that one
+        question by name -- `NOT_ESTIMABLE` for a bundle with no distribution -- while the rest of the envelope is
+        answered. Nothing is invented either way; what differs is which layer says so."""
+    if QUESTION_CONFIDENCE_LEVEL not in question:
+        return []
+    value = question[QUESTION_CONFIDENCE_LEVEL]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) \
+            or not 0 < value < 1:
+        fitted = f"this area fitted {levels}" if levels else "this area declares no fitted level"
+        return [f"question {name!r}: {QUESTION_CONFIDENCE_LEVEL} {value!r} is not a two-sided confidence level; it is "
+                f"a number strictly between 0 and 1, and {fitted}"]
+    if levels and not admits(float(value), levels):
+        return [f"question {name!r}: {QUESTION_CONFIDENCE_LEVEL} {value!r} is not one this area fitted ({levels}); a "
+                f"level is a pair of quantiles somebody fitted, and a nearby one is not widened into it"]
+    return []
+
+
 def check_proposal(proposal, catalog, profile):
     """Validate what the model proposed. Returns (task_or_None, problems)."""
     problems = []
@@ -273,18 +457,28 @@ def check_proposal(proposal, catalog, profile):
         return None, problems
     declared = area.get("question_types") or {}
     parameters = area.get("parameters") or {}
+    levels = area.get("confidence_levels") or []
+    # RB04: the procedure a request selects is a name this installation either has or does not. Nothing is
+    # substituted: a request asking for a surface that is not installed is told so, never answered by `default` as
+    # though it had been honoured.
+    if isinstance(task.get("output"), dict):
+        wanted = task["output"].get("plugin")
+        installed = output_names()
+        if wanted not in installed:
+            problems.append(f"output plugin {wanted!r} is not installed; this installation has {installed} and "
+                            f"nothing is substituted for a procedure it does not have -- not even 'default'")
     for name, question in task["questions"].items():
         if question["type"] not in declared:
             problems.append(f"question {name!r}: type {question['type']!r} is not one this area answers "
                             f"({sorted(declared)})")
-        # a field the provider governs -- target, horizon, policy, study -- must hold one of its declared values. This is
-        # the check that stops a router from naming a DATA column as a fitted target and getting a confident refusal.
-        for field, allowed in parameters.items():
-            if field in question and question[field] not in allowed:
-                problems.append(f"question {name!r}: {field} {question[field]!r} is not one the engine has "
-                                f"({allowed})")
+        # a field the provider governs -- target, horizon, policy, study -- must hold one of its declared values,
+        # under EVERY spelling it has, compared by type as well as by equality. This is the check that stops a router
+        # from naming a DATA column as a fitted target and getting a confident refusal, and (RB04) from reaching an
+        # engine with a boolean where a horizon belongs or with two spellings of one field that disagree.
+        problems += _governed_problems(f"question {name!r}", question, parameters)
+        problems += _confidence_level_problems(name, question, levels, declared)
     # `state.target_variable` is the owner's spelling of the forecaster's `target`; both are governed by the same list
-    aliases = {"target_variable": "target"}
+    aliases = GOVERNED_ALIASES
     combinations = area.get("combinations") or []
     if combinations:
         # a target and a horizon may each be admissible and still not be fitted TOGETHER: two bundles, two horizons,
@@ -295,10 +489,7 @@ def check_proposal(proposal, catalog, profile):
             if len(named) >= 2 and not any(all(c.get(k) == v for k, v in named.items()) for c in combinations):
                 problems.append(f"question {name!r}: {named} is not a fitted combination; the engine has "
                                 f"{combinations}")
-    for field, allowed in parameters.items():
-        for spelling in [field] + [a for a, canonical in aliases.items() if canonical == field]:
-            if spelling in task["state"] and task["state"][spelling] not in allowed:
-                problems.append(f"state.{spelling} {task['state'][spelling]!r} is not one the engine has ({allowed})")
+    problems += _governed_problems(None, task["state"], parameters)
     # an engine that needs rows must not be handed an envelope with none: the refusal belongs here, before the run,
     # naming what to attach -- not ten seconds later as the engine's PROVIDER_ERROR
     requirement = area.get("data_requirement") or {}
@@ -630,7 +821,14 @@ def narrate(prompt, response, *, interpreter=None, language="es", area=None, plu
     Whenever either fails, the deterministic rendering stands. There is no path from "this text is not faithful" to
     showing it anyway."""
     interpreter = interpreter if interpreter is not None else build_interpreter()
-    plugin = plugin if plugin is not None else select_output(area if area is not None else response.get("area"))
+    if plugin is None:
+        # RB04: precedence is explicit argument, then the ENVELOPE's own selection, then the area's configuration,
+        # then `default`. The request may choose the surface because a Telegram skill and the workbench ask the same
+        # engine and read the answer differently; what it cannot do is name a procedure that is not installed, which
+        # `check_proposal` refuses before any of this is reached.
+        selected = ((task or {}).get("output") or {}).get("plugin") if isinstance(task, dict) else None
+        plugin = (load_output(selected)({"plugin": selected}) if isinstance(selected, str) and selected.strip()
+                  else select_output(area if area is not None else response.get("area")))
     fallback = render(response)
     plugin_name = getattr(plugin, "name", type(plugin).__name__)
     rendered = plugin.render(area if area is not None else response.get("area"), response, language)

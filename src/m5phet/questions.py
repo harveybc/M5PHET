@@ -22,6 +22,7 @@ reach it, and it may still refuse any one of them by name.
 import copy
 import hashlib
 import json
+import math
 import time
 
 TASK_SCHEMA = "m5phet.task.questions.v1"
@@ -81,6 +82,18 @@ def validate_task(payload):
             raise TaskError(f"{MALFORMED_QUESTION}: question {name!r} must be a mapping with a string `type`")
     if "as_of" in task and task["as_of"] is not None and not isinstance(task["as_of"], str):
         raise TaskError("`as_of` must be an ISO-8601 string when present")
+    # RB04: an envelope may SELECT the output procedure that renders its answers -- the surface, never what the area
+    # returns. Its shape is checked here; whether the named procedure is installed is `check_proposal`'s business,
+    # because that is where a refusal can list what this installation has.
+    if "output" in task and task["output"] is not None:
+        output = task["output"]
+        if not isinstance(output, dict):
+            raise TaskError("`output` must be a mapping naming the procedure, e.g. {\"plugin\": \"telegram\"}")
+        extra = sorted(set(output) - {"plugin"})
+        if extra:
+            raise TaskError(f"`output` does not take {extra}; it names a procedure and nothing else")
+        if not isinstance(output.get("plugin"), str) or not output["plugin"].strip():
+            raise TaskError("`output.plugin` must be the non-empty name of an installed output procedure")
     return task
 
 
@@ -229,6 +242,7 @@ def catalog(registry, configuration=None):
             provider = provider_for(registry, area)
         except TaskError as error:
             out[area] = {"provider": None, "error": str(error), "question_types": {}, "chooser": chooser,
+                         "confidence_levels": [],
                          "quality": area_quality(area, None, configuration)}
             continue
         out[area] = {"provider": provider.name if provider else None,
@@ -239,6 +253,11 @@ def catalog(registry, configuration=None):
                      "parameters": declared_parameters(provider) if provider else {},
                      "aliases": declared_aliases(provider) if provider else {},
                      "combinations": declared_combinations(provider) if provider else [],
+                     # RB04: the two-sided confidence levels some bundle of this area actually fitted. Published for
+                     # the same reason the parameters are -- a caller, or a router choosing among declared values,
+                     # sees which level is askable BEFORE asking, and an area that fitted none says so with an empty
+                     # list rather than leaving the field open for anyone to fill
+                     "confidence_levels": declared_confidence_levels(provider) if provider else [],
                      # whether this area's engine needs the caller's rows, as the PROVIDER declares it. A framework
                      # that guesses this refuses the wrong things; a framework that ignores it lets a person run an
                      # envelope the engine can only refuse (2026-09-24: a household forecast ran with nothing
@@ -296,6 +315,36 @@ def declared_aliases(provider):
         return {}
     return {slot["name"]: slot["aliases"] for slot in slots
             if isinstance(slot, dict) and slot.get("name") and isinstance(slot.get("aliases"), dict)}
+
+
+#: RB04: the field an `interval` question carries, governed exactly as a target or a horizon is.
+CONFIDENCE_LEVEL = "confidence_level"
+
+
+def declared_confidence_levels(provider):
+    """The two-sided confidence levels this area's bundles ACTUALLY FITTED, ascending, or [] when none did.
+
+    Read from the provider's own `capabilities()["bundles"][*]["fitted_confidence_levels"]` -- the field the forecast
+    provider already publishes so a caller can see before asking which level is a fitted pair of quantiles and which
+    will be refused by name. Nothing is computed here and no level is derived from another: a 0.95 interval is not a
+    widened 0.90 one, and its two bounds are two quantiles somebody fitted or two numbers somebody invented. An area
+    whose provider publishes no bundles, or bundles with no fitted pair, declares none -- and a request for an
+    interval there is refused rather than served at a level this installation chose for itself."""
+    method = getattr(provider, "capabilities", None)
+    if not callable(method):
+        return []
+    try:
+        declared = method() or {}
+    except Exception:                                                   # noqa: BLE001
+        return []
+    levels = set()
+    for bundle in (declared.get("bundles") or []) if isinstance(declared, dict) else []:
+        if not isinstance(bundle, dict):
+            continue
+        for level in bundle.get("fitted_confidence_levels") or []:
+            if type(level) in (int, float) and math.isfinite(level) and 0 < level < 1:
+                levels.add(float(level))
+    return sorted(levels)
 
 
 def declared_combinations(provider):
