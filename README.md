@@ -223,6 +223,28 @@ agent (and reaching M5PHET from Telegram through it):
 
 Values may be `$VARIABLE` references; a literal hostname in the file is refused.
 
+### Which classification backend answers
+
+One backend answers, and the configuration has to say which. Three modes exist:
+`fixture` (the declared non-model), `local_weights` (this process holds the
+checkpoint) and `remote_worker` (the private worker holds it), declared as
+`areas.classification.core.mode` or `$M5PHET_CLASSIFICATION_MODE`.
+
+* an explicit `NEWS_SIGNAL_BACKEND=fixture` together with a bound
+  `$M5PHET_CHAT_LAYA_WORKER` is a **contradiction** and the app refuses to start,
+  naming both variables. It is not resolved by a mode: a mode that overrides an
+  explicit selection is a silent override with a label on it;
+* a local `laya` together with a bound worker is an **ambiguity** — two places
+  claiming real weights — and requires one explicit mode;
+* the effective backend and checkpoint are validated at start-up and again on
+  every answer, against the declaration of the path that answered, and travel
+  into the receipt as `classification_backend`. Pin the checkpoint with
+  `core.expect_checkpoint` and a backend serving another one is refused;
+* nothing falls back. A declared worker that cannot be reached refuses the
+  question as `CLASSIFICATION_WORKER_UNREACHABLE`; the in-process fixture never
+  answers in its place, and the catalog publishes the refusal rather than the
+  other provider's capabilities.
+
 ## Decisions: a model that chooses, never invents
 
 `m5phet.decide` asks the classification engine to choose among *declared*

@@ -42,7 +42,13 @@ AREAS = ("classification", "forecasting", "unsupervised", "rl", "causal")
 #: against it by the test suite: a key the schema allows and nothing maps would configure nothing at all.
 CORE_ENVIRONMENT = {
     "classification": {"worker": "M5PHET_CHAT_LAYA_WORKER", "command": "M5PHET_CHAT_LAYA_COMMAND",
-                       "backend": "NEWS_SIGNAL_BACKEND", "checkpoint": "NEWS_SIGNAL_CHECKPOINT",
+                       "backend": "NEWS_SIGNAL_BACKEND",
+                       # CB05 -- the unambiguous mode, and the checkpoint that must be serving. Declared here as well
+                       # as in the environment, because "which backend answers" is exactly the kind of fact this file
+                       # exists to put in one place a person can read.
+                       "mode": "M5PHET_CLASSIFICATION_MODE",
+                       "expect_checkpoint": "M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT",
+                       "checkpoint": "NEWS_SIGNAL_CHECKPOINT",
                        "manifest": "NEWS_SIGNAL_MANIFEST", "device": "NEWS_SIGNAL_DEVICE",
                        "gpu_uuid": "NEWS_SIGNAL_GPU_UUID"},
     "forecasting": {"bundle_dir": "M5PHET_FORECAST_BUNDLE", "python": "M5PHET_FORECAST_PYTHON"},

@@ -237,3 +237,51 @@ def test_capabilities_that_declare_no_backend_are_refused_rather_than_assumed():
     with pytest.raises(BackendRefusal) as caught:
         validate(resolution, {"provider": "laya_news", "known_states": []}, answered_by="in_process")
     assert caught.value.code == BACKEND_MISMATCH
+
+
+# --- the two contracts this module has with code outside it ------------------------------------------------------------
+
+def test_the_backends_named_here_are_the_ones_the_installed_provider_accepts():
+    """A start-up refusal for a misspelled backend is only useful if it refuses the same set the provider does."""
+    provider = pytest.importorskip("news_signal.provider")
+    from m5phet.classification_backend import BACKENDS
+    for backend in BACKENDS:
+        assert provider.configuration({"NEWS_SIGNAL_BACKEND": backend})["backend"] == backend
+    with pytest.raises(Exception):
+        provider.configuration({"NEWS_SIGNAL_BACKEND": "not-a-backend"})
+
+
+def test_the_json_configuration_can_declare_the_mode_and_the_pin():
+    """The operator's file binds them, so "which backend answers" lives where a person reads the configuration."""
+    from m5phet import config as config_module
+    mapping = config_module.CORE_ENVIRONMENT["classification"]
+    assert mapping["mode"] == MODE_VARIABLE
+    assert mapping["expect_checkpoint"] == CHECKPOINT_PIN_VARIABLE
+
+
+def test_a_supplied_provider_is_reported_as_supplied_and_never_as_validated():
+    from m5phet.classification_backend import declared
+    block = declared(FIXTURE_CAPS)
+    assert block["mode"] == "PROVIDER_SUPPLIED" and block["status"] == "PROVIDER_SUPPLIED"
+    assert block["backend"] == "fixture"
+    assert "unchecked" in block["reading"]
+
+
+def test_an_unavailable_backend_block_invents_no_backend():
+    from m5phet.classification_backend import WORKER_UNREACHABLE, unavailable
+    resolution = resolve(env(M5PHET_CHAT_LAYA_WORKER=WORKER_PLACEHOLDER, M5PHET_CHAT_LAYA_COMMAND=WORKER_COMMAND))
+    block = unavailable(resolution, WORKER_UNREACHABLE, "the worker was occupied")
+    assert block["status"] == WORKER_UNREACHABLE and block["validated"] is False
+    assert block["backend"] is None and block["checkpoint"] is None and block["answered_by"] is None
+    assert block["mode"] == REMOTE_WORKER                      # the declaration survives the refusal
+
+
+def test_the_operator_script_no_longer_declares_a_fixture_beside_a_bound_worker():
+    """The shipped configuration itself was the contradiction; a start-up refusal is not a licence to keep shipping it."""
+    from pathlib import Path
+    script = (Path(__file__).resolve().parent.parent / "tools/start_chat.sh").read_text(encoding="utf-8")
+    worker_branch = script.index('if [ -n "${M5PHET_CHAT_LAYA_WORKER')
+    default = script.index("NEWS_SIGNAL_BACKEND:-fixture")
+    assert default > worker_branch, "the fixture default must live in the branch where no worker is bound"
+    assert f"{MODE_VARIABLE}:-{REMOTE_WORKER}" in script, "the worker branch must declare one unambiguous mode"
+    assert CHECKPOINT_PIN_VARIABLE in script

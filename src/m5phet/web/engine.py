@@ -9,7 +9,7 @@ import shlex
 import subprocess
 from datetime import datetime, timezone
 
-from m5phet import config as configuration_module, datasets as dataset_catalog
+from m5phet import classification_backend as backend_contract, config as configuration_module, datasets as dataset_catalog
 from m5phet.interpret import ABSTENTION_STATUSES, STATUS_OK, build as build_interpreter, interpret
 from m5phet.orchestrate import narrate, route
 from m5phet.outputs import select as select_output
@@ -104,9 +104,21 @@ class Engine:
         self.registry = registry or Registry()
         self.discovery = self.registry.load_entry_points() if registry is None else {"registered": registry.names(), "refused": {}}
         classification = self.configuration.core("classification")
-        self.remote = classification.get("worker") or self.environ.get("M5PHET_CHAT_LAYA_WORKER") if registry is None else None
+        # CB05: which classification backend is in force is decided ONCE, here, from the operator's declarations, and
+        # a configuration that disagrees with itself refuses BY NAME instead of letting one of its halves win. Until
+        # today a bound worker simply beat an explicit `NEWS_SIGNAL_BACKEND=fixture`, so real weights answered while
+        # the configuration said fixture. `configuration.apply()` has already written the JSON file's bindings into
+        # this environment, so resolving from the environment covers both sources of a selection.
+        #
+        # A supplied registry means the provider was built by the caller, from an environment this process never
+        # read: there is then no contract to check, and `self.backend_is_configured` says so rather than pretending.
+        self.backend_is_configured = registry is None
+        self.backend_selection = backend_contract.resolve(self.environ, remote_permitted=registry is None)
+        self.remote = ((classification.get("worker") or self.environ.get("M5PHET_CHAT_LAYA_WORKER"))
+                       if self.backend_selection["mode"] == backend_contract.REMOTE_WORKER else None)
         self.remote_command = classification.get("command") or self.environ.get("M5PHET_CHAT_LAYA_COMMAND", "")
         self.remote_caps = None
+        self._backend_effective = None
         # WP03: which interpreter implementation reads a sentence is a configuration choice, not an import. The
         # `interpreter` block goes to the plugin unchanged; with no JSON file it is empty and the `command` plugin
         # reads M5PHET_INTERPRETER_COMMAND exactly as before.
@@ -121,6 +133,45 @@ class Engine:
             self.discovery["refused"]["dataset_catalog"] = str(error)
         if self.remote:
             self.remote_capabilities()
+        # CB05: the effective backend is validated at START-UP, not at the first question. A configuration
+        # contradiction has already refused above; what can still be wrong here is what the answering path DECLARES
+        # -- a worker serving a fixture, a provider with no weights, a checkpoint other than the pinned one -- and a
+        # transport that is merely busy. Those are recorded and re-checked on each need (a worker occupied for seven
+        # seconds must be retried, not turned into a refusal to exist), and every classification path refuses by
+        # name while they hold. Nothing falls back to the in-process fixture.
+        self.classification_effective()
+
+    def classification_effective(self):
+        """The backend that will answer classification, or a named refusal block. Re-checked while it is unserved."""
+        if "laya_news" not in self.registry.names():
+            return None
+        if self._backend_effective is None or not self._backend_effective["validated"]:
+            self._backend_effective = self._validate_backend()
+        return self._backend_effective
+
+    def _validate_backend(self):
+        remote = self.backend_selection["mode"] == backend_contract.REMOTE_WORKER or bool(self.remote)
+        caps = self.remote_capabilities() if remote else self.registry.capabilities("laya_news")
+        if remote and not caps:
+            return backend_contract.unavailable(
+                self.backend_selection, backend_contract.WORKER_UNREACHABLE,
+                str(self.discovery["refused"].get("laya_worker", "the worker did not describe itself")))
+        if not self.backend_is_configured:
+            return backend_contract.declared(
+                caps, answered_by=backend_contract.REMOTE_WORKER if remote else backend_contract.IN_PROCESS)
+        try:
+            return backend_contract.validate(
+                self.backend_selection, caps,
+                answered_by=backend_contract.REMOTE_WORKER if remote else backend_contract.IN_PROCESS)
+        except backend_contract.BackendRefusal as refusal:
+            return backend_contract.unavailable(self.backend_selection, refusal.code, refusal.detail)
+
+    def require_classification_backend(self):
+        """The validated effective backend, or the recorded refusal raised by name. No question answers without it."""
+        effective = self.classification_effective()
+        if effective is None or effective["validated"]:
+            return effective
+        raise backend_contract.BackendRefusal(effective["status"], effective.get("why") or "no reason recorded")
 
     def remote_capabilities(self):
         """The worker's declared capabilities, asked for again until they are known.
@@ -153,8 +204,21 @@ class Engine:
 
     def catalog(self):
         remote_caps = self.remote_capabilities()
+        effective = self.classification_effective()
         providers = [{"name": name, "capabilities": remote_caps if name == "laya_news" and remote_caps else self.registry.capabilities(name)}
                               for name in self.registry.names()]
+        # CB05: while the declared backend cannot be served, the catalog must not publish ANOTHER provider's
+        # capabilities in its place. It used to publish the locally installed one whenever the worker had not
+        # described itself, which is how a reader could see a fixture's states beside a configuration that declared a
+        # worker -- and the other way round on the day the binding won silently.
+        if effective is not None and not effective["validated"]:
+            refusal = {"provider": "laya_news", "refused": f"{effective['status']}: {effective.get('why') or ''}".strip(),
+                       "operations": [], "families": [], "output_kinds": [], "supported": [], "known_states": [],
+                       "question_types": {}, "tasks": [], "uncertainty_methods": [], "backend": None,
+                       "weights_present": False, "quality": "NOT_MEASURED",
+                       "reading": "the declared classification backend is not serving; nothing answers in its place"}
+            providers = [entry if entry["name"] != "laya_news" else {"name": "laya_news", "capabilities": refusal}
+                         for entry in providers]
         examples = []
         for name in self.registry.names():
             method = getattr(self.registry.get(name), "chat_examples", None)
@@ -174,6 +238,10 @@ class Engine:
                 # NOT_MEASURED, which is what every M5PHET report said about it until 2026-09-25 without saying so
                 "interpreter": {**self.interpreter.identity(),
                                 "reliability": self.interpreter_reliability()},
+                # CB05: which backend and which checkpoint actually answer classification, validated against the
+                # declared mode rather than read off the configuration, plus the selection that produced it
+                "classification_backend": effective,
+                "classification_selection": self.backend_selection,
                 # WP30: and the OTHER language-model path -- the one where the model writes a whole envelope instead
                 # of choosing a declared value. Measured the same way, published beside the interpreter's, and
                 # NOT_MEASURED until somebody measures it
@@ -318,6 +386,11 @@ class Engine:
                 receipt["rows_sha256"] = dataset_catalog.rows_sha256(rows)
                 receipt["rows_handed_over"] = len(rows)
                 dataset["rows_receipt"] = receipt
+        # CB05: the envelope path is a second door to the same engine, and it validated nothing. An envelope for
+        # classification now passes the same start-up contract as a single question: the declared backend must be the
+        # one about to answer, or the run refuses by name.
+        effective = (self.require_classification_backend()
+                     if isinstance(task, dict) and task.get("area") == "classification" else None)
         if self.remote and isinstance(task, dict) and task.get("area") == "classification":
             # the real checkpoint lives on the private worker; the envelope goes there on the same contract and comes
             # back bound to the request it answered, exactly as the single-question path does
@@ -332,11 +405,22 @@ class Engine:
             # the worker for this: a describe at answer time would put a second ssh in the path of every answer.
             from m5phet import quality as quality_module
             from m5phet.questions import area_quality, provider_for
-            response["quality"] = (
-                quality_module.for_area("classification", self.remote_caps, self.configuration, self.environ)
-                if self.remote_caps else
-                area_quality("classification", provider_for(self.registry, "classification"), self.configuration,
-                             self.environ))
+            #
+            # CB05: and the fallback in that last clause is now unreachable on a configured installation, which is
+            # why it raises instead. Publishing the LOCALLY installed provider's measured quality beside an answer a
+            # worker produced is the same inference this correction removes from the receipts: it states a number
+            # about a checkpoint that did not answer.
+            if self.remote_caps:
+                response["quality"] = quality_module.for_area("classification", self.remote_caps, self.configuration,
+                                                              self.environ)
+            elif self.backend_is_configured:
+                raise backend_contract.BackendRefusal(
+                    backend_contract.WORKER_UNREACHABLE,
+                    "the worker answered but never described itself, so this area's measured quality would have to be "
+                    "read from the locally installed provider, which did not answer")
+            else:
+                response["quality"] = area_quality("classification", provider_for(self.registry, "classification"),
+                                                   self.configuration, self.environ)
         else:
             response = run_task(task, self.registry, data=payload, configuration=self.configuration,
                                 environ=self.environ)
@@ -357,8 +441,11 @@ class Engine:
         # WP15: a run whose rows came through data-gov IS a governed run, and says so beside its answers. Nothing
         # else in this method may set that profile: it is the receipt that makes it true, not an intention.
         profile = dataset_catalog.GOVERNED_PROFILE if governance else "LOCAL_UNGOVERNED"
-        return {"task": task, "response": response, "narration": narration, "profile": profile,
-                "dataset": dataset, "governance": governance, "execution_authorized": False}
+        envelope_receipt = {"task": task, "response": response, "narration": narration, "profile": profile,
+                            "dataset": dataset, "governance": governance, "execution_authorized": False}
+        if effective is not None:
+            envelope_receipt["classification_backend"] = effective       # CB05: what answered, on this door too
+        return envelope_receipt
 
     def execute(self, prompt, config, attachments, *, dry_run=False):
         """Resolve a sentence into the typed request its selected engine will run, and run it.
@@ -373,8 +460,15 @@ class Engine:
             raise ValueError(f"Provider '{config['provider']}' is not installed; no fallback was used")
         remote_caps = self.remote_capabilities() if config["provider"] == "laya_news" else None
         if self.remote and config["provider"] == "laya_news" and not remote_caps:
-            raise ValueError("The classification worker did not describe itself: "
-                             + str(self.discovery["refused"].get("laya_worker", "no reason recorded")))
+            # CB05: the same refusal it always was, now carrying its name, so a person reading a refused answer sees
+            # WHICH declared backend could not be reached rather than a sentence about a transport
+            raise backend_contract.BackendRefusal(
+                backend_contract.WORKER_UNREACHABLE,
+                "The classification worker did not describe itself: "
+                + str(self.discovery["refused"].get("laya_worker", "no reason recorded")))
+        # CB05: and the declared backend must be the one that is about to answer. A refusal here is by name and there
+        # is no path from it to the in-process fixture.
+        effective = self.require_classification_backend() if config["provider"] == "laya_news" else None
         caps = remote_caps if remote_caps else self.registry.capabilities(config["provider"])
         as_of = config["as_of"] or datetime.now(timezone.utc).isoformat()
         data = [parse_file(item["name"], item["data"]) for item in attachments]
@@ -469,6 +563,12 @@ class Engine:
                 raise ValueError("Worker result is not bound to this request or declares execution authority")
         else:
             result = run(request, self.registry)
-        return {"request": request, "result": result, "profile": "LOCAL_UNGOVERNED",
-                "backend": caps.get("backend", "declared_provider"), "execution_authorized": False,
-                "interpretation": interpretation}
+        receipt = {"request": request, "result": result, "profile": "LOCAL_UNGOVERNED",
+                   "backend": caps.get("backend", "declared_provider"), "execution_authorized": False,
+                   "interpretation": interpretation}
+        if effective is not None:
+            # CB05: what ANSWERED, in the receipt, read from the declaration of the path that answered. The old
+            # receipt carried one word taken from whichever capabilities happened to be in hand, which on a
+            # contradictory configuration was the half that did not answer.
+            receipt["classification_backend"] = effective
+        return receipt

@@ -11,18 +11,27 @@ STATE="${STATE:-$HOME/.local/state/m5phet}"
 # The interface itself never touches a GPU.
 export CUDA_VISIBLE_DEVICES=""
 
-# 1. Classification -- news-signal + Laya.
-#    `fixture` is the declared NON_MODEL_FIXTURE and runs anywhere; every receipt it produces says so.
-#    For the real checkpoint set NEWS_SIGNAL_BACKEND=laya with CHECKPOINT/MANIFEST/DEVICE/GPU_UUID, or point the workbench
-#    at the private worker with M5PHET_CHAT_LAYA_WORKER and M5PHET_CHAT_LAYA_COMMAND.
-export NEWS_SIGNAL_BACKEND="${NEWS_SIGNAL_BACKEND:-fixture}"
-#    The private worker, when the operator has one. Set M5PHET_CHAT_LAYA_WORKER to the ssh host in your own environment;
-#    it is never written into this repository. The command is fixed here and a prompt cannot change it.
+# 1. Classification -- news-signal + Laya. ONE backend answers, and it is declared rather than inferred.
+#    CB05: this script used to export NEWS_SIGNAL_BACKEND=fixture unconditionally AND then bind the private worker, so
+#    the configuration said "declared non-model" while real weights answered. The app now refuses that combination by
+#    name (CLASSIFICATION_BACKEND_CONTRADICTION), so the default lives in the branch where it is true and nowhere else.
+#    The private worker: set M5PHET_CHAT_LAYA_WORKER to the ssh host in your own environment; it is never written into
+#    this repository. The command is fixed here and a prompt cannot change it.
 if [ -n "${M5PHET_CHAT_LAYA_WORKER:-}" ]; then
+    export M5PHET_CLASSIFICATION_MODE="${M5PHET_CLASSIFICATION_MODE:-remote_worker}"
     export M5PHET_CHAT_LAYA_COMMAND="${M5PHET_CHAT_LAYA_COMMAND:-bash \$HOME/work/m5phet-chat-worker/chat_laya_worker.sh}"
-    echo "classification: private worker (real weights)"
+    if [ "${NEWS_SIGNAL_BACKEND:-}" = "fixture" ]; then
+        echo "classification: CONTRADICTION -- NEWS_SIGNAL_BACKEND=fixture with M5PHET_CHAT_LAYA_WORKER bound." >&2
+        echo "  Unset one of them. The app refuses to start on this configuration, by name, and does not choose." >&2
+    fi
+    #    Optional and recommended: the checkpoint that MUST be serving. A worker serving another one is refused.
+    #    export M5PHET_CLASSIFICATION_EXPECT_CHECKPOINT="laya-checkpoint:<sha256 of the sealed manifest>"
+    echo "classification: private worker, mode ${M5PHET_CLASSIFICATION_MODE} (backend and checkpoint validated at start-up)"
 else
-    echo "classification: ${NEWS_SIGNAL_BACKEND} backend"
+    #    `fixture` is the declared NON_MODEL_FIXTURE and runs anywhere; every receipt it produces says so. For real
+    #    weights IN THIS PROCESS set NEWS_SIGNAL_BACKEND=laya with CHECKPOINT/MANIFEST/DEVICE/GPU_UUID.
+    export NEWS_SIGNAL_BACKEND="${NEWS_SIGNAL_BACKEND:-fixture}"
+    echo "classification: ${NEWS_SIGNAL_BACKEND} backend, in this process"
 fi
 
 # 2. Forecasting -- predictor/prediction_provider, TensorFlow in its own interpreter.

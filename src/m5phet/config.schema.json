@@ -144,6 +144,20 @@
                     "fixture"
                   ]
                 },
+                "mode": {
+                  "$comment": "CB05 -- which classification backend is in force, when the selections alone are ambiguous: 'fixture' (a declared non-model), 'local_weights' (this process holds the checkpoint) or 'remote_worker' (the private worker holds it). It settles an AMBIGUITY -- a local 'laya' and a bound worker, two places both claiming real weights -- and it never overrides a contradiction: an explicit fixture backend with a worker bound is refused whatever this says.",
+                  "enum": [
+                    "fixture",
+                    "local_weights",
+                    "remote_worker"
+                  ]
+                },
+                "expect_checkpoint": {
+                  "$comment": "CB05 -- the fitted state ref that MUST be serving, e.g. 'laya-checkpoint:<sha256>'. A backend that serves another one is refused by name instead of answering, and the validated checkpoint travels into every receipt.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
                 "checkpoint": {
                   "type": "string",
                   "maxLength": 4000
