@@ -74,14 +74,24 @@ ROUTE_CONFIDENCE_NOT_REPORTED = "CONFIDENCE_NOT_REPORTED"
 #: RB04, from the full-corpus measurement of 2026-09-28: the variable an operator sets to turn the completion pass on.
 #: It is OFF by default, and the default is a MEASUREMENT and not a preference.
 #:
-#: The pass was built from a 4-sentence subset and repairs a real failure mode on those sentences. Measured over the
-#: WHOLE declared corpus -- 19 sentences, 5 runs each, one scorer, one build, one day -- it repairs three sentences
-#: and breaks two, and the two it breaks it breaks DETERMINISTICALLY: "describe el grupo de velas con cuerpo alto"
-#: and "describe the cluster with a large body" went CORRECT 5/5 to WRONG_TYPE 5/5, because the model, asked whether
-#: the sentence also asks for `clustering`, says yes on all ten runs. Describing a cluster does imply that rows were
-#: assigned, so this is not a plumbing fault; it is the mirror image of the under-answer the pass exists to repair,
-#: and on this corpus the over-answer costs more runs than the under-answer repair saves. Every one of the twelve
-#: WRONG_TYPE runs in that measurement is this pass adding `clustering`.
+#: The pass was built from a 4-sentence subset and repairs a real failure mode on those sentences. The WHOLE declared
+#: corpus was then measured twice -- 19 sentences, 5 runs each, same day, same interpreter, same scorer, once with
+#: this pass on and once with it off:
+#:
+#:     completion ON   CORRECT 79/95, reliability 0.8316, sentences never correct 2
+#:     completion OFF  CORRECT 85/95, reliability 0.8947, sentences never correct 0
+#:
+#: The pass costs SIX runs, and the reason is the precision of what it adds: over those 95 runs it made 15 additions,
+#: of which 3 were right and 12 were wrong -- precision 0.20. All 3 right ones added `point_forecast` to the sentence
+#: it was designed for ("pronostica la potencia y dame un rango"). All 12 wrong ones added `clustering`, and two
+#: sentences -- "describe el grupo de velas con cuerpo alto" and "describe the cluster with a large body" -- went
+#: CORRECT 5/5 to WRONG_TYPE 5/5, DETERMINISTICALLY, because the model asked whether the sentence also asks for
+#: `clustering` says yes on all ten runs. Describing a cluster does imply that rows were assigned, so this is not a
+#: plumbing fault: it is the mirror image of the under-answer the pass exists to repair. The pass is the only thing
+#: on this corpus that takes a sentence from always working to never working.
+#:
+#: The idea is sound -- it also takes four sentences UP -- and the firing rule is not. At a precision of 0.20 it must
+#: not be the default; that is the whole of this decision, and the numbers above are its whole justification.
 #:
 #: So the pass ships off, its measurement ships with it, and turning it on is an operator's informed decision rather
 #: than a default nobody measured. `route(complete=True)` still forces it on for a caller that wants it -- the
