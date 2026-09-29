@@ -241,8 +241,13 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
             content = result.get("why") or ("Resultado" if status == "OK" else status)
             store.finish(mid, status, content, snapshot | detail | {"elapsed_seconds": time.monotonic() - started})
         except Exception as error:
-            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | {
-                "elapsed_seconds": time.monotonic() - started, "execution_authorized": False})
+            # CB05: a refused answer is a receipt too, and a refusal that names a backend must record WHICH declared
+            # backend could not serve it. Without this the reader of a refused classification saw the sentence and not
+            # the mode, checkpoint and path the refusal was about.
+            refusal = {"elapsed_seconds": time.monotonic() - started, "execution_authorized": False}
+            if config.get("provider") == "laya_news":
+                refusal["classification_backend"] = engine.classification_effective()
+            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | refusal)
 
     @app.get("/api/tasks/catalog")
     def task_catalog():
@@ -273,8 +278,10 @@ def create_app(root=None, *, engine=None, access_token=None, allowed_hosts=None,
             store.finish(mid, status, detail["narration"]["text"],
                          snapshot | detail | {"elapsed_seconds": time.monotonic() - started})
         except Exception as error:
-            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | {
-                "task": task, "elapsed_seconds": time.monotonic() - started, "execution_authorized": False})
+            refusal = {"task": task, "elapsed_seconds": time.monotonic() - started, "execution_authorized": False}
+            if isinstance(task, dict) and task.get("area") == "classification":
+                refusal["classification_backend"] = engine.classification_effective()   # CB05, on this door too
+            store.finish(mid, "REFUSED", f"{type(error).__name__}: {error}", snapshot | refusal)
 
     @app.post("/api/chats/{cid}/tasks/run", status_code=202)
     def run_envelope(cid: str, body: RunTask):

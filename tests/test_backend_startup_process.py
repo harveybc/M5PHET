@@ -146,6 +146,10 @@ def test_a_failed_worker_refuses_the_question_by_name_and_no_fixture_answers(tmp
     assert answer["status"] == "REFUSED"
     assert "CLASSIFICATION_WORKER_UNREACHABLE" in answer["content"]
     assert answer["outputs"] == []                       # nothing was answered, by anything
+    # the refused answer is a receipt as well: it records WHICH declared backend could not serve it
+    assert answer["classification_backend"]["status"] == "CLASSIFICATION_WORKER_UNREACHABLE"
+    assert answer["classification_backend"]["mode"] == "remote_worker"
+    assert answer["classification_backend"]["backend"] is None
 
 
 def test_a_worker_that_describes_itself_as_a_fixture_is_refused_under_a_real_mode(tmp_path):
@@ -158,6 +162,7 @@ def test_a_worker_that_describes_itself_as_a_fixture_is_refused_under_a_real_mod
     assert report["answer"]["status"] == "REFUSED"
     assert "CLASSIFICATION_BACKEND_MISMATCH" in report["answer"]["content"]
     assert report["answer"]["outputs"] == []
+    assert report["answer"]["classification_backend"]["status"] == "CLASSIFICATION_BACKEND_MISMATCH"
 
 
 def test_a_pinned_checkpoint_other_than_the_one_serving_is_refused(tmp_path):
