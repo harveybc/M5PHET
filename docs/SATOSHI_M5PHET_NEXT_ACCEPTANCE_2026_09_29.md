@@ -272,9 +272,13 @@ checkpoint**.
 - **The standalone MCP server is not gated** (§3.1): without an engine it has no backend contract in its process.
 - **`news_signal.quality.v1` carries no checkpoint**, so §3.4 can refuse to publish a model's record beside a
   non-model's answer but cannot bind a record to the checkpoint that served it.
-- **The deployment is PREPARED, not applied.** The owner's service on `8765` served throughout, was never signalled,
-  and its venv was never written to. Adopting this build inherits CB05's step 0: `~/.config/m5phet/chat.env` is the
-  contradiction this build refuses by name, and **his file was not edited by me**.
+- **No deployment is proposed here, and none was applied.** This round staged the build only in **my own** venv copy
+  under `$HOME/.local/share/m5phet/staging-ap-20260929/` for its own verification; it wrote **no** backup, **no**
+  rollback script and **no** deployment sequence of its own, so nothing in this document should be read as a
+  deployment package. The owner's service on `8765` served throughout, was never signalled, and its venv was never
+  written to — it was still the same process, unrestarted, when this document was finished. Adopting this branch
+  would go through CB05's prepared sequence with this branch in place of that one, and would inherit its step 0:
+  `~/.config/m5phet/chat.env` is the contradiction this build refuses by name, and **his file was not edited by me**.
 - **Host names were checked structurally, not by substring search.** Every string value of every committed
   artifact was walked as parsed JSON and compared with the operator's worker binding, because that binding's value
   collides with unrelated identifiers and a raw `grep` produces false positives. No string value in any file of this
@@ -342,7 +346,8 @@ acceptance:
   browser: NOT RUN (no interface change; the static assets are untouched)
 what is NOT done / refused / not measured: §6 above, in full. In one line: NO_NEW_MODEL_MEASUREMENT and
   NO_NEW_MEASUREMENT, the router untouched, the held-apart set unopened, the real Laya weights not contacted
-  because their host is ineligible, the deployment prepared and not applied, and the owner's service never signalled.
+  because their host is ineligible, NO deployment package prepared or applied, and the owner's service never
+  signalled or restarted.
 ```
 
 ---
