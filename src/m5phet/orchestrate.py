@@ -411,7 +411,7 @@ def _governed_problems(where, holder, parameters):
     return problems
 
 
-def _confidence_level_problems(name, question, levels, declared_types):
+def _confidence_level_problems(name, question, levels):
     """Whether an `interval` question's confidence level is one this area can be held to.
 
     The field was ungoverned until RB04: `0.99` passed with nothing fitted at that level, and `95` passed although it
@@ -476,7 +476,7 @@ def check_proposal(proposal, catalog, profile):
         # from naming a DATA column as a fitted target and getting a confident refusal, and (RB04) from reaching an
         # engine with a boolean where a horizon belongs or with two spellings of one field that disagree.
         problems += _governed_problems(f"question {name!r}", question, parameters)
-        problems += _confidence_level_problems(name, question, levels, declared)
+        problems += _confidence_level_problems(name, question, levels)
     # `state.target_variable` is the owner's spelling of the forecaster's `target`; both are governed by the same list
     aliases = GOVERNED_ALIASES
     combinations = area.get("combinations") or []
