@@ -342,10 +342,18 @@ class Engine:
                                 environ=self.environ)
         # WP04: which procedure renders the answers is the area's configuration, not this method's business. The
         # plugin's text is checked against the answers exactly as a model's narration is, in `narrate`.
+        #
+        # RB04: the configured procedure is passed as a FALLBACK and no longer as an override. `narrate`'s
+        # precedence is explicit argument, then the envelope's own `output.plugin`, then the area's configuration --
+        # and passing the configured plugin here as the explicit argument defeated the envelope on every run, so a
+        # request that selected a surface was silently rendered by the configured one. A unit test of `narrate`
+        # alone said the feature worked; through this method it did nothing. `check_proposal` has already refused
+        # any selection naming a procedure this installation does not have, so what arrives here is installable.
         area = task.get("area") if isinstance(task, dict) else None
         language = language or (self.configuration.output(area).get("language") if area else None) or "es"
+        selected = ((task or {}).get("output") or {}).get("plugin") if isinstance(task, dict) else None
         narration = narrate(prompt, response, interpreter=self.interpreter, language=language, area=area, task=task,
-                            plugin=self.output(area))
+                            plugin=None if isinstance(selected, str) and selected.strip() else self.output(area))
         # WP15: a run whose rows came through data-gov IS a governed run, and says so beside its answers. Nothing
         # else in this method may set that profile: it is the receipt that makes it true, not an intention.
         profile = dataset_catalog.GOVERNED_PROFILE if governance else "LOCAL_UNGOVERNED"

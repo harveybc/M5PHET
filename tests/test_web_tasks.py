@@ -245,3 +245,45 @@ def test_a_narration_may_repeat_what_the_person_asked(client):
            json={"prompt": "p", "task": only_interval, "file_ids": [fid], "client_id": "asked-2"})
     second = finished(c, cid)["messages"][-1]["detail"]
     assert second["narration"]["source"] == "DETERMINISTIC" and "'7'" in second["narration"]["why"]
+
+
+# --- RB04: the surface a REQUEST selects has to survive the path a request actually takes -----------------------------
+
+def test_an_envelope_that_selects_an_output_procedure_is_rendered_by_it(client):
+    """The defect this closes was in the real path, not in `narrate`. `narrate`'s precedence is explicit argument,
+    then the envelope's own selection, then the area's configuration -- and `Engine.execute_task` passed the
+    configured plugin as the explicit argument on every run, which defeated the envelope every time. A unit test of
+    `narrate` alone said the feature worked; through the API it did nothing."""
+    c, engine = client
+    engine.interpreter = Fixed(["El pronóstico es 0.5412 kW."])
+    cid, fid = chat_with_file(c)
+    selected = dict(PROPOSAL, output={"plugin": "telegram"})
+    sent = c.post(f"/api/chats/{cid}/tasks/run", json={"prompt": "pronostica ventas 3 dias", "task": selected,
+                                                       "file_ids": [fid], "client_id": "sel"})
+    assert sent.status_code == 202, sent.text
+    detail = finished(c, cid)["messages"][-1]["detail"]
+    assert detail["narration"]["output_plugin"] == "telegram"
+
+
+def test_an_envelope_that_selects_nothing_still_gets_the_areas_configured_procedure(client):
+    """The counterexample: an operator's configuration is not overridden by the absence of a request-level choice."""
+    c, engine = client
+    engine.interpreter = Fixed(["El pronóstico es 0.5412 kW."])
+    cid, fid = chat_with_file(c)
+    sent = c.post(f"/api/chats/{cid}/tasks/run", json={"prompt": "pronostica ventas 3 dias", "task": PROPOSAL,
+                                                       "file_ids": [fid], "client_id": "cfg"})
+    assert sent.status_code == 202, sent.text
+    detail = finished(c, cid)["messages"][-1]["detail"]
+    assert detail["narration"]["output_plugin"] == "default"
+
+
+def test_an_envelope_naming_an_uninstalled_procedure_never_runs(client):
+    """It is refused as an envelope, before an engine is reached, and no answer is produced under a surface that
+    does not exist."""
+    c, engine = client
+    cid, fid = chat_with_file(c)
+    body = c.post(f"/api/chats/{cid}/tasks/propose", json={"prompt": "x", "file_ids": [fid]}).json()
+    engine.interpreter = Fixed([json.dumps(dict(PROPOSAL, output={"plugin": "carrier_pigeon"}))])
+    body = c.post(f"/api/chats/{cid}/tasks/propose", json={"prompt": "x", "file_ids": [fid]}).json()
+    assert body["status"] == "INVALID_PROPOSAL" and body["task"] is None
+    assert any("carrier_pigeon" in p for p in body["problems"]), body["problems"]
