@@ -159,14 +159,26 @@ def withheld_from_a_non_model_path(block, capabilities):
     and the LOCALLY installed provider's record would have been published beside it) and this is the same mistake in
     the other direction: a number about a model, printed beside an answer no model gave.
 
-    The rule is narrow, because a wider one would hide real measurements:
+    This first read `weights is not False and backend != "fixture"`. The second half of that was a string match on
+    one backend's name, and order 4 of the 23b2efa3 dictamen (2026-09-29) names that as the thing not to do: a
+    declared non-model may be called anything at all, so refusing a word is a spell check and not a contract. What is
+    checked now is only PROVENANCE, and the name of any backend is incidental to it:
 
-    * a path that declares real weights keeps its record, unchanged;
-    * a path that declares NO weights, or names itself the `fixture` backend, has the record WITHHELD: the block
-      becomes `NOT_MEASURED` with this reason, and keeps the record's identifiers -- corpus, seal, protocol, n -- so
-      the reader can go and find it, without its values standing beside a fixture's answer;
+    * a path keeps its record when it declares **weights present** AND **names the fitted state it loaded**. Both,
+      because a record measured on a checkpoint can only be about a checkpoint, and a path that names none cannot own
+      one. In this provider the two always travel together: `known_states` is non-empty exactly when a manifest was
+      read, and `weights_present` is true only then;
+    * any other declared path has the record WITHHELD: the block becomes `NOT_MEASURED` with this reason, and keeps
+      the record's identifiers -- corpus, seal, protocol, n -- so the reader can go and find it, without its values
+      standing beside answers it says nothing about. The declared backend is REPORTED in the reason, which is not the
+      same as matching it;
     * a provider that declares neither a backend nor a weights flag is not contradicted here. This function does not
-      guess what answered; it only refuses to let a model's number travel with a declared non-model's answer.
+      guess what answered; it only refuses to let a model's number travel with the answers of a path that is not
+      established to have had a model.
+
+    That last rule is wider than the first version by one case, deliberately: a path that declares a backend but no
+    weights flag, or one that declares weights and names no fitted state, is now withheld where before it was
+    published. An unestablished path is not a model path, and withholding is information rather than loss.
 
     The record carries no checkpoint of its own, so nothing here can check a record against the checkpoint that
     served it. That is a gap in the record's schema, not a licence to publish it beside anything."""
@@ -175,13 +187,21 @@ def withheld_from_a_non_model_path(block, capabilities):
     backend, weights = capabilities.get("backend"), capabilities.get("weights_present")
     if backend is None and weights is None:
         return block
-    if weights is not False and backend != "fixture":
+    served = [state for state in (capabilities.get("known_states") or []) if state]
+    if weights is True and served:
         return block
-    named = f"backend {backend!r}" if backend else "weights_present false"
+    if weights is True:
+        named = "it names no fitted state it loaded"
+    elif weights is False:
+        named = "it declares weights_present false"
+    else:
+        named = "it declares no weights_present at all"
+    where = f", declared backend {backend!r}" if backend else ""
     return _not_measured(
         block.get("area"),
-        f"the path that answers declares no model weights ({named}), and the retained quality record was measured on "
-        "model weights, so it says nothing about these answers; it is named here and not quoted",
+        f"the path that answers is not established to hold model weights: {named}{where}. The retained quality "
+        "record was measured on model weights, so it says nothing about these answers; it is named here and not "
+        "quoted",
         quality_record_withheld={"reason": QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH,
                                  "corpus_id": block.get("corpus_id"), "corpus_seal": block.get("corpus_seal"),
                                  "protocol_digest": block.get("protocol_digest"), "n": block.get("n"),

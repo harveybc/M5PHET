@@ -208,12 +208,56 @@ RECORD = {"schema": "news_signal.quality.v1", "macro_f1": 0.37775954555995367, "
           "label_provenance": "INDEPENDENT_LABELS", "reading": "macro-F1 on 450 sealed rows"}
 
 
+#: a path that declares weights AND names the fitted state it loaded. In the real provider the two always travel
+#: together: `known_states` is non-empty exactly when a manifest was read, and `weights_present` is true only then.
+SERVING = {"provider": "laya_news", "backend": "laya", "weights_present": True,
+           "known_states": ["state:8c4f1d2e"], "quality": RECORD}
+
+
 def test_real_weights_keep_their_measured_record():
     from m5phet.quality import MEASURED, for_area
-    block = for_area("classification", {"provider": "laya_news", "backend": "laya", "weights_present": True,
-                                        "quality": RECORD})
+    block = for_area("classification", dict(SERVING))
     assert block["status"] == MEASURED
     assert block["values"]["macro_f1"] == RECORD["macro_f1"]
+
+
+def test_the_backends_name_is_incidental_to_the_rule():
+    """Order 4, 2026-09-29: the rule reads provenance, not a word.
+
+    A declared non-model path that carries the withdrawn word nowhere is still withheld, and a path that carries it
+    in its own backend name while declaring weights and a fitted state still keeps its record. The first version of
+    this rule read `backend != "fixture"` and would have got both of these the wrong way round.
+    """
+    from m5phet.quality import MEASURED, NOT_MEASURED, QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH, for_area
+    withdrawn = "fix" "ture"
+
+    canned = for_area("classification", {"provider": "laya_news", "backend": "canned_answer_table",
+                                         "weights_present": False, "quality": RECORD})
+    assert withdrawn not in json.dumps(canned).lower()
+    assert canned["status"] == NOT_MEASURED
+    assert canned["quality_record_withheld"]["reason"] == QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH
+
+    awkward = for_area("classification", dict(SERVING, backend=f"laya_{withdrawn}_corpus_eval"))
+    assert awkward["status"] == MEASURED
+    assert awkward["values"]["macro_f1"] == RECORD["macro_f1"]
+
+
+def test_weights_without_a_named_fitted_state_do_not_own_a_checkpoints_record():
+    """A record measured on a checkpoint can only be about a checkpoint."""
+    from m5phet.quality import NOT_MEASURED, QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH, for_area
+    block = for_area("classification", {"provider": "laya_news", "backend": "laya", "weights_present": True,
+                                        "known_states": [], "quality": RECORD})
+    assert block["status"] == NOT_MEASURED
+    assert block["quality_record_withheld"]["reason"] == QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH
+    assert str(RECORD["macro_f1"]) not in json.dumps(block)
+
+
+def test_a_declared_backend_with_no_weights_flag_is_not_established():
+    from m5phet.quality import NOT_MEASURED, for_area
+    block = for_area("classification", {"provider": "laya_news", "backend": "laya",
+                                        "known_states": ["state:8c4f1d2e"], "quality": RECORD})
+    assert block["status"] == NOT_MEASURED
+    assert "no weights_present" in block["why"]
 
 
 def test_a_declared_fixture_does_not_publish_a_models_measurement():
@@ -221,7 +265,7 @@ def test_a_declared_fixture_does_not_publish_a_models_measurement():
     `MEASURED macro_f1 0.3778, n 450` -- a real checkpoint's retained record, beside an answer no model gave."""
     from m5phet.quality import NOT_MEASURED, QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH, for_area
     block = for_area("classification", {"provider": "laya_news", "backend": "fixture", "weights_present": False,
-                                        "quality": RECORD})
+                                        "known_states": ["state:8c4f1d2e"], "quality": RECORD})
     assert block["status"] == NOT_MEASURED
     assert block["quality_record_withheld"]["reason"] == QUALITY_RECORD_NOT_OF_THE_ANSWERING_PATH
     assert "values" not in block and "skill" not in block
