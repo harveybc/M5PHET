@@ -20,3 +20,18 @@ and returned until `tests/test_family_e2e.py`.
 
 Plan items: every WP in the 2026-09-24 plan has code except WP32 (point-in-time capture; lives in `financial-data`, a
 sibling) and the GPU stages (WP18 step 7, WP06 stages 3-4), which are not front I's to run.
+
+## Adapter advanced this turn: regimes, proven through M5PHET with persistence
+
+`tests/test_family_e2e.py` (parametrized by family; only `unsupervised` is filled in; the others are a table row away).
+Run on worker_b (CPU, own venv with the chat venv's pinned scikit-learn/numpy, copy of the fitted DEVELOPMENT reference):
+
+    FEATURE_ENG_REGIMES_DEMO_DIR=<fitted dir> M5PHET_E2E_REQUIRE=unsupervised python -m pytest -q tests/test_family_e2e.py
+
+- RED (required area, no fitted state named): 1 failed, with the named reason.
+- GREEN: 1 passed. Pilot peak 185,580 kB (about 181 MiB), 3.1 s; final run capped at 250M (1.25x the pilot).
+- Asserts: both questions typed (`clustering`, `cluster_description`), none refused, `execution_authorized` false, provider
+  named in the receipt, the same envelope under a second request id gives identical answers, and a NEW app on the SAME state
+  directory returns the stored message byte for byte.
+- Not shown: the forecast, ATE, policy and real-Laya cases (their fitted states and venvs are not on worker_b); no quality
+  number was measured (NO_NEW_MEASUREMENT).
