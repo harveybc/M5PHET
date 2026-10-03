@@ -10,7 +10,7 @@ goes envelope -> real provider -> typed answer. "Persistence" = that answer read
 |---|---|---|---|---|---|
 | forecast | `predictor_forecast` | prediction_provider `forecast/tests`, 112 | yes, TF bundles (own interpreter) | `tools/verify_families.py`, `verify_envelopes.py` against a live instance (not pytest) | `tools/verify_restart.py` (AP01), forecast case only |
 | regimes | `feature-eng-hierarchical-regimes` | feature-eng `tests/test_*regime*`, 458 in the repo | yes, sklearn reference | same harnesses (live instance) | none before this branch; `tests/test_family_e2e.py` adds it |
-| ATE / causal | `causal_inference` | causal-inference `provider/tests`, 168 | yes, EconML studies fitted beforehand | harnesses (live instance) | none |
+| ATE / causal | `causal_inference` | causal-inference `provider/tests`, 168 | yes, EconML studies fitted beforehand | harnesses (live instance); `tests/test_family_e2e.py` (2026-10-03) | `tests/test_family_e2e.py` (2026-10-03), see `docs/E2E_CAUSAL_2026_10_03.md` |
 | policy / RL | `trading_policy` | agent-multi `m5phet_policy/tests`, 100 | yes, SB3 SAC (own interpreter) | harnesses (live instance) | none |
 | classification | `laya_news` | news-signal `tests`, 185 | real only with the Laya weights on a GPU worker; otherwise a declared `NON_MODEL_FIXTURE` | harnesses; `tests/test_classification_backend.py` | none for the real path (GPU, out of front I's resources) |
 
